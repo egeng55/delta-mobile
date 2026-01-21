@@ -21,6 +21,7 @@ import {
   ActivityIndicator,
   Share,
   Platform,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,6 +31,7 @@ import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { exportApi } from '../services/api';
+import SupportScreen from './SupportScreen';
 
 const API_BASE_URL = 'https://delta-80ht.onrender.com';
 
@@ -49,6 +51,7 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportFormat, setExportFormat] = useState<'pdf' | 'csv' | 'json'>('pdf');
+  const [showSupport, setShowSupport] = useState<boolean>(false);
 
   const openLink = async (url: string): Promise<void> => {
     try {
@@ -351,6 +354,18 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
         </View>
       </View>
 
+      {/* Support */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Help & Support</Text>
+        <TouchableOpacity style={styles.linkRow} onPress={() => setShowSupport(true)}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="chatbubble-ellipses-outline" size={20} color={theme.accent} />
+          </View>
+          <Text style={styles.linkText}>Contact Support</Text>
+          <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
+        </TouchableOpacity>
+      </View>
+
       {/* Legal */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Legal</Text>
@@ -419,6 +434,16 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
           Not intended to diagnose, treat, cure, or prevent any disease.
         </Text>
       </View>
+
+      {/* Support Modal */}
+      <Modal
+        visible={showSupport === true}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowSupport(false)}
+      >
+        <SupportScreen theme={theme} onClose={() => setShowSupport(false)} />
+      </Modal>
     </ScrollView>
   );
 }

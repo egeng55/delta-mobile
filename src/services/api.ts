@@ -761,3 +761,51 @@ export const exportApi = {
     });
   },
 };
+
+// Support Types
+export interface SupportRequestData {
+  user_id: string;
+  subject: string;
+  message: string;
+  user_email?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SupportResponse {
+  status: string;
+  request_id: string;
+  message: string;
+}
+
+export interface SupportHistoryItem {
+  request_id: string;
+  subject: string;
+  status: string;
+  created_at: string;
+}
+
+// Support API
+export const supportApi = {
+  /**
+   * Submit a support request.
+   * Rate limited to 5 requests per hour.
+   */
+  submit: async (data: SupportRequestData): Promise<SupportResponse> => {
+    return request<SupportResponse>('/support/submit', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Get support request history for a user.
+   */
+  getHistory: async (
+    userId: string,
+    limit: number = 10
+  ): Promise<{ user_id: string; requests: SupportHistoryItem[]; count: number }> => {
+    return request<{ user_id: string; requests: SupportHistoryItem[]; count: number }>(
+      `/support/${userId}/history?limit=${limit}`
+    );
+  },
+};
