@@ -1,10 +1,8 @@
 /**
- * InsightsScreen - Combined health insights, analytics, and workouts.
+ * InsightsScreen - Analytics, workout tracking, and calendar view.
  *
- * SAFETY DECISIONS:
- * - Explicit loading states
- * - Error handling with fallback data
- * - Explicit types
+ * Calendar displays data parsed from chat conversations.
+ * Analytics shows derivative trends and patterns.
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -15,38 +13,74 @@ import {
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
-  TouchableOpacity,
   TextInput,
   Alert,
+  Pressable,
+  TouchableOpacity,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeInDown, FadeInRight, FadeInUp } from 'react-native-reanimated';
+import { AnimatedCard, AnimatedListItem, AnimatedProgress, AnimatedButton, FadeInView } from '../components/Animated';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
-import { insightsApi, InsightsData, workoutApi, WorkoutPlan, Exercise } from '../services/api';
+import {
+  insightsApi,
+  InsightsData,
+  workoutApi,
+  WorkoutPlan,
+  Exercise,
+  calendarApi,
+  DailyLog,
+  derivativesApi,
+  DerivativesData,
+  InsightCard as DerivativeCard,
+} from '../services/api';
 
 interface InsightsScreenProps {
   theme: Theme;
 }
 
-interface InsightCard {
+interface TrendCard {
   id: string;
   title: string;
   value: string;
   subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
+  trend?: string | null;
+  confidence?: number;
+  direction?: 'improving' | 'declining' | 'stable' | 'volatile';
 }
 
-type TabType = 'insights' | 'workout';
+type TabType = 'analytics' | 'workout' | 'calendar';
+
+// Calendar helper functions
+const getDaysInMonth = (year: number, month: number): number => {
+  return new Date(year, month + 1, 0).getDate();
+};
+
+const getFirstDayOfMonth = (year: number, month: number): number => {
+  return new Date(year, month, 1).getDay();
+};
+
+const formatMonthYear = (date: Date): string => {
+  return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+};
 
 export default function InsightsScreen({ theme }: InsightsScreenProps): React.ReactNode {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
 
-  const [activeTab, setActiveTab] = useState<TabType>('insights');
+  const [activeTab, setActiveTab] = useState<TabType>('analytics');
   const [insights, setInsights] = useState<InsightsData | null>(null);
+  const [derivatives, setDerivatives] = useState<DerivativesData | null>(null);
+  const [derivativeCards, setDerivativeCards] = useState<DerivativeCard[]>([]);
   const [workout, setWorkout] = useState<WorkoutPlan | null>(null);
+  const [monthLogs, setMonthLogs] = useState<DailyLog[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedLog, setSelectedLog] = useState<DailyLog | null>(null);
+  const [calendarDate, setCalendarDate] = useState<Date>(new Date());
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -63,27 +97,71 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
     }
     setError('');
 
+    const defaultInsights: InsightsData = {
+      user_id: userId,
+      total_conversations: 0,
+      topics_discussed: [],
+      wellness_score: 0,
+      streak_days: 0,
+    };
+
+    const defaultDerivatives: DerivativesData = {
+      has_data: false,
+      days_analyzed: 0,
+      data_points: 0,
+      date_range: { start: '', end: '' },
+      metrics: {},
+      composite: {
+        physiological_momentum: {
+          score: 0,
+          label: 'insufficient_data',
+          symbol: '→',
+          confidence: 0,
+          signals_analyzed: 0,
+        },
+      },
+      recovery_patterns: {
+        pattern: 'insufficient_data',
+        description: 'Continue logging data to see recovery patterns.',
+        insufficient_data: true,
+      },
+    };
+
+    const withTimeout = <T,>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
+      return Promise.race([
+        promise,
+        new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+      ]);
+    };
+
     try {
-      const [insightsData, workoutData] = await Promise.all([
-        insightsApi.getInsights(userId),
-        workoutApi.getToday(userId),
+      const year = calendarDate.getFullYear();
+      const month = calendarDate.getMonth() + 1;
+
+      const [insightsData, workoutData, derivativesData, cardsData, monthData] = await Promise.all([
+        withTimeout(insightsApi.getInsights(userId), 5000, defaultInsights),
+        withTimeout(workoutApi.getToday(userId), 5000, { workout: null }),
+        withTimeout(derivativesApi.getDerivatives(userId, 30), 5000, defaultDerivatives),
+        withTimeout(derivativesApi.getCards(userId, 14), 5000, { cards: [], count: 0 }),
+        withTimeout(calendarApi.getMonthLogs(userId, year, month), 5000, { logs: [], days_count: 0, year, month }),
       ]);
       setInsights(insightsData);
       setWorkout(workoutData.workout);
+      setDerivatives(derivativesData);
+      setDerivativeCards(cardsData.cards);
+      setMonthLogs(monthData.logs);
     } catch {
       setError('Could not load data');
-      setInsights({
-        user_id: userId,
-        total_conversations: 0,
-        topics_discussed: [],
-        wellness_score: 0,
-        streak_days: 0,
-      });
+      setInsights(defaultInsights);
+      setDerivatives(defaultDerivatives);
+      setDerivativeCards([]);
+      setWorkout(null);
+      setMonthLogs([]);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [userId]);
+  }, [userId, calendarDate]);
 
   useEffect(() => {
     fetchData();
@@ -91,6 +169,20 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
 
   const onRefresh = (): void => {
     fetchData(true);
+  };
+
+  const changeMonth = (delta: number): void => {
+    const newDate = new Date(calendarDate);
+    newDate.setMonth(newDate.getMonth() + delta);
+    setCalendarDate(newDate);
+    setSelectedDate(null);
+    setSelectedLog(null);
+  };
+
+  const selectDate = (date: string): void => {
+    setSelectedDate(date);
+    const log = monthLogs.find(l => l.date === date) ?? null;
+    setSelectedLog(log);
   };
 
   const generateWorkout = async (): Promise<void> => {
@@ -162,40 +254,264 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
     return Math.round((completed / exercises.length) * 100);
   };
 
-  const insightCards: InsightCard[] = [
-    {
-      id: '1',
-      title: 'Conversations',
-      value: String(insights?.total_conversations ?? 0),
-      subtitle: 'Total chats with Delta',
-      icon: 'chatbubbles-outline',
-      color: theme.accent,
-    },
-    {
-      id: '2',
-      title: 'Topics',
-      value: String(insights?.topics_discussed?.length ?? 0),
-      subtitle: insights?.topics_discussed?.slice(0, 2).join(', ') || 'Start chatting!',
-      icon: 'list-outline',
-      color: theme.success,
-    },
-    {
-      id: '3',
-      title: 'Wellness',
-      value: String(insights?.wellness_score ?? 0),
-      subtitle: 'Based on your habits',
-      icon: 'heart-outline',
-      color: theme.error,
-    },
-    {
-      id: '4',
-      title: 'Streak',
-      value: `${insights?.streak_days ?? 0}`,
-      subtitle: insights?.streak_days && insights.streak_days > 0 ? 'days' : 'Start today!',
-      icon: 'flame-outline',
-      color: theme.warning,
-    },
-  ];
+  const getMetricIcon = (metricKey: string): keyof typeof Ionicons.glyphMap => {
+    const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
+      sleep_quality: 'bed-outline',
+      energy_level: 'flash-outline',
+      stress_level: 'pulse-outline',
+      soreness_level: 'fitness-outline',
+    };
+    return iconMap[metricKey] ?? 'analytics-outline';
+  };
+
+  const getDirectionColor = (direction?: string): string => {
+    switch (direction) {
+      case 'improving':
+        return theme.success;
+      case 'declining':
+        return theme.error;
+      case 'volatile':
+        return theme.warning;
+      case 'stable':
+      default:
+        return theme.accent;
+    }
+  };
+
+  const buildTrendCards = (): TrendCard[] => {
+    const cards: TrendCard[] = [];
+
+    const momentum = derivatives?.composite?.physiological_momentum;
+    if (momentum && momentum.label !== 'insufficient_data') {
+      const momentumLabels: Record<string, string> = {
+        strong_positive: 'Strong positive',
+        positive: 'Positive',
+        neutral: 'Neutral',
+        negative: 'Needs attention',
+        strong_negative: 'Review patterns',
+      };
+      cards.push({
+        id: 'momentum',
+        title: 'Momentum',
+        value: momentum.symbol,
+        subtitle: momentumLabels[momentum.label] ?? momentum.label,
+        icon: 'trending-up',
+        color: momentum.score > 0 ? theme.success : momentum.score < 0 ? theme.error : theme.accent,
+        confidence: momentum.confidence,
+        direction: momentum.score > 30 ? 'improving' : momentum.score < -30 ? 'declining' : 'stable',
+      });
+    }
+
+    const metrics = derivatives?.metrics ?? {};
+    Object.entries(metrics).forEach(([key, metric]) => {
+      if (metric.insufficient_data === true) return;
+
+      cards.push({
+        id: key,
+        title: metric.name,
+        value: metric.symbol,
+        subtitle: `${metric.direction.charAt(0).toUpperCase()}${metric.direction.slice(1)} • ${metric.stability}`,
+        icon: getMetricIcon(key),
+        color: getDirectionColor(metric.direction),
+        trend: metric.symbol,
+        confidence: metric.confidence,
+        direction: metric.direction,
+      });
+    });
+
+    const recovery = derivatives?.recovery_patterns;
+    if (recovery && recovery.pattern && recovery.pattern !== 'insufficient_data' && recovery.pattern !== 'no_stress_events') {
+      const recoveryLabels: Record<string, string> = {
+        fast_recovery: 'Fast',
+        moderate_recovery: 'Moderate',
+        slow_recovery: 'Slow',
+      };
+      cards.push({
+        id: 'recovery',
+        title: 'Recovery',
+        value: recovery.avg_days ? `${recovery.avg_days}d` : '→',
+        subtitle: recoveryLabels[recovery.pattern] ?? recovery.description,
+        icon: 'refresh-outline',
+        color: recovery.pattern === 'fast_recovery' ? theme.success : recovery.pattern === 'slow_recovery' ? theme.warning : theme.accent,
+      });
+    }
+
+    if (cards.length === 0) {
+      cards.push(
+        {
+          id: 'conversations',
+          title: 'Conversations',
+          value: String(insights?.total_conversations ?? 0),
+          subtitle: 'Total chats with Delta',
+          icon: 'chatbubbles-outline',
+          color: theme.accent,
+        },
+        {
+          id: 'data_points',
+          title: 'Data Points',
+          value: String(derivatives?.data_points ?? 0),
+          subtitle: 'Logged via chat',
+          icon: 'analytics-outline',
+          color: theme.success,
+        }
+      );
+    }
+
+    return cards;
+  };
+
+  const trendCards = buildTrendCards();
+
+  // Build calendar grid
+  const renderCalendar = (): React.ReactNode => {
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+    const daysInMonth = getDaysInMonth(year, month);
+    const firstDay = getFirstDayOfMonth(year, month);
+    const today = new Date().toISOString().split('T')[0];
+
+    const logDates = new Set(monthLogs.map(l => l.date));
+
+    const weeks: React.ReactNode[] = [];
+    let days: React.ReactNode[] = [];
+
+    // Empty cells before first day
+    for (let i = 0; i < firstDay; i++) {
+      days.push(<View key={`empty-${i}`} style={styles.calendarDay} />);
+    }
+
+    // Days of month
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const hasData = logDates.has(dateStr);
+      const isToday = dateStr === today;
+      const isSelected = dateStr === selectedDate;
+
+      days.push(
+        <TouchableOpacity
+          key={day}
+          style={[
+            styles.calendarDay,
+            isToday && styles.calendarDayToday,
+            isSelected && styles.calendarDaySelected,
+          ]}
+          onPress={() => selectDate(dateStr)}
+        >
+          <Text
+            style={[
+              styles.calendarDayText,
+              isToday && styles.calendarDayTextToday,
+              isSelected && styles.calendarDayTextSelected,
+            ]}
+          >
+            {day}
+          </Text>
+          {hasData && <View style={[styles.calendarDot, { backgroundColor: theme.success }]} />}
+        </TouchableOpacity>
+      );
+
+      if ((firstDay + day) % 7 === 0 || day === daysInMonth) {
+        weeks.push(
+          <View key={`week-${weeks.length}`} style={styles.calendarWeek}>
+            {days}
+          </View>
+        );
+        days = [];
+      }
+    }
+
+    return (
+      <View style={styles.calendarGrid}>
+        {/* Month navigation */}
+        <View style={styles.calendarNav}>
+          <TouchableOpacity onPress={() => changeMonth(-1)} style={styles.calendarNavButton}>
+            <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
+          </TouchableOpacity>
+          <Text style={styles.calendarMonth}>{formatMonthYear(calendarDate)}</Text>
+          <TouchableOpacity onPress={() => changeMonth(1)} style={styles.calendarNavButton}>
+            <Ionicons name="chevron-forward" size={24} color={theme.textPrimary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Day headers */}
+        <View style={styles.calendarWeek}>
+          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+            <View key={i} style={styles.calendarDay}>
+              <Text style={styles.calendarDayHeader}>{d}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Weeks */}
+        {weeks}
+      </View>
+    );
+  };
+
+  const renderSelectedDayDetails = (): React.ReactNode => {
+    if (!selectedDate) {
+      return (
+        <View style={styles.selectedDayEmpty}>
+          <Ionicons name="calendar-outline" size={32} color={theme.textSecondary} />
+          <Text style={styles.selectedDayEmptyText}>Tap a day to see details</Text>
+        </View>
+      );
+    }
+
+    if (!selectedLog) {
+      return (
+        <View style={styles.selectedDayEmpty}>
+          <Text style={styles.selectedDayEmptyText}>No data logged for this day</Text>
+          <Text style={styles.selectedDayHint}>Chat with Delta to log your activities</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.selectedDayDetails}>
+        <Text style={styles.selectedDayDate}>
+          {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+        </Text>
+
+        {selectedLog.sleep_hours && (
+          <View style={styles.logItem}>
+            <Ionicons name="bed-outline" size={18} color={theme.accent} />
+            <Text style={styles.logItemText}>Sleep: {selectedLog.sleep_hours}h</Text>
+            {selectedLog.sleep_quality && (
+              <Text style={styles.logItemMeta}>Quality: {selectedLog.sleep_quality}/5</Text>
+            )}
+          </View>
+        )}
+
+        {selectedLog.energy_level && (
+          <View style={styles.logItem}>
+            <Ionicons name="flash-outline" size={18} color={theme.warning} />
+            <Text style={styles.logItemText}>Energy: {selectedLog.energy_level}/5</Text>
+          </View>
+        )}
+
+        {selectedLog.stress_level && (
+          <View style={styles.logItem}>
+            <Ionicons name="pulse-outline" size={18} color={theme.error} />
+            <Text style={styles.logItemText}>Stress: {selectedLog.stress_level}/5</Text>
+          </View>
+        )}
+
+        {selectedLog.workout_plan_id && (
+          <View style={styles.logItem}>
+            <Ionicons name="barbell-outline" size={18} color={theme.success} />
+            <Text style={styles.logItemText}>Workout completed</Text>
+          </View>
+        )}
+
+        {selectedLog.notes && (
+          <View style={styles.logNote}>
+            <Text style={styles.logNoteText}>{selectedLog.notes}</Text>
+          </View>
+        )}
+      </View>
+    );
+  };
 
   const styles = createStyles(theme, insets.top);
 
@@ -224,21 +540,21 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
       </View>
 
       {/* Tab Switcher */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'insights' && styles.tabActive]}
-          onPress={() => setActiveTab('insights')}
+      <Animated.View entering={FadeInDown.delay(100).duration(300)} style={styles.tabContainer}>
+        <Pressable
+          style={[styles.tab, activeTab === 'analytics' && styles.tabActive]}
+          onPress={() => setActiveTab('analytics')}
         >
           <Ionicons
             name="analytics-outline"
             size={18}
-            color={activeTab === 'insights' ? theme.accent : theme.textSecondary}
+            color={activeTab === 'analytics' ? theme.accent : theme.textSecondary}
           />
-          <Text style={[styles.tabText, activeTab === 'insights' && styles.tabTextActive]}>
+          <Text style={[styles.tabText, activeTab === 'analytics' && styles.tabTextActive]}>
             Analytics
           </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
+        </Pressable>
+        <Pressable
           style={[styles.tab, activeTab === 'workout' && styles.tabActive]}
           onPress={() => setActiveTab('workout')}
         >
@@ -250,8 +566,21 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
           <Text style={[styles.tabText, activeTab === 'workout' && styles.tabTextActive]}>
             Workout
           </Text>
-        </TouchableOpacity>
-      </View>
+        </Pressable>
+        <Pressable
+          style={[styles.tab, activeTab === 'calendar' && styles.tabActive]}
+          onPress={() => setActiveTab('calendar')}
+        >
+          <Ionicons
+            name="calendar-outline"
+            size={18}
+            color={activeTab === 'calendar' ? theme.accent : theme.textSecondary}
+          />
+          <Text style={[styles.tabText, activeTab === 'calendar' && styles.tabTextActive]}>
+            Calendar
+          </Text>
+        </Pressable>
+      </Animated.View>
 
       {error.length > 0 && (
         <View style={styles.errorBanner}>
@@ -259,58 +588,93 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
         </View>
       )}
 
-      {activeTab === 'insights' ? (
+      {activeTab === 'analytics' ? (
         <>
+          {/* Trend Cards */}
           <View style={styles.cardsContainer}>
-            {insightCards.map(insight => (
-              <View key={insight.id} style={styles.card}>
-                <View style={[styles.iconContainer, { backgroundColor: insight.color + '20' }]}>
-                  <Ionicons name={insight.icon} size={24} color={insight.color} />
+            {trendCards.map((card, index) => (
+              <AnimatedCard key={card.id} style={styles.card} delay={index * 80}>
+                <View style={[styles.iconContainer, { backgroundColor: card.color + '20' }]}>
+                  <Ionicons name={card.icon} size={24} color={card.color} />
                 </View>
-                <Text style={styles.cardTitle}>{insight.title}</Text>
-                <Text style={styles.cardValue}>{insight.value}</Text>
-                <Text style={styles.cardSubtitle} numberOfLines={1}>{insight.subtitle}</Text>
-              </View>
+                <Text style={styles.cardTitle}>{card.title}</Text>
+                <View style={styles.trendValueRow}>
+                  <Text style={[styles.cardValue, styles.trendSymbol, { color: card.color }]}>
+                    {card.value}
+                  </Text>
+                  {card.confidence !== undefined && card.confidence > 0 && (
+                    <View style={styles.confidenceBadge}>
+                      <Text style={styles.confidenceText}>
+                        {Math.round(card.confidence * 100)}%
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.cardSubtitle} numberOfLines={2}>{card.subtitle}</Text>
+              </AnimatedCard>
             ))}
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Recent Activity</Text>
-            <View style={styles.activityCard}>
-              {insights?.total_conversations && insights.total_conversations > 0 ? (
+          {/* Derivative Insight Cards */}
+          {derivativeCards.length > 0 && (
+            <FadeInView style={styles.section} delay={200}>
+              <Text style={styles.sectionTitle}>Trends</Text>
+              {derivativeCards.map((card, index) => (
+                <AnimatedListItem key={card.id} index={index} style={styles.insightCardRow}>
+                  <View style={styles.insightCardContent}>
+                    <View style={styles.insightCardHeader}>
+                      <Text style={styles.insightCardTitle}>{card.title}</Text>
+                      {card.trend && (
+                        <Text style={[styles.insightTrendSymbol, { color: card.color ?? theme.accent }]}>
+                          {card.trend}
+                        </Text>
+                      )}
+                    </View>
+                    <Text style={styles.insightCardValue}>{card.value}</Text>
+                    <Text style={styles.insightCardSubtitle}>{card.subtitle}</Text>
+                  </View>
+                  {card.confidence > 0 && (
+                    <AnimatedProgress
+                      progress={card.confidence * 100}
+                      height={4}
+                      backgroundColor={theme.border}
+                      fillColor={card.color ?? theme.accent}
+                      style={styles.insightConfidenceBar}
+                    />
+                  )}
+                </AnimatedListItem>
+              ))}
+            </FadeInView>
+          )}
+
+          {/* Activity Summary */}
+          <FadeInView style={styles.section} delay={300}>
+            <Text style={styles.sectionTitle}>Activity</Text>
+            <AnimatedCard style={styles.activityCard} delay={350}>
+              {derivatives?.has_data === true ? (
                 <Text style={styles.activityText}>
-                  You've had {insights.total_conversations} conversation{insights.total_conversations !== 1 ? 's' : ''} with Delta.
-                  {insights.streak_days && insights.streak_days > 0
-                    ? ` You're on a ${insights.streak_days}-day streak!`
-                    : ' Start a streak by chatting daily!'}
+                  Analyzing {derivatives.days_analyzed} days of data with {derivatives.data_points} data points.
+                  Delta tracks your patterns to show what's working.
                 </Text>
               ) : (
                 <Text style={styles.activityText}>
-                  Start chatting with Delta to see your activity and insights here!
+                  Chat with Delta about your day to see trend analysis and insights here.
                 </Text>
               )}
-            </View>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Tips</Text>
-            <View style={styles.tipCard}>
-              <Ionicons name="bulb" size={20} color={theme.warning} />
-              <Text style={styles.tipText}>
-                Discuss your sleep patterns with Delta for personalized tips.
-              </Text>
-            </View>
-          </View>
+            </AnimatedCard>
+          </FadeInView>
         </>
-      ) : (
+      ) : activeTab === 'workout' ? (
         <>
           {workout === null || workout.status === 'completed' || workout.status === 'skipped' ? (
-            <View style={styles.emptyState}>
-              <Ionicons
-                name={workout?.status === 'completed' ? 'checkmark-circle' : 'fitness-outline'}
-                size={64}
-                color={workout?.status === 'completed' ? theme.success : theme.textSecondary}
-              />
+            <FadeInView style={styles.emptyState} delay={100}>
+              <Animated.View entering={FadeInUp.delay(150).springify()}>
+                <Ionicons
+                  name={workout?.status === 'completed' ? 'checkmark-circle' : 'fitness-outline'}
+                  size={64}
+                  color={workout?.status === 'completed' ? theme.success : theme.textSecondary}
+                />
+              </Animated.View>
               <Text style={styles.emptyTitle}>
                 {workout?.status === 'completed'
                   ? 'Workout Complete!'
@@ -323,7 +687,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
                   ? 'Great job! Your workout has been logged.'
                   : 'Get a personalized workout recommendation'}
               </Text>
-              <TouchableOpacity
+              <AnimatedButton
                 style={[styles.generateButton, isGenerating === true && styles.buttonDisabled]}
                 onPress={generateWorkout}
                 disabled={isGenerating === true}
@@ -336,11 +700,11 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
                     <Text style={styles.generateButtonText}>Get Workout</Text>
                   </>
                 )}
-              </TouchableOpacity>
-            </View>
+              </AnimatedButton>
+            </FadeInView>
           ) : (
             <>
-              <View style={styles.workoutCard}>
+              <AnimatedCard style={styles.workoutCard} delay={50}>
                 <View style={styles.workoutHeader}>
                   <View style={[styles.workoutIcon, { backgroundColor: theme.accent + '20' }]}>
                     <Ionicons name="barbell-outline" size={24} color={theme.accent} />
@@ -353,23 +717,22 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
                   </View>
                 </View>
                 <View style={styles.progressContainer}>
-                  <View style={styles.progressBar}>
-                    <View
-                      style={[styles.progressFill, { width: `${getProgressPercentage()}%`, backgroundColor: theme.success }]}
-                    />
-                  </View>
+                  <AnimatedProgress
+                    progress={getProgressPercentage()}
+                    height={8}
+                    backgroundColor={theme.border}
+                    fillColor={theme.success}
+                    style={styles.progressBar}
+                  />
                   <Text style={styles.progressText}>{getProgressPercentage()}%</Text>
                 </View>
-              </View>
+              </AnimatedCard>
 
-              <View style={styles.section}>
+              <FadeInView style={styles.section} delay={100}>
                 <Text style={styles.sectionTitle}>Exercises</Text>
                 {(workout.exercise_details ?? []).map((exercise, index) => (
-                  <View key={exercise.exercise_id} style={styles.exerciseCard}>
-                    <TouchableOpacity
-                      style={styles.exerciseRow}
-                      onPress={() => toggleExercise(exercise)}
-                    >
+                  <AnimatedListItem key={exercise.exercise_id} index={index} style={styles.exerciseCard} onPress={() => toggleExercise(exercise)}>
+                    <View style={styles.exerciseRow}>
                       <Ionicons
                         name={exercise.completed === true ? 'checkbox' : 'square-outline'}
                         size={24}
@@ -390,7 +753,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
                           {exercise.reps ?? ''}
                         </Text>
                       </View>
-                    </TouchableOpacity>
+                    </View>
                     {exercise.completed !== true && (
                       <TextInput
                         style={styles.weightInput}
@@ -402,20 +765,25 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
                         }
                       />
                     )}
-                  </View>
+                  </AnimatedListItem>
                 ))}
-              </View>
+              </FadeInView>
 
-              <View style={styles.section}>
-                <TouchableOpacity style={styles.completeButton} onPress={completeWorkout}>
+              <FadeInView style={styles.section} delay={200}>
+                <AnimatedButton style={styles.completeButton} onPress={completeWorkout}>
                   <Ionicons name="checkmark-circle" size={20} color="#fff" />
                   <Text style={styles.completeButtonText}>Complete Workout</Text>
-                </TouchableOpacity>
-              </View>
+                </AnimatedButton>
+              </FadeInView>
             </>
           )}
         </>
-      )}
+      ) : activeTab === 'calendar' ? (
+        <>
+          {renderCalendar()}
+          {renderSelectedDayDetails()}
+        </>
+      ) : null}
     </ScrollView>
   );
 }
@@ -444,8 +812,6 @@ function createStyles(theme: Theme, topInset: number) {
     sectionTitle: { fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginBottom: 12 },
     activityCard: { backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border },
     activityText: { fontSize: 14, color: theme.textPrimary, lineHeight: 20 },
-    tipCard: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border },
-    tipText: { flex: 1, fontSize: 14, color: theme.textPrimary, lineHeight: 20, marginLeft: 12 },
     emptyState: { alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32 },
     emptyTitle: { fontSize: 20, fontWeight: '600', color: theme.textPrimary, marginTop: 16 },
     emptySubtitle: { fontSize: 14, color: theme.textSecondary, marginTop: 8, textAlign: 'center' },
@@ -471,5 +837,44 @@ function createStyles(theme: Theme, topInset: number) {
     weightInput: { backgroundColor: theme.surfaceSecondary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, fontSize: 13, color: theme.textPrimary, marginTop: 8, marginLeft: 36, width: 80 },
     completeButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.success, paddingVertical: 14, borderRadius: 12 },
     completeButtonText: { color: '#fff', fontSize: 16, fontWeight: '600', marginLeft: 8 },
+    // Trend card styles
+    trendValueRow: { flexDirection: 'row', alignItems: 'center' },
+    trendSymbol: { fontSize: 28 },
+    confidenceBadge: { backgroundColor: theme.surfaceSecondary, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 6 },
+    confidenceText: { fontSize: 10, color: theme.textSecondary, fontWeight: '500' },
+    // Insight card row styles
+    insightCardRow: { flexDirection: 'row', backgroundColor: theme.surface, borderRadius: 12, padding: 16, marginBottom: 8, borderWidth: 1, borderColor: theme.border },
+    insightCardContent: { flex: 1 },
+    insightCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    insightCardTitle: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
+    insightTrendSymbol: { fontSize: 18, fontWeight: '600' },
+    insightCardValue: { fontSize: 16, fontWeight: '500', color: theme.textPrimary, marginTop: 4 },
+    insightCardSubtitle: { fontSize: 12, color: theme.textSecondary, marginTop: 2 },
+    insightConfidenceBar: { width: 4, backgroundColor: theme.border, borderRadius: 2, marginLeft: 12, overflow: 'hidden', justifyContent: 'flex-end' },
+    insightConfidenceFill: { width: '100%', borderRadius: 2 },
+    // Calendar styles
+    calendarGrid: { marginHorizontal: 16, marginBottom: 16 },
+    calendarNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+    calendarNavButton: { padding: 8 },
+    calendarMonth: { fontSize: 18, fontWeight: '600', color: theme.textPrimary },
+    calendarWeek: { flexDirection: 'row' },
+    calendarDay: { flex: 1, aspectRatio: 1, alignItems: 'center', justifyContent: 'center', padding: 4 },
+    calendarDayHeader: { fontSize: 12, fontWeight: '600', color: theme.textSecondary },
+    calendarDayText: { fontSize: 14, color: theme.textPrimary },
+    calendarDayToday: { backgroundColor: theme.accentLight, borderRadius: 20 },
+    calendarDayTextToday: { fontWeight: '600', color: theme.accent },
+    calendarDaySelected: { backgroundColor: theme.accent, borderRadius: 20 },
+    calendarDayTextSelected: { color: '#fff', fontWeight: '600' },
+    calendarDot: { width: 4, height: 4, borderRadius: 2, marginTop: 2 },
+    selectedDayEmpty: { alignItems: 'center', padding: 32 },
+    selectedDayEmptyText: { fontSize: 14, color: theme.textSecondary, marginTop: 8 },
+    selectedDayHint: { fontSize: 12, color: theme.textSecondary, marginTop: 4 },
+    selectedDayDetails: { marginHorizontal: 16, backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border },
+    selectedDayDate: { fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginBottom: 12 },
+    logItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+    logItemText: { fontSize: 14, color: theme.textPrimary, marginLeft: 8, flex: 1 },
+    logItemMeta: { fontSize: 12, color: theme.textSecondary },
+    logNote: { marginTop: 8, padding: 12, backgroundColor: theme.surfaceSecondary, borderRadius: 8 },
+    logNoteText: { fontSize: 13, color: theme.textPrimary, fontStyle: 'italic' },
   });
 }

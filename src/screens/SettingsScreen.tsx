@@ -19,12 +19,17 @@ import {
   Alert,
   Linking,
   ActivityIndicator,
+  Share,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { exportApi } from '../services/api';
 
 const API_BASE_URL = 'https://delta-80ht.onrender.com';
 
@@ -42,6 +47,8 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
   const [dailyReminder, setDailyReminder] = useState<boolean>(false);
   const [haptics, setHaptics] = useState<boolean>(true);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [exportFormat, setExportFormat] = useState<'pdf' | 'csv' | 'json'>('pdf');
 
   const openLink = async (url: string): Promise<void> => {
     try {
@@ -128,6 +135,57 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign Out', style: 'destructive', onPress: () => logout() },
     ]);
+  };
+
+  const handleExportInsights = async (): Promise<void> => {
+    if (!user?.id) return;
+
+    setIsExporting(true);
+    try {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const startDate = thirtyDaysAgo.toISOString().split('T')[0];
+      const endDate = new Date().toISOString().split('T')[0];
+
+      if (exportFormat === 'pdf') {
+        const blob = await exportApi.exportPdf(user.id, { start_date: startDate, end_date: endDate });
+        const arrayBuffer = await blob.arrayBuffer();
+        const file = new File(Paths.cache, `delta_insights_${endDate}.pdf`);
+        await file.write(new Uint8Array(arrayBuffer));
+
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare === true) {
+          await Sharing.shareAsync(file.uri, { mimeType: 'application/pdf' });
+        } else {
+          Alert.alert('Export Ready', 'PDF generated but sharing not available on this device.');
+        }
+      } else if (exportFormat === 'csv') {
+        const csvContent = await exportApi.exportCsv(user.id, { start_date: startDate, end_date: endDate });
+        const file = new File(Paths.cache, `delta_metrics_${endDate}.csv`);
+        await file.write(csvContent);
+
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare === true) {
+          await Sharing.shareAsync(file.uri, { mimeType: 'text/csv' });
+        }
+      } else {
+        const jsonData = await exportApi.exportJson(user.id, { start_date: startDate, end_date: endDate });
+        const jsonString = JSON.stringify(jsonData, null, 2);
+        const file = new File(Paths.cache, `delta_insights_${endDate}.json`);
+        await file.write(jsonString);
+
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare === true) {
+          await Sharing.shareAsync(file.uri, { mimeType: 'application/json' });
+        }
+      }
+
+      Alert.alert('Export Complete', 'Your insights have been exported.');
+    } catch (error) {
+      Alert.alert('Export Failed', 'Could not generate export. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const styles = createStyles(theme, insets.top);
@@ -227,6 +285,69 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
             trackColor={{ false: theme.border, true: theme.accent }}
             thumbColor="#ffffff"
           />
+        </View>
+      </View>
+
+      {/* Export Insights */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Export Insights</Text>
+        <View style={styles.exportCard}>
+          <View style={styles.exportHeader}>
+            <Ionicons name="download-outline" size={24} color={theme.accent} />
+            <View style={styles.exportHeaderText}>
+              <Text style={styles.exportTitle}>Download Your Insights</Text>
+              <Text style={styles.exportSubtitle}>Export last 30 days of trend data</Text>
+            </View>
+          </View>
+
+          <Text style={styles.exportDisclaimer}>
+            Exports contain derived metrics and trends only. No raw health data is included.
+            For personal reference - not medical advice.
+          </Text>
+
+          <View style={styles.formatSelector}>
+            <TouchableOpacity
+              style={[styles.formatButton, exportFormat === 'pdf' && styles.formatButtonActive]}
+              onPress={() => setExportFormat('pdf')}
+            >
+              <Text style={[styles.formatButtonText, exportFormat === 'pdf' && styles.formatButtonTextActive]}>
+                PDF Report
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.formatButton, exportFormat === 'csv' && styles.formatButtonActive]}
+              onPress={() => setExportFormat('csv')}
+            >
+              <Text style={[styles.formatButtonText, exportFormat === 'csv' && styles.formatButtonTextActive]}>
+                CSV
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.formatButton, exportFormat === 'json' && styles.formatButtonActive]}
+              onPress={() => setExportFormat('json')}
+            >
+              <Text style={[styles.formatButtonText, exportFormat === 'json' && styles.formatButtonTextActive]}>
+                JSON
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.exportButton, isExporting === true && styles.exportButtonDisabled]}
+            onPress={handleExportInsights}
+            disabled={isExporting === true}
+          >
+            {isExporting === true ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="download-outline" size={18} color="#fff" />
+                <Text style={styles.exportButtonText}>
+                  {exportFormat === 'pdf' ? 'Download PDF' : `Export ${exportFormat.toUpperCase()}`}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -384,6 +505,83 @@ function createStyles(theme: Theme, topInset: number) {
       marginTop: 8,
       textAlign: 'center',
       fontStyle: 'italic',
+    },
+    // Export styles
+    exportCard: {
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    exportHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    exportHeaderText: {
+      marginLeft: 12,
+      flex: 1,
+    },
+    exportTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: theme.textPrimary,
+    },
+    exportSubtitle: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      marginTop: 2,
+    },
+    exportDisclaimer: {
+      fontSize: 12,
+      color: theme.textSecondary,
+      backgroundColor: theme.surfaceSecondary,
+      padding: 10,
+      borderRadius: 8,
+      marginBottom: 16,
+      lineHeight: 18,
+    },
+    formatSelector: {
+      flexDirection: 'row',
+      marginBottom: 16,
+    },
+    formatButton: {
+      flex: 1,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      backgroundColor: theme.surfaceSecondary,
+      borderRadius: 8,
+      marginHorizontal: 4,
+      alignItems: 'center',
+    },
+    formatButtonActive: {
+      backgroundColor: theme.accentLight,
+    },
+    formatButtonText: {
+      fontSize: 13,
+      fontWeight: '500',
+      color: theme.textSecondary,
+    },
+    formatButtonTextActive: {
+      color: theme.accent,
+    },
+    exportButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.accent,
+      paddingVertical: 14,
+      borderRadius: 10,
+    },
+    exportButtonDisabled: {
+      opacity: 0.7,
+    },
+    exportButtonText: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: '#fff',
+      marginLeft: 8,
     },
   });
 }

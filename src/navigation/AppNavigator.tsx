@@ -67,9 +67,9 @@ function MainTabs(): React.ReactNode {
             backgroundColor: theme.surface,
             borderTopColor: theme.border,
             borderTopWidth: 1,
-            paddingTop: 8,
-            paddingBottom: 8,
-            height: 60,
+            paddingTop: 10,
+            paddingBottom: 28,
+            height: 85,
           },
         }}
       >

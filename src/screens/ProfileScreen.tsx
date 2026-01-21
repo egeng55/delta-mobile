@@ -5,6 +5,7 @@
  * - Explicit boolean checks
  * - Image picker with proper permissions
  * - Profile data persistence
+ * - Edit profile in modal
  */
 
 import React, { useState, useEffect } from 'react';
@@ -18,13 +19,25 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeInDown, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
+import { FadeInView, AnimatedCard } from '../components/Animated';
+
+const springConfig = {
+  damping: 15,
+  stiffness: 150,
+  mass: 0.5,
+};
 
 const PROFILE_STORAGE_KEY = '@delta_user_profile';
 
@@ -43,7 +56,7 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
 
-  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [editModalVisible, setEditModalVisible] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [profileData, setProfileData] = useState<ProfileData>({
     displayName: user?.name ?? 'User',
@@ -77,7 +90,7 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
         JSON.stringify(editData)
       );
       setProfileData(editData);
-      setIsEditing(false);
+      setEditModalVisible(false);
     } catch {
       Alert.alert('Error', 'Could not save profile');
     } finally {
@@ -85,9 +98,14 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
     }
   };
 
-  const cancelEdit = (): void => {
+  const openEditModal = (): void => {
     setEditData(profileData);
-    setIsEditing(false);
+    setEditModalVisible(true);
+  };
+
+  const closeEditModal = (): void => {
+    setEditData(profileData);
+    setEditModalVisible(false);
   };
 
   const pickImage = async (): Promise<void> => {
@@ -116,108 +134,51 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
 
   const styles = createStyles(theme, insets.top);
 
-  const displayImage = isEditing === true ? editData.profileImage : profileData.profileImage;
-  const displayName = isEditing === true ? editData.displayName : profileData.displayName;
-  const displayBio = isEditing === true ? editData.bio : profileData.bio;
-
   return (
+    <>
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>PROFILE</Text>
+        <View>
+          <Text style={styles.headerTitle}>PROFILE</Text>
+          {profileData.displayName.length > 0 && (
+            <Text style={styles.headerName}>{profileData.displayName}</Text>
+          )}
+        </View>
         <TouchableOpacity style={styles.settingsButton} onPress={onOpenSettings}>
           <Ionicons name="settings-outline" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
       </View>
 
-      <View style={styles.profileSection}>
+      <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.profileSection}>
         {/* Profile Picture */}
-        <TouchableOpacity
-          style={styles.avatarContainer}
-          onPress={isEditing === true ? pickImage : undefined}
-          disabled={isEditing !== true}
-        >
-          {displayImage !== null ? (
-            <Image source={{ uri: displayImage }} style={styles.avatarImage} />
+        <View style={styles.avatarContainer}>
+          {profileData.profileImage !== null ? (
+            <Image source={{ uri: profileData.profileImage }} style={styles.avatarImage} />
           ) : (
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>
-                {displayName.charAt(0).toUpperCase()}
+                {profileData.displayName.charAt(0).toUpperCase()}
               </Text>
             </View>
           )}
-          {isEditing === true && (
-            <View style={styles.editBadge}>
-              <Ionicons name="camera" size={16} color="#fff" />
-            </View>
-          )}
+        </View>
+
+        {/* Profile Info */}
+        <View style={styles.profileInfo}>
+          <Text style={styles.userName}>{profileData.displayName}</Text>
+          {profileData.bio.length > 0 && <Text style={styles.userBio}>{profileData.bio}</Text>}
+          <Text style={styles.userEmail}>{user?.email ?? ''}</Text>
+        </View>
+
+        {/* Edit Button */}
+        <TouchableOpacity style={styles.editProfileButton} onPress={openEditModal}>
+          <Ionicons name="pencil" size={16} color={theme.accent} />
         </TouchableOpacity>
+      </Animated.View>
 
-        {isEditing === true && displayImage !== null && (
-          <TouchableOpacity style={styles.removeImageButton} onPress={removeImage}>
-            <Text style={styles.removeImageText}>Remove Photo</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Name */}
-        {isEditing === true ? (
-          <TextInput
-            style={styles.nameInput}
-            value={editData.displayName}
-            onChangeText={(text) => setEditData(prev => ({ ...prev, displayName: text }))}
-            placeholder="Your name"
-            placeholderTextColor={theme.textSecondary}
-            maxLength={30}
-          />
-        ) : (
-          <Text style={styles.userName}>{displayName}</Text>
-        )}
-
-        {/* Bio */}
-        {isEditing === true ? (
-          <TextInput
-            style={styles.bioInput}
-            value={editData.bio}
-            onChangeText={(text) => setEditData(prev => ({ ...prev, bio: text }))}
-            placeholder="Add a bio..."
-            placeholderTextColor={theme.textSecondary}
-            multiline={true}
-            maxLength={150}
-          />
-        ) : (
-          displayBio.length > 0 && <Text style={styles.userBio}>{displayBio}</Text>
-        )}
-
-        <Text style={styles.userEmail}>{user?.email ?? ''}</Text>
-
-        {/* Edit/Save Buttons */}
-        {isEditing === true ? (
-          <View style={styles.editButtons}>
-            <TouchableOpacity style={styles.cancelButton} onPress={cancelEdit}>
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.saveButton, isSaving === true && styles.buttonDisabled]}
-              onPress={saveProfile}
-              disabled={isSaving === true}
-            >
-              {isSaving === true ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.saveButtonText}>Save</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity style={styles.editProfileButton} onPress={() => setIsEditing(true)}>
-            <Ionicons name="pencil" size={16} color={theme.accent} />
-            <Text style={styles.editProfileText}>Edit Profile</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      <View style={styles.section}>
+      <FadeInView style={styles.section} delay={200}>
         <Text style={styles.sectionTitle}>Account Info</Text>
-        <View style={styles.infoRow}>
+        <AnimatedCard style={styles.infoRow} delay={250}>
           <View style={styles.infoIconContainer}>
             <Ionicons name="mail-outline" size={20} color={theme.accent} />
           </View>
@@ -225,8 +186,8 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
             <Text style={styles.infoLabel}>Email</Text>
             <Text style={styles.infoValue}>{user?.email ?? 'Not set'}</Text>
           </View>
-        </View>
-        <View style={styles.infoRow}>
+        </AnimatedCard>
+        <AnimatedCard style={styles.infoRow} delay={300}>
           <View style={styles.infoIconContainer}>
             <Ionicons name="calendar-outline" size={20} color={theme.accent} />
           </View>
@@ -234,33 +195,94 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
             <Text style={styles.infoLabel}>Member Since</Text>
             <Text style={styles.infoValue}>January 2025</Text>
           </View>
-        </View>
-      </View>
+        </AnimatedCard>
+      </FadeInView>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Achievements</Text>
-        <View style={styles.achievementsContainer}>
-          <View style={styles.achievement}>
-            <View style={[styles.achievementIcon, { backgroundColor: theme.success + '20' }]}>
-              <Ionicons name="star" size={24} color={theme.success} />
-            </View>
-            <Text style={styles.achievementLabel}>First Chat</Text>
-          </View>
-          <View style={styles.achievement}>
-            <View style={[styles.achievementIcon, { backgroundColor: theme.warning + '20' }]}>
-              <Ionicons name="flame" size={24} color={theme.warning} />
-            </View>
-            <Text style={styles.achievementLabel}>7 Day Streak</Text>
-          </View>
-          <View style={styles.achievement}>
-            <View style={[styles.achievementIcon, { backgroundColor: theme.accent + '20' }]}>
-              <Ionicons name="heart" size={24} color={theme.accent} />
-            </View>
-            <Text style={styles.achievementLabel}>Health Check</Text>
-          </View>
-        </View>
-      </View>
     </ScrollView>
+
+    {/* Edit Profile Modal */}
+    <Modal
+      visible={editModalVisible === true}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={closeEditModal}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={[styles.modalContainer, { backgroundColor: theme.background }]}
+      >
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={closeEditModal}>
+            <Text style={styles.modalCancel}>Cancel</Text>
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Edit Profile</Text>
+          <TouchableOpacity
+            onPress={saveProfile}
+            disabled={isSaving === true}
+          >
+            {isSaving === true ? (
+              <ActivityIndicator size="small" color={theme.accent} />
+            ) : (
+              <Text style={styles.modalSave}>Save</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={styles.modalContent}>
+          {/* Profile Picture */}
+          <View style={styles.modalAvatarSection}>
+            <TouchableOpacity onPress={pickImage}>
+              {editData.profileImage !== null ? (
+                <Image source={{ uri: editData.profileImage }} style={styles.modalAvatar} />
+              ) : (
+                <View style={[styles.modalAvatar, { backgroundColor: theme.accent }]}>
+                  <Text style={styles.avatarText}>
+                    {editData.displayName.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.editBadge}>
+                <Ionicons name="camera" size={16} color="#fff" />
+              </View>
+            </TouchableOpacity>
+            {editData.profileImage !== null && (
+              <TouchableOpacity style={styles.removeImageButton} onPress={removeImage}>
+                <Text style={styles.removeImageText}>Remove Photo</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Name Input */}
+          <View style={styles.modalInputGroup}>
+            <Text style={styles.modalLabel}>Name</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editData.displayName}
+              onChangeText={(text) => setEditData(prev => ({ ...prev, displayName: text }))}
+              placeholder="Your name"
+              placeholderTextColor={theme.textSecondary}
+              maxLength={30}
+            />
+          </View>
+
+          {/* Bio Input */}
+          <View style={styles.modalInputGroup}>
+            <Text style={styles.modalLabel}>Bio</Text>
+            <TextInput
+              style={[styles.modalInput, styles.modalBioInput]}
+              value={editData.bio}
+              onChangeText={(text) => setEditData(prev => ({ ...prev, bio: text }))}
+              placeholder="Add a bio..."
+              placeholderTextColor={theme.textSecondary}
+              multiline={true}
+              maxLength={150}
+            />
+            <Text style={styles.charCount}>{editData.bio.length}/150</Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
+    </>
   );
 }
 
@@ -288,33 +310,35 @@ function createStyles(theme: Theme, topInset: number) {
       padding: 8,
     },
     profileSection: {
+      flexDirection: 'row',
       alignItems: 'center',
-      padding: 24,
-      backgroundColor: theme.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.border,
+      paddingHorizontal: 16,
+      paddingVertical: 16,
     },
     avatarContainer: {
-      marginBottom: 16,
+      marginRight: 16,
       position: 'relative',
     },
     avatar: {
-      width: 100,
-      height: 100,
-      borderRadius: 50,
+      width: 72,
+      height: 72,
+      borderRadius: 36,
       backgroundColor: theme.accent,
       justifyContent: 'center',
       alignItems: 'center',
     },
     avatarImage: {
-      width: 100,
-      height: 100,
-      borderRadius: 50,
+      width: 72,
+      height: 72,
+      borderRadius: 36,
     },
     avatarText: {
-      fontSize: 40,
+      fontSize: 28,
       fontWeight: '700',
       color: '#ffffff',
+    },
+    profileInfo: {
+      flex: 1,
     },
     editBadge: {
       position: 'absolute',
@@ -337,60 +361,22 @@ function createStyles(theme: Theme, topInset: number) {
       color: theme.error,
     },
     userName: {
-      fontSize: 24,
+      fontSize: 18,
       fontWeight: '600',
       color: theme.textPrimary,
-      marginBottom: 4,
-    },
-    nameInput: {
-      fontSize: 24,
-      fontWeight: '600',
-      color: theme.textPrimary,
-      textAlign: 'center',
-      marginBottom: 4,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.accent,
-      paddingBottom: 4,
-      minWidth: 150,
     },
     userBio: {
-      fontSize: 14,
+      fontSize: 13,
       color: theme.textSecondary,
-      textAlign: 'center',
-      marginBottom: 4,
-      paddingHorizontal: 32,
-    },
-    bioInput: {
-      fontSize: 14,
-      color: theme.textPrimary,
-      textAlign: 'center',
-      marginBottom: 4,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      backgroundColor: theme.surfaceSecondary,
-      borderRadius: 8,
-      minWidth: 200,
-      maxHeight: 80,
+      marginTop: 2,
     },
     userEmail: {
-      fontSize: 14,
+      fontSize: 12,
       color: theme.textSecondary,
-      marginTop: 4,
+      marginTop: 2,
     },
     editProfileButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginTop: 16,
-      paddingVertical: 8,
-      paddingHorizontal: 16,
-      backgroundColor: theme.accentLight,
-      borderRadius: 20,
-    },
-    editProfileText: {
-      fontSize: 14,
-      color: theme.accent,
-      fontWeight: '600',
-      marginLeft: 6,
+      padding: 8,
     },
     editButtons: {
       flexDirection: 'row',
@@ -464,30 +450,80 @@ function createStyles(theme: Theme, topInset: number) {
       fontSize: 16,
       color: theme.textPrimary,
     },
-    achievementsContainer: {
+    headerName: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      marginTop: 2,
+    },
+    modalContainer: {
+      flex: 1,
+    },
+    modalHeader: {
       flexDirection: 'row',
-      justifyContent: 'space-around',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 16,
+      paddingTop: topInset + 16,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
+    },
+    modalCancel: {
+      fontSize: 16,
+      color: theme.textSecondary,
+    },
+    modalTitle: {
+      fontSize: 17,
+      fontWeight: '600',
+      color: theme.textPrimary,
+    },
+    modalSave: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: theme.accent,
+    },
+    modalContent: {
+      flex: 1,
+      padding: 16,
+    },
+    modalAvatarSection: {
+      alignItems: 'center',
+      marginBottom: 32,
+    },
+    modalAvatar: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    modalInputGroup: {
+      marginBottom: 24,
+    },
+    modalLabel: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.textPrimary,
+      marginBottom: 8,
+    },
+    modalInput: {
       backgroundColor: theme.surface,
       borderRadius: 12,
       padding: 16,
+      fontSize: 16,
+      color: theme.textPrimary,
       borderWidth: 1,
       borderColor: theme.border,
     },
-    achievement: {
-      alignItems: 'center',
+    modalBioInput: {
+      minHeight: 100,
+      textAlignVertical: 'top',
     },
-    achievementIcon: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginBottom: 8,
-    },
-    achievementLabel: {
+    charCount: {
       fontSize: 12,
       color: theme.textSecondary,
-      textAlign: 'center',
+      textAlign: 'right',
+      marginTop: 4,
     },
   });
 }

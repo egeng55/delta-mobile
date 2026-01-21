@@ -7,7 +7,7 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   FlatList,
   StyleSheet,
   KeyboardAvoidingView,
@@ -16,9 +16,16 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeInLeft, FadeInRight, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { chatApi } from '../services/api';
+
+const springConfig = {
+  damping: 15,
+  stiffness: 150,
+  mass: 0.5,
+};
 
 interface ChatScreenProps {
   theme: Theme;
@@ -34,6 +41,19 @@ interface Message {
 export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const sendButtonScale = useSharedValue(1);
+
+  const sendButtonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: sendButtonScale.value }],
+  }));
+
+  const handleSendPressIn = (): void => {
+    sendButtonScale.value = withSpring(0.9, springConfig);
+  };
+
+  const handleSendPressOut = (): void => {
+    sendButtonScale.value = withSpring(1, springConfig);
+  };
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -91,8 +111,13 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
   };
 
   const renderMessage = ({ item }: { item: Message }): React.ReactElement => {
+    const entering = item.isUser === true
+      ? FadeInRight.duration(300).springify()
+      : FadeInLeft.duration(300).springify();
+
     return (
-      <View
+      <Animated.View
+        entering={entering}
         style={[
           styles.messageBubble,
           item.isUser === true ? styles.userBubble : styles.aiBubble,
@@ -106,7 +131,7 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         >
           {item.text}
         </Text>
-      </View>
+      </Animated.View>
     );
   };
 
@@ -150,16 +175,22 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
           maxLength={500}
           editable={isLoading !== true}
         />
-        <TouchableOpacity
-          style={[
-            styles.sendButton,
-            (inputText.trim().length === 0 || isLoading === true) && styles.sendButtonDisabled,
-          ]}
+        <Pressable
           onPress={sendMessage}
+          onPressIn={handleSendPressIn}
+          onPressOut={handleSendPressOut}
           disabled={inputText.trim().length === 0 || isLoading === true}
         >
-          <Ionicons name="arrow-up" size={20} color="#ffffff" />
-        </TouchableOpacity>
+          <Animated.View
+            style={[
+              styles.sendButton,
+              sendButtonAnimatedStyle,
+              (inputText.trim().length === 0 || isLoading === true) && styles.sendButtonDisabled,
+            ]}
+          >
+            <Ionicons name="arrow-up" size={20} color="#ffffff" />
+          </Animated.View>
+        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
