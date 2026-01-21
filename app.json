@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Delta",
+    "slug": "delta-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "sdkVersion": "54.0.0",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.delta.health"
+    },
+    "android": {
+      "package": "com.delta.health"
+    },
+    "platforms": ["ios", "android"]
+  }
+}
