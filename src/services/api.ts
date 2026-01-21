@@ -15,6 +15,7 @@ export interface User {
   email: string;
   name: string;
   created_at?: string;
+  role?: 'user' | 'developer' | 'admin';
 }
 
 export interface AuthResponse {
@@ -803,3 +804,83 @@ export const supportApi = {
     );
   },
 };
+
+// Subscription Types
+export interface Subscription {
+  subscription_id: string;
+  user_id: string;
+  plan: 'free' | 'premium' | 'pro';
+  status: 'active' | 'canceled' | 'expired' | 'trialing' | 'past_due';
+  source: 'stripe' | 'apple' | 'google' | 'manual';
+  current_period_start: string;
+  current_period_end: string;
+  created_at: string;
+  canceled_at: string | null;
+  external_id: string | null;
+}
+
+export interface AccessLevel {
+  has_access: boolean;
+  reason: string;
+  plan: string | null;
+  role: 'user' | 'developer' | 'admin' | null;
+  expires_at: string | null;
+}
+
+export interface FeatureAccess {
+  allowed: boolean;
+  reason: string;
+  feature: string;
+  redirect_url?: string;
+}
+
+// Subscription API
+export const subscriptionApi = {
+  /**
+   * Get subscription status for a user.
+   */
+  getSubscription: async (
+    userId: string
+  ): Promise<{ subscription: Subscription | null; access: AccessLevel }> => {
+    return request<{ subscription: Subscription | null; access: AccessLevel }>(
+      `/subscription/${userId}`
+    );
+  },
+
+  /**
+   * Get access level for a user.
+   * Developers (egeng@umich.edu) have perpetual access.
+   */
+  getAccessLevel: async (userId: string): Promise<AccessLevel> => {
+    return request<AccessLevel>(`/access/${userId}`);
+  },
+
+  /**
+   * Check if user can access a specific feature.
+   *
+   * Free features: chat_basic, tracking, profile
+   * Premium features: insights, coaching, exports, vision, chat_unlimited
+   */
+  checkFeatureAccess: async (
+    userId: string,
+    feature: string
+  ): Promise<FeatureAccess> => {
+    return request<FeatureAccess>(`/access/${userId}/feature/${feature}`);
+  },
+
+  /**
+   * Cancel subscription.
+   * Access continues until period end.
+   */
+  cancelSubscription: async (
+    userId: string
+  ): Promise<{ status: string; message: string; subscription: Subscription }> => {
+    return request<{ status: string; message: string; subscription: Subscription }>(
+      `/subscription/${userId}/cancel`,
+      { method: 'PUT' }
+    );
+  },
+};
+
+// Pricing URL for redirecting non-subscribers
+export const PRICING_URL = 'https://getdelta.app/pricing';

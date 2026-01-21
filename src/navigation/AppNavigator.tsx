@@ -8,7 +8,7 @@
  * - Settings as modal from Profile
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ActivityIndicator, View, StyleSheet, Modal } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -24,6 +24,7 @@ import ChatScreen from '../screens/ChatScreen';
 import InsightsScreen from '../screens/InsightsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import WelcomeAnimationScreen from '../screens/WelcomeAnimationScreen';
 
 // Type definitions
 export type RootStackParamList = {
@@ -132,6 +133,21 @@ function MainTabs(): React.ReactNode {
 export default function AppNavigator(): React.ReactNode {
   const { isLoading, isAuthenticated } = useAuth();
   const { theme } = useTheme();
+  const [showWelcome, setShowWelcome] = useState<boolean>(false);
+  const wasAuthenticated = useRef<boolean>(false);
+
+  // Track auth state changes to trigger welcome animation on login
+  useEffect(() => {
+    if (isAuthenticated === true && wasAuthenticated.current === false) {
+      // User just logged in - show welcome animation
+      setShowWelcome(true);
+    }
+    wasAuthenticated.current = isAuthenticated === true;
+  }, [isAuthenticated]);
+
+  const handleWelcomeComplete = (): void => {
+    setShowWelcome(false);
+  };
 
   // SAFETY: Explicit boolean check
   if (isLoading === true) {
@@ -139,6 +155,13 @@ export default function AppNavigator(): React.ReactNode {
       <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
         <ActivityIndicator size="large" color={theme.accent} />
       </View>
+    );
+  }
+
+  // Show welcome animation after login
+  if (showWelcome === true && isAuthenticated === true) {
+    return (
+      <WelcomeAnimationScreen theme={theme} onComplete={handleWelcomeComplete} />
     );
   }
 

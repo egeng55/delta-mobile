@@ -13,6 +13,7 @@ import { StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider } from './src/context/AuthContext';
+import { AccessProvider } from './src/context/AccessContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import AppNavigator from './src/navigation/AppNavigator';
 
@@ -35,7 +36,9 @@ export default function App(): React.ReactNode {
     <SafeAreaProvider>
       <ThemeProvider>
         <AuthProvider>
-          <AppContent />
+          <AccessProvider>
+            <AppContent />
+          </AccessProvider>
         </AuthProvider>
       </ThemeProvider>
     </SafeAreaProvider>

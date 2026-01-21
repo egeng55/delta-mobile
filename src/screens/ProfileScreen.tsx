@@ -139,10 +139,10 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>PROFILE</Text>
-          {profileData.displayName.length > 0 && (
-            <Text style={styles.headerName}>{profileData.displayName}</Text>
-          )}
+          <Text style={styles.headerTitle}>
+            {profileData.displayName.length > 0 ? profileData.displayName : 'Profile'}
+          </Text>
+          <Text style={styles.headerSubtitle}>{user?.email ?? ''}</Text>
         </View>
         <TouchableOpacity style={styles.settingsButton} onPress={onOpenSettings}>
           <Ionicons name="settings-outline" size={24} color={theme.textPrimary} />
@@ -301,10 +301,14 @@ function createStyles(theme: Theme, topInset: number) {
       paddingBottom: 8,
     },
     headerTitle: {
-      fontSize: 17,
-      fontWeight: '600',
+      fontSize: 22,
+      fontWeight: '700',
       color: theme.textPrimary,
-      letterSpacing: 1,
+    },
+    headerSubtitle: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      marginTop: 2,
     },
     settingsButton: {
       padding: 8,
@@ -449,11 +453,6 @@ function createStyles(theme: Theme, topInset: number) {
     infoValue: {
       fontSize: 16,
       color: theme.textPrimary,
-    },
-    headerName: {
-      fontSize: 13,
-      color: theme.textSecondary,
-      marginTop: 2,
     },
     modalContainer: {
       flex: 1,

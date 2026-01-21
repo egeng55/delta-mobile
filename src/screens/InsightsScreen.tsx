@@ -24,6 +24,7 @@ import Animated, { FadeInDown, FadeInRight, FadeInUp } from 'react-native-reanim
 import { AnimatedCard, AnimatedListItem, AnimatedProgress, AnimatedButton, FadeInView } from '../components/Animated';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
+import { useAccess } from '../context/AccessContext';
 import {
   insightsApi,
   InsightsData,
@@ -70,6 +71,7 @@ const formatMonthYear = (date: Date): string => {
 
 export default function InsightsScreen({ theme }: InsightsScreenProps): React.ReactNode {
   const { user } = useAuth();
+  const { hasAccess, isLoading: accessLoading, openPricing, isDeveloper } = useAccess();
   const insets = useSafeAreaInsets();
 
   const [activeTab, setActiveTab] = useState<TabType>('analytics');
@@ -515,11 +517,31 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
 
   const styles = createStyles(theme, insets.top);
 
-  if (isLoading === true) {
+  if (isLoading === true || accessLoading === true) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={theme.accent} />
         <Text style={styles.loadingText}>Loading...</Text>
+      </View>
+    );
+  }
+
+  // Show paywall for users without access (unless they're developers)
+  if (hasAccess !== true && isDeveloper !== true) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Ionicons name="lock-closed" size={64} color={theme.textSecondary} />
+        <Text style={[styles.emptyTitle, { marginTop: 16 }]}>Premium Feature</Text>
+        <Text style={[styles.emptySubtitle, { marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }]}>
+          Insights, analytics, and workout coaching require a Delta Premium subscription.
+        </Text>
+        <TouchableOpacity
+          style={[styles.generateButton, { marginTop: 24 }]}
+          onPress={openPricing}
+        >
+          <Ionicons name="sparkles" size={20} color="#fff" />
+          <Text style={styles.generateButtonText}>View Plans</Text>
+        </TouchableOpacity>
       </View>
     );
   }

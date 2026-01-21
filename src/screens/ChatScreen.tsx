@@ -1,8 +1,11 @@
 /**
  * ChatScreen - Main Delta AI chat interface with image support.
  *
- * Images are treated as contextual signals for meal understanding.
- * Vision extracts qualitative characteristics, not numeric values.
+ * Features:
+ * - Markdown rendering for Delta messages (no bubbles)
+ * - User messages in bubbles
+ * - Delta logo in header with spin on hold
+ * - Rich formatting support (bold, headers, lists, tables)
  */
 
 import React, { useState, useRef } from 'react';
@@ -19,15 +22,27 @@ import {
   Image,
   Alert,
   ActionSheetIOS,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeInLeft, FadeInRight, FadeIn, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated, {
+  FadeInLeft,
+  FadeInRight,
+  FadeIn,
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import Markdown from 'react-native-markdown-display';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { chatApi } from '../services/api';
+import { DeltaLogoSimple } from '../components/DeltaLogo';
 
 const springConfig = {
   damping: 15,
@@ -44,14 +59,41 @@ interface Message {
   text: string;
   isUser: boolean;
   timestamp: number;
-  imageUri?: string;  // For displaying images in chat
+  imageUri?: string;
 }
+
+const WELCOME_MESSAGE = `**Welcome to Delta!**
+
+I'm your personal health intelligence assistant. Here's what I can help you with:
+
+**Track & Log**
+- Meals, workouts, sleep, mood, and more
+- Just tell me naturally - no forms needed
+- Share food photos for instant meal logging
+
+**Insights & Trends**
+- See patterns in your health data
+- Get personalized recommendations
+- Weekly and monthly summaries
+
+**Ask Anything**
+- Nutrition questions
+- Workout suggestions
+- Sleep optimization tips
+
+To get started, try saying something like:
+- "I just had a chicken salad for lunch"
+- "Went for a 30 minute run this morning"
+- "How did I sleep this week?"
+
+*Your data stays private and secure.*`;
 
 export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const sendButtonScale = useSharedValue(1);
   const imageButtonScale = useSharedValue(1);
+  const logoRotation = useSharedValue(0);
 
   const sendButtonAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: sendButtonScale.value }],
@@ -59,6 +101,10 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
 
   const imageButtonAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: imageButtonScale.value }],
+  }));
+
+  const logoAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${logoRotation.value}deg` }],
   }));
 
   const handleSendPressIn = (): void => {
@@ -77,10 +123,18 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
     imageButtonScale.value = withSpring(1, springConfig);
   };
 
+  const handleLogoPressIn = (): void => {
+    logoRotation.value = withTiming(360, { duration: 600, easing: Easing.out(Easing.cubic) });
+  };
+
+  const handleLogoPressOut = (): void => {
+    logoRotation.value = withTiming(0, { duration: 300 });
+  };
+
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
-      text: "Hi! I'm Delta. How can I help you today? You can also share food photos and I'll help you understand what you're eating.",
+      text: WELCOME_MESSAGE,
       isUser: false,
       timestamp: Date.now(),
     },
@@ -92,7 +146,6 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
 
   const pickImage = async (useCamera: boolean): Promise<void> => {
     try {
-      // Request permissions
       if (useCamera === true) {
         const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
         if (cameraPermission.granted !== true) {
@@ -124,7 +177,7 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
       if (result.canceled !== true && result.assets && result.assets.length > 0) {
         setSelectedImage(result.assets[0].uri);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Could not access images. Please try again.');
     }
   };
@@ -145,7 +198,6 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         }
       );
     } else {
-      // Android: use Alert
       Alert.alert(
         'Add Photo',
         'How would you like to add a photo?',
@@ -171,10 +223,9 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
       return;
     }
 
-    // Create user message with optional image
     const userMessage: Message = {
       id: Date.now().toString(),
-      text: hasText ? trimmedText : '📷 Shared a photo',
+      text: hasText ? trimmedText : 'Shared a photo',
       isUser: true,
       timestamp: Date.now(),
       imageUri: selectedImage ?? undefined,
@@ -191,16 +242,13 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
       let responseText: string;
 
       if (hasImage && imageToSend) {
-        // Convert image to base64
         const base64Image = await FileSystem.readAsStringAsync(imageToSend, {
           encoding: 'base64',
         });
 
-        // Get timezone info
         const clientTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const clientLocalTime = new Date().toISOString();
 
-        // Send with image
         const response = await chatApi.sendMessageWithImage(
           userId,
           hasText ? trimmedText : null,
@@ -210,7 +258,6 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         );
         responseText = response.response;
       } else {
-        // Text only
         responseText = await chatApi.sendMessage(userId, trimmedText);
       }
 
@@ -236,34 +283,148 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
     }
   };
 
+  // Markdown styles for Delta messages
+  const markdownStyles = {
+    body: {
+      color: theme.textPrimary,
+      fontSize: 15,
+      lineHeight: 22,
+    },
+    heading1: {
+      color: theme.textPrimary,
+      fontSize: 22,
+      fontWeight: '700' as const,
+      marginBottom: 8,
+      marginTop: 12,
+    },
+    heading2: {
+      color: theme.textPrimary,
+      fontSize: 18,
+      fontWeight: '600' as const,
+      marginBottom: 6,
+      marginTop: 10,
+    },
+    heading3: {
+      color: theme.textPrimary,
+      fontSize: 16,
+      fontWeight: '600' as const,
+      marginBottom: 4,
+      marginTop: 8,
+    },
+    strong: {
+      color: theme.textPrimary,
+      fontWeight: '600' as const,
+    },
+    em: {
+      color: theme.textSecondary,
+      fontStyle: 'italic' as const,
+    },
+    paragraph: {
+      marginBottom: 8,
+      marginTop: 0,
+    },
+    bullet_list: {
+      marginBottom: 8,
+    },
+    bullet_list_icon: {
+      color: theme.accent,
+      fontSize: 8,
+      marginRight: 8,
+    },
+    list_item: {
+      marginBottom: 4,
+      flexDirection: 'row' as const,
+    },
+    code_inline: {
+      backgroundColor: theme.surface,
+      color: theme.accent,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+      fontSize: 14,
+    },
+    code_block: {
+      backgroundColor: theme.surface,
+      padding: 12,
+      borderRadius: 8,
+      marginVertical: 8,
+    },
+    fence: {
+      backgroundColor: theme.surface,
+      padding: 12,
+      borderRadius: 8,
+      marginVertical: 8,
+    },
+    table: {
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 8,
+      marginVertical: 8,
+    },
+    thead: {
+      backgroundColor: theme.surface,
+    },
+    th: {
+      padding: 8,
+      fontWeight: '600' as const,
+    },
+    td: {
+      padding: 8,
+      borderTopWidth: 1,
+      borderColor: theme.border,
+    },
+    blockquote: {
+      backgroundColor: theme.surface,
+      borderLeftWidth: 3,
+      borderLeftColor: theme.accent,
+      paddingLeft: 12,
+      paddingVertical: 8,
+      marginVertical: 8,
+    },
+    hr: {
+      backgroundColor: theme.border,
+      height: 1,
+      marginVertical: 12,
+    },
+    link: {
+      color: theme.accent,
+    },
+  };
+
   const renderMessage = ({ item }: { item: Message }): React.ReactElement => {
     const entering = item.isUser === true
       ? FadeInRight.duration(300).springify()
       : FadeInLeft.duration(300).springify();
 
-    return (
-      <Animated.View
-        entering={entering}
-        style={[
-          styles.messageBubble,
-          item.isUser === true ? styles.userBubble : styles.aiBubble,
-        ]}
-      >
-        {item.imageUri && (
-          <Image
-            source={{ uri: item.imageUri }}
-            style={styles.messageImage}
-            resizeMode="cover"
-          />
-        )}
-        <Text
-          style={[
-            styles.messageText,
-            item.isUser === true ? styles.userText : styles.aiText,
-          ]}
+    if (item.isUser === true) {
+      // User message with bubble
+      return (
+        <Animated.View
+          entering={entering}
+          style={[styles.messageBubble, styles.userBubble]}
         >
-          {item.text}
-        </Text>
+          {item.imageUri && (
+            <Image
+              source={{ uri: item.imageUri }}
+              style={styles.messageImage}
+              resizeMode="cover"
+            />
+          )}
+          <Text style={[styles.messageText, styles.userText]}>{item.text}</Text>
+        </Animated.View>
+      );
+    }
+
+    // Delta message - no bubble, markdown rendered
+    return (
+      <Animated.View entering={entering} style={styles.deltaMessage}>
+        <View style={styles.deltaHeader}>
+          <DeltaLogoSimple size={20} color={theme.accent} />
+          <Text style={styles.deltaLabel}>Delta</Text>
+        </View>
+        <View style={styles.deltaContent}>
+          <Markdown style={markdownStyles}>{item.text}</Markdown>
+        </View>
       </Animated.View>
     );
   };
@@ -278,6 +439,15 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
       keyboardVerticalOffset={0}
     >
       <View style={styles.header}>
+        <Pressable
+          onPressIn={handleLogoPressIn}
+          onPressOut={handleLogoPressOut}
+          style={styles.logoButton}
+        >
+          <Animated.View style={logoAnimatedStyle}>
+            <DeltaLogoSimple size={28} color={theme.accent} />
+          </Animated.View>
+        </Pressable>
         <Text style={styles.headerTitle}>DELTA</Text>
       </View>
 
@@ -294,7 +464,10 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
 
       {isLoading === true && (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color={theme.accent} />
+          <View style={styles.loadingIndicator}>
+            <DeltaLogoSimple size={16} color={theme.accent} />
+            <Text style={styles.loadingText}>Delta is thinking...</Text>
+          </View>
         </View>
       )}
 
@@ -367,10 +540,17 @@ function createStyles(theme: Theme, topInset: number) {
       backgroundColor: theme.background,
     },
     header: {
+      flexDirection: 'row',
+      alignItems: 'center',
       paddingHorizontal: 16,
       paddingTop: topInset + 8,
       paddingBottom: 8,
-      backgroundColor: theme.background + 'F0',
+      backgroundColor: theme.background,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
+    },
+    logoButton: {
+      marginRight: 10,
     },
     headerTitle: {
       fontSize: 17,
@@ -382,19 +562,16 @@ function createStyles(theme: Theme, topInset: number) {
       padding: 16,
       paddingBottom: 8,
     },
+    // User message bubble
     messageBubble: {
       maxWidth: '80%',
       padding: 12,
       borderRadius: 18,
-      marginBottom: 6,
+      marginBottom: 12,
     },
     userBubble: {
       backgroundColor: theme.accent,
       alignSelf: 'flex-end',
-    },
-    aiBubble: {
-      backgroundColor: theme.surface,
-      alignSelf: 'flex-start',
     },
     messageText: {
       fontSize: 15,
@@ -403,19 +580,48 @@ function createStyles(theme: Theme, topInset: number) {
     userText: {
       color: '#ffffff',
     },
-    aiText: {
-      color: theme.textPrimary,
-    },
     messageImage: {
       width: 200,
       height: 150,
       borderRadius: 12,
       marginBottom: 8,
     },
+    // Delta message (no bubble)
+    deltaMessage: {
+      marginBottom: 16,
+      paddingRight: 16,
+    },
+    deltaHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    deltaLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: theme.textSecondary,
+      marginLeft: 6,
+    },
+    deltaContent: {
+      paddingLeft: 4,
+    },
     loadingContainer: {
       paddingHorizontal: 16,
       paddingBottom: 8,
       alignItems: 'flex-start',
+    },
+    loadingIndicator: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+    },
+    loadingText: {
+      marginLeft: 8,
+      fontSize: 13,
+      color: theme.textSecondary,
     },
     imagePreviewContainer: {
       flexDirection: 'row',
@@ -442,6 +648,8 @@ function createStyles(theme: Theme, topInset: number) {
       paddingVertical: 8,
       backgroundColor: theme.background,
       alignItems: 'flex-end',
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
     },
     imageButtonWrapper: {
       marginRight: 8,
