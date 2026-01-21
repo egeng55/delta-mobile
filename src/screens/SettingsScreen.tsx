@@ -3,8 +3,9 @@
  *
  * SAFETY DECISIONS:
  * - Simple toggle handling
- * - No complex state
  * - Explicit boolean values
+ * - Account deletion with confirmation
+ * - Dark/Light mode integration
  */
 
 import React, { useState } from 'react';
@@ -15,91 +16,118 @@ import {
   StyleSheet,
   Switch,
   TouchableOpacity,
+  Alert,
+  Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../theme/colors';
+import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
+
+const API_BASE_URL = 'https://delta-80ht.onrender.com';
 
 interface SettingsScreenProps {
   theme: Theme;
+  onClose: () => void;
 }
 
-interface SettingToggle {
-  id: string;
-  label: string;
-  description: string;
-  icon: keyof typeof Ionicons.glyphMap;
-}
-
-export default function SettingsScreen({ theme }: SettingsScreenProps): React.ReactNode {
+export default function SettingsScreen({ theme, onClose }: SettingsScreenProps): React.ReactNode {
   const insets = useSafeAreaInsets();
+  const { user, logout } = useAuth();
+  const { isDark, toggleTheme, useSystemTheme, isUsingSystem } = useTheme();
 
-  // Settings state - explicit boolean initialization
   const [notifications, setNotifications] = useState<boolean>(true);
   const [dailyReminder, setDailyReminder] = useState<boolean>(false);
-  const [darkMode, setDarkMode] = useState<boolean>(theme.mode === 'dark');
   const [haptics, setHaptics] = useState<boolean>(true);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
-  const toggleSettings: SettingToggle[] = [
-    {
-      id: 'notifications',
-      label: 'Push Notifications',
-      description: 'Receive health tips and reminders',
-      icon: 'notifications-outline',
-    },
-    {
-      id: 'dailyReminder',
-      label: 'Daily Check-in Reminder',
-      description: 'Get reminded to chat with Delta daily',
-      icon: 'alarm-outline',
-    },
-    {
-      id: 'darkMode',
-      label: 'Dark Mode',
-      description: 'Use dark theme (follows system by default)',
-      icon: 'moon-outline',
-    },
-    {
-      id: 'haptics',
-      label: 'Haptic Feedback',
-      description: 'Vibration feedback for interactions',
-      icon: 'phone-portrait-outline',
-    },
-  ];
-
-  const getToggleValue = (id: string): boolean => {
-    switch (id) {
-      case 'notifications':
-        return notifications === true;
-      case 'dailyReminder':
-        return dailyReminder === true;
-      case 'darkMode':
-        return darkMode === true;
-      case 'haptics':
-        return haptics === true;
-      default:
-        return false;
+  const openLink = async (url: string): Promise<void> => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported === true) {
+        await Linking.openURL(url);
+      }
+    } catch {
+      // Silent fail
     }
   };
 
-  const handleToggle = (id: string, value: boolean): void => {
-    // SAFETY: value is already boolean from Switch, but be explicit
-    const boolValue = value === true;
+  const handleExportData = async (): Promise<void> => {
+    if (!user?.id) return;
 
-    switch (id) {
-      case 'notifications':
-        setNotifications(boolValue);
-        break;
-      case 'dailyReminder':
-        setDailyReminder(boolValue);
-        break;
-      case 'darkMode':
-        setDarkMode(boolValue);
-        break;
-      case 'haptics':
-        setHaptics(boolValue);
-        break;
+    Alert.alert(
+      'Export Your Data',
+      'We will prepare a copy of all your data.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Export',
+          onPress: async () => {
+            try {
+              const response = await fetch(`${API_BASE_URL}/user/export`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: user.id }),
+              });
+              if (response.ok === true) {
+                Alert.alert('Success', 'Your data export is ready.');
+              } else {
+                Alert.alert('Error', 'Could not export data.');
+              }
+            } catch {
+              Alert.alert('Error', 'Could not connect to server.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteAccount = (): void => {
+    Alert.alert(
+      'Delete Account',
+      'This will permanently delete all your data. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => executeAccountDeletion(),
+        },
+      ]
+    );
+  };
+
+  const executeAccountDeletion = async (): Promise<void> => {
+    if (!user?.id) return;
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/user/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.id, confirm: true }),
+      });
+      if (response.ok === true) {
+        Alert.alert('Account Deleted', 'Your account has been deleted.', [
+          { text: 'OK', onPress: () => logout() },
+        ]);
+      } else {
+        Alert.alert('Error', 'Could not delete account.');
+      }
+    } catch {
+      Alert.alert('Error', 'Could not connect to server.');
+    } finally {
+      setIsDeleting(false);
     }
+  };
+
+  const handleLogout = async (): Promise<void> => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign Out', style: 'destructive', onPress: () => logout() },
+    ]);
   };
 
   const styles = createStyles(theme, insets.top);
@@ -108,57 +136,167 @@ export default function SettingsScreen({ theme }: SettingsScreenProps): React.Re
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>SETTINGS</Text>
+        <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+          <Ionicons name="close" size={24} color={theme.textPrimary} />
+        </TouchableOpacity>
       </View>
 
+      {/* Health Disclaimer */}
+      <View style={styles.disclaimerBanner}>
+        <Ionicons name="information-circle" size={18} color={theme.warning} />
+        <Text style={styles.disclaimerText}>
+          Delta provides wellness guidance only, not medical advice.
+        </Text>
+      </View>
+
+      {/* Appearance */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Preferences</Text>
-        {toggleSettings.map(setting => (
-          <View key={setting.id} style={styles.settingRow}>
-            <View style={styles.settingIconContainer}>
-              <Ionicons name={setting.icon} size={20} color={theme.accent} />
-            </View>
-            <View style={styles.settingContent}>
-              <Text style={styles.settingLabel}>{setting.label}</Text>
-              <Text style={styles.settingDescription}>{setting.description}</Text>
-            </View>
-            <Switch
-              value={getToggleValue(setting.id)}
-              onValueChange={(value) => handleToggle(setting.id, value)}
-              trackColor={{ false: theme.border, true: theme.accent }}
-              thumbColor="#ffffff"
-            />
+        <Text style={styles.sectionTitle}>Appearance</Text>
+        <View style={styles.settingRow}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="moon-outline" size={20} color={theme.accent} />
           </View>
-        ))}
+          <View style={styles.settingContent}>
+            <Text style={styles.settingLabel}>Dark Mode</Text>
+            <Text style={styles.settingDescription}>
+              {isUsingSystem === true ? 'Following system' : isDark === true ? 'On' : 'Off'}
+            </Text>
+          </View>
+          <Switch
+            value={isDark === true}
+            onValueChange={toggleTheme}
+            trackColor={{ false: theme.border, true: theme.accent }}
+            thumbColor="#ffffff"
+          />
+        </View>
+        <TouchableOpacity style={styles.linkRow} onPress={useSystemTheme}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="phone-portrait-outline" size={20} color={theme.accent} />
+          </View>
+          <Text style={styles.linkText}>Use System Theme</Text>
+          {isUsingSystem === true && (
+            <Ionicons name="checkmark" size={20} color={theme.success} />
+          )}
+        </TouchableOpacity>
       </View>
 
+      {/* Notifications */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>About</Text>
-        <TouchableOpacity style={styles.linkRow}>
-          <View style={styles.linkIconContainer}>
+        <Text style={styles.sectionTitle}>Notifications</Text>
+        <View style={styles.settingRow}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="notifications-outline" size={20} color={theme.accent} />
+          </View>
+          <View style={styles.settingContent}>
+            <Text style={styles.settingLabel}>Push Notifications</Text>
+            <Text style={styles.settingDescription}>Health tips and reminders</Text>
+          </View>
+          <Switch
+            value={notifications === true}
+            onValueChange={setNotifications}
+            trackColor={{ false: theme.border, true: theme.accent }}
+            thumbColor="#ffffff"
+          />
+        </View>
+        <View style={styles.settingRow}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="alarm-outline" size={20} color={theme.accent} />
+          </View>
+          <View style={styles.settingContent}>
+            <Text style={styles.settingLabel}>Daily Reminder</Text>
+            <Text style={styles.settingDescription}>Check in with Delta daily</Text>
+          </View>
+          <Switch
+            value={dailyReminder === true}
+            onValueChange={setDailyReminder}
+            trackColor={{ false: theme.border, true: theme.accent }}
+            thumbColor="#ffffff"
+          />
+        </View>
+        <View style={styles.settingRow}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="phone-portrait-outline" size={20} color={theme.accent} />
+          </View>
+          <View style={styles.settingContent}>
+            <Text style={styles.settingLabel}>Haptic Feedback</Text>
+            <Text style={styles.settingDescription}>Vibration feedback</Text>
+          </View>
+          <Switch
+            value={haptics === true}
+            onValueChange={setHaptics}
+            trackColor={{ false: theme.border, true: theme.accent }}
+            thumbColor="#ffffff"
+          />
+        </View>
+      </View>
+
+      {/* Legal */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Legal</Text>
+        <TouchableOpacity style={styles.linkRow} onPress={() => openLink(`${API_BASE_URL}/terms`)}>
+          <View style={styles.settingIconContainer}>
             <Ionicons name="document-text-outline" size={20} color={theme.accent} />
           </View>
           <Text style={styles.linkText}>Terms of Service</Text>
           <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.linkRow}>
-          <View style={styles.linkIconContainer}>
+        <TouchableOpacity style={styles.linkRow} onPress={() => openLink(`${API_BASE_URL}/privacy`)}>
+          <View style={styles.settingIconContainer}>
             <Ionicons name="shield-outline" size={20} color={theme.accent} />
           </View>
           <Text style={styles.linkText}>Privacy Policy</Text>
           <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.linkRow}>
-          <View style={styles.linkIconContainer}>
-            <Ionicons name="help-circle-outline" size={20} color={theme.accent} />
+        <TouchableOpacity style={styles.linkRow} onPress={() => openLink(`${API_BASE_URL}/disclaimer`)}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="medical-outline" size={20} color={theme.accent} />
           </View>
-          <Text style={styles.linkText}>Help & Support</Text>
+          <Text style={styles.linkText}>Health Disclaimer</Text>
           <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
         </TouchableOpacity>
       </View>
 
+      {/* Data */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Your Data</Text>
+        <TouchableOpacity style={styles.linkRow} onPress={handleExportData}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="download-outline" size={20} color={theme.accent} />
+          </View>
+          <Text style={styles.linkText}>Export Data</Text>
+          <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.linkRow, styles.dangerRow]}
+          onPress={handleDeleteAccount}
+          disabled={isDeleting === true}
+        >
+          <View style={[styles.settingIconContainer, styles.dangerIcon]}>
+            {isDeleting === true ? (
+              <ActivityIndicator size="small" color={theme.error} />
+            ) : (
+              <Ionicons name="trash-outline" size={20} color={theme.error} />
+            )}
+          </View>
+          <Text style={[styles.linkText, styles.dangerText]}>Delete Account</Text>
+          <Ionicons name="chevron-forward" size={20} color={theme.error} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Sign Out */}
+      <View style={styles.section}>
+        <TouchableOpacity style={styles.signOutButton} onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={18} color={theme.error} />
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Footer */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>Delta v1.0.0</Text>
-        <Text style={styles.footerSubtext}>Your AI Health Companion</Text>
+        <Text style={styles.footerDisclaimer}>
+          Not intended to diagnose, treat, cure, or prevent any disease.
+        </Text>
       </View>
     </ScrollView>
   );
@@ -166,98 +304,86 @@ export default function SettingsScreen({ theme }: SettingsScreenProps): React.Re
 
 function createStyles(theme: Theme, topInset: number) {
   return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: theme.background,
-    },
+    container: { flex: 1, backgroundColor: theme.background },
     header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
       paddingHorizontal: 16,
       paddingTop: topInset + 8,
       paddingBottom: 8,
-      backgroundColor: theme.background + 'F0',
     },
-    headerTitle: {
-      fontSize: 17,
-      fontWeight: '600',
-      color: theme.textPrimary,
-      letterSpacing: 1,
+    headerTitle: { fontSize: 17, fontWeight: '600', color: theme.textPrimary, letterSpacing: 1 },
+    closeButton: { padding: 8 },
+    disclaimerBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.warning + '15',
+      marginHorizontal: 16,
+      marginTop: 8,
+      padding: 10,
+      borderRadius: 8,
+      borderLeftWidth: 3,
+      borderLeftColor: theme.warning,
     },
-    section: {
-      padding: 16,
-    },
-    sectionTitle: {
-      fontSize: 18,
-      fontWeight: '600',
-      color: theme.textPrimary,
-      marginBottom: 12,
-    },
+    disclaimerText: { flex: 1, fontSize: 12, color: theme.textSecondary, marginLeft: 8 },
+    section: { padding: 16 },
+    sectionTitle: { fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginBottom: 12 },
     settingRow: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: theme.surface,
       borderRadius: 12,
-      padding: 16,
+      padding: 14,
       marginBottom: 8,
       borderWidth: 1,
       borderColor: theme.border,
     },
     settingIconContainer: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       backgroundColor: theme.accentLight,
       justifyContent: 'center',
       alignItems: 'center',
       marginRight: 12,
     },
-    settingContent: {
-      flex: 1,
-    },
-    settingLabel: {
-      fontSize: 16,
-      color: theme.textPrimary,
-      marginBottom: 2,
-    },
-    settingDescription: {
-      fontSize: 12,
-      color: theme.textSecondary,
-    },
+    settingContent: { flex: 1 },
+    settingLabel: { fontSize: 15, color: theme.textPrimary, marginBottom: 2 },
+    settingDescription: { fontSize: 12, color: theme.textSecondary },
     linkRow: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: theme.surface,
       borderRadius: 12,
-      padding: 16,
+      padding: 14,
       marginBottom: 8,
       borderWidth: 1,
       borderColor: theme.border,
     },
-    linkIconContainer: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: theme.accentLight,
+    linkText: { flex: 1, fontSize: 15, color: theme.textPrimary },
+    dangerRow: { borderColor: theme.error + '30' },
+    dangerIcon: { backgroundColor: theme.error + '15' },
+    dangerText: { color: theme.error },
+    signOutButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
       justifyContent: 'center',
-      alignItems: 'center',
-      marginRight: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 20,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: theme.error + '50',
     },
-    linkText: {
-      flex: 1,
-      fontSize: 16,
-      color: theme.textPrimary,
-    },
-    footer: {
-      alignItems: 'center',
-      padding: 32,
-    },
-    footerText: {
-      fontSize: 14,
+    signOutText: { fontSize: 14, color: theme.error, fontWeight: '500', marginLeft: 6 },
+    footer: { alignItems: 'center', padding: 24 },
+    footerText: { fontSize: 13, color: theme.textSecondary },
+    footerDisclaimer: {
+      fontSize: 10,
       color: theme.textSecondary,
-    },
-    footerSubtext: {
-      fontSize: 12,
-      color: theme.textSecondary,
-      marginTop: 4,
+      marginTop: 8,
+      textAlign: 'center',
+      fontStyle: 'italic',
     },
   });
 }

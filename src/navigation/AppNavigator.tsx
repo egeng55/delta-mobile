@@ -5,18 +5,18 @@
  * - No custom theme with fonts (caused issues)
  * - Explicit boolean checks for auth state
  * - Simple screen options without complex types
- * - No animated transitions that could cause issues
+ * - Settings as modal from Profile
  */
 
-import React from 'react';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, View, StyleSheet, Modal } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../context/AuthContext';
-import { Theme } from '../theme/colors';
+import { useTheme } from '../context/ThemeContext';
 
 // Screens
 import AuthScreen from '../screens/AuthScreen';
@@ -35,96 +35,103 @@ export type MainTabParamList = {
   Chat: undefined;
   Insights: undefined;
   Profile: undefined;
-  Settings: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
-interface MainTabsProps {
-  theme: Theme;
-}
-
 /**
  * Bottom tab navigator for authenticated users.
  * SAFETY: Icon names are typed, no dynamic string interpolation.
  */
-function MainTabs({ theme }: MainTabsProps): React.ReactNode {
+function MainTabs(): React.ReactNode {
+  const { theme } = useTheme();
+  const [settingsVisible, setSettingsVisible] = useState<boolean>(false);
+
+  const openSettings = (): void => {
+    setSettingsVisible(true);
+  };
+
+  const closeSettings = (): void => {
+    setSettingsVisible(false);
+  };
+
   return (
-    <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: theme.accent,
-        tabBarInactiveTintColor: theme.textSecondary,
-        tabBarStyle: {
-          backgroundColor: theme.surface,
-          borderTopColor: theme.border,
-          borderTopWidth: 1,
-        },
-        // SAFETY: No animation config that could cause issues
-      }}
-    >
-      <Tab.Screen
-        name="Chat"
-        options={{
-          tabBarShowLabel: false,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="chatbubbles-outline" size={size} color={color} />
-          ),
+    <>
+      <Tab.Navigator
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: theme.accent,
+          tabBarInactiveTintColor: theme.textSecondary,
+          tabBarStyle: {
+            backgroundColor: theme.surface,
+            borderTopColor: theme.border,
+            borderTopWidth: 1,
+            paddingTop: 8,
+            paddingBottom: 8,
+            height: 60,
+          },
         }}
       >
-        {() => <ChatScreen theme={theme} />}
-      </Tab.Screen>
+        <Tab.Screen
+          name="Chat"
+          options={{
+            tabBarShowLabel: false,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="chatbubbles-outline" size={size} color={color} />
+            ),
+          }}
+        >
+          {() => <ChatScreen theme={theme} />}
+        </Tab.Screen>
 
-      <Tab.Screen
-        name="Insights"
-        options={{
-          tabBarShowLabel: false,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="bulb-outline" size={size} color={color} />
-          ),
-        }}
-      >
-        {() => <InsightsScreen theme={theme} />}
-      </Tab.Screen>
+        <Tab.Screen
+          name="Insights"
+          options={{
+            tabBarShowLabel: false,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="analytics-outline" size={size} color={color} />
+            ),
+          }}
+        >
+          {() => <InsightsScreen theme={theme} />}
+        </Tab.Screen>
 
-      <Tab.Screen
-        name="Profile"
-        options={{
-          tabBarShowLabel: false,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
-          ),
-        }}
-      >
-        {() => <ProfileScreen theme={theme} />}
-      </Tab.Screen>
+        <Tab.Screen
+          name="Profile"
+          options={{
+            tabBarShowLabel: false,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="person-outline" size={size} color={color} />
+            ),
+          }}
+        >
+          {() => <ProfileScreen theme={theme} onOpenSettings={openSettings} />}
+        </Tab.Screen>
+      </Tab.Navigator>
 
-      <Tab.Screen
-        name="Settings"
-        options={{
-          tabBarShowLabel: false,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="settings-outline" size={size} color={color} />
-          ),
-        }}
+      {/* Settings Modal */}
+      <Modal
+        visible={settingsVisible === true}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={closeSettings}
       >
-        {() => <SettingsScreen theme={theme} />}
-      </Tab.Screen>
-    </Tab.Navigator>
+        <View style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+          <SettingsScreen theme={theme} onClose={closeSettings} />
+        </View>
+      </Modal>
+    </>
   );
-}
-
-interface AppNavigatorProps {
-  theme: Theme;
 }
 
 /**
  * Root navigator component.
  * SAFETY: Explicit boolean checks, no NavigationContainer theme prop.
  */
-export default function AppNavigator({ theme }: AppNavigatorProps): React.ReactNode {
+export default function AppNavigator(): React.ReactNode {
   const { isLoading, isAuthenticated } = useAuth();
+  const { theme } = useTheme();
 
   // SAFETY: Explicit boolean check
   if (isLoading === true) {
@@ -140,9 +147,7 @@ export default function AppNavigator({ theme }: AppNavigatorProps): React.ReactN
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {/* SAFETY: Explicit boolean comparison */}
         {isAuthenticated === true ? (
-          <Stack.Screen name="MainTabs">
-            {() => <MainTabs theme={theme} />}
-          </Stack.Screen>
+          <Stack.Screen name="MainTabs" component={MainTabs} />
         ) : (
           <Stack.Screen name="Auth">
             {() => <AuthScreen theme={theme} />}
@@ -158,5 +163,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  modalContainer: {
+    flex: 1,
   },
 });

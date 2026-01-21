@@ -167,3 +167,170 @@ export const dashboardApi = {
     return request<unknown>(`/dashboard/${userId}/weekly`);
   },
 };
+
+// Workout Types
+export interface Exercise {
+  exercise_id: string;
+  plan_id: string;
+  name: string;
+  sets: number | null;
+  reps: string | null;
+  weight: string | null;
+  completed: boolean;
+  completed_at: string | null;
+  order_index: number;
+  rest_seconds?: number;
+  notes?: string | null;
+}
+
+export interface WorkoutPlan {
+  plan_id: string;
+  user_id: string;
+  name: string;
+  workout_type: string;
+  scheduled_date: string;
+  exercises: Exercise[];
+  exercise_details?: Exercise[];
+  status: 'pending' | 'in_progress' | 'completed' | 'skipped';
+  created_at: string;
+  completed_at: string | null;
+  estimated_duration_minutes?: number;
+  warmup?: string;
+  cooldown?: string;
+}
+
+export interface FitnessPreferences {
+  user_id: string;
+  fitness_level: string | null;
+  preferred_workout_types: string[];
+  available_equipment: string[];
+  goals: string[];
+  injuries_limitations: string[];
+}
+
+export interface CoachingTips {
+  form_cues: string[];
+  common_mistakes: string[];
+  modifications: string[];
+  motivation: string;
+}
+
+// Workout API
+export const workoutApi = {
+  getToday: async (userId: string): Promise<{ workout: WorkoutPlan | null; message?: string }> => {
+    return request<{ workout: WorkoutPlan | null; message?: string }>(`/workouts/${userId}/today`);
+  },
+
+  recommend: async (
+    userId: string,
+    workoutType?: string,
+    scheduledDate?: string
+  ): Promise<{ status: string; workout: WorkoutPlan }> => {
+    return request<{ status: string; workout: WorkoutPlan }>('/workouts/recommend', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        workout_type: workoutType,
+        scheduled_date: scheduledDate,
+      }),
+    });
+  },
+
+  createPlan: async (
+    userId: string,
+    name: string,
+    workoutType: string,
+    scheduledDate: string,
+    exercises: Array<{ name: string; sets?: number; reps?: string; weight?: string }>
+  ): Promise<{ status: string; plan_id: string }> => {
+    return request<{ status: string; plan_id: string }>('/workouts/plans', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        name,
+        workout_type: workoutType,
+        scheduled_date: scheduledDate,
+        exercises,
+      }),
+    });
+  },
+
+  getPlan: async (planId: string): Promise<{ plan: WorkoutPlan }> => {
+    return request<{ plan: WorkoutPlan }>(`/workouts/plans/${planId}`);
+  },
+
+  updateStatus: async (
+    planId: string,
+    status: 'pending' | 'in_progress' | 'completed' | 'skipped'
+  ): Promise<{ status: string; plan_status: string; tracking_entry_id: string | null }> => {
+    return request<{ status: string; plan_status: string; tracking_entry_id: string | null }>(
+      `/workouts/plans/${planId}/status`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ status }),
+      }
+    );
+  },
+
+  completeExercise: async (
+    exerciseId: string,
+    weight?: string
+  ): Promise<{ status: string; exercise_id: string; completed: boolean }> => {
+    return request<{ status: string; exercise_id: string; completed: boolean }>(
+      `/workouts/exercises/${exerciseId}/complete`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ weight }),
+      }
+    );
+  },
+
+  uncompleteExercise: async (
+    exerciseId: string
+  ): Promise<{ status: string; exercise_id: string; completed: boolean }> => {
+    return request<{ status: string; exercise_id: string; completed: boolean }>(
+      `/workouts/exercises/${exerciseId}/uncomplete`,
+      {
+        method: 'PUT',
+      }
+    );
+  },
+
+  getRecent: async (userId: string, limit?: number): Promise<{ workouts: WorkoutPlan[]; count: number }> => {
+    const query = limit ? `?limit=${limit}` : '';
+    return request<{ workouts: WorkoutPlan[]; count: number }>(`/workouts/${userId}/recent${query}`);
+  },
+};
+
+// Coaching API
+export const coachingApi = {
+  getTip: async (
+    exerciseName: string,
+    userId?: string
+  ): Promise<{ exercise: string; tips: CoachingTips }> => {
+    return request<{ exercise: string; tips: CoachingTips }>('/coaching/tip', {
+      method: 'POST',
+      body: JSON.stringify({
+        exercise_name: exerciseName,
+        user_id: userId,
+      }),
+    });
+  },
+};
+
+// Fitness Preferences API
+export const fitnessPreferencesApi = {
+  get: async (userId: string): Promise<FitnessPreferences> => {
+    return request<FitnessPreferences>(`/user/${userId}/fitness-preferences`);
+  },
+
+  update: async (
+    userId: string,
+    preferences: Partial<Omit<FitnessPreferences, 'user_id'>>
+  ): Promise<FitnessPreferences & { status: string }> => {
+    return request<FitnessPreferences & { status: string }>(`/user/${userId}/fitness-preferences`, {
+      method: 'PUT',
+      body: JSON.stringify(preferences),
+    });
+  },
+};
