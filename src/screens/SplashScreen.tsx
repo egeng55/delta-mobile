@@ -26,7 +26,7 @@ export default function SplashScreen({
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={styles.content}>
-        <DeltaLogo size={180} color="#ffffff" />
+        <DeltaLogo size={180} strokeColor="#ffffff" />
         <Text style={styles.title}>Delta</Text>
         <Text style={styles.subtitle}>Your AI Health Companion</Text>
       </View>
