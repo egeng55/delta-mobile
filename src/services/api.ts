@@ -29,6 +29,25 @@ export interface ChatResponse {
   response: string;
 }
 
+export interface ImageAnalysisResponse {
+  description: string;
+  components: string[];
+  protein_level: string;
+  carb_level: string;
+  processing_level: string;
+  visible_fats: string;
+  meal_category: string | null;
+  meal_context: string;
+  clarification_questions: string[];
+  confidence: number;
+  response_text: string;
+}
+
+export interface ChatWithImageResponse {
+  response: string;
+  image_analysis: ImageAnalysisResponse | null;
+}
+
 export interface InsightsData {
   user_id: string;
   total_conversations: number;
@@ -127,6 +146,46 @@ export const chatApi = {
       body: JSON.stringify({ user_id: userId, message }),
     });
     return response.response;
+  },
+
+  sendMessageWithImage: async (
+    userId: string,
+    message: string | null,
+    imageBase64: string | null,
+    clientTimezone?: string,
+    clientLocalTime?: string
+  ): Promise<ChatWithImageResponse> => {
+    const response = await request<ChatWithImageResponse>('/chat/with-image', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        message,
+        image_data: imageBase64,
+        client_timezone: clientTimezone,
+        client_local_time: clientLocalTime,
+      }),
+    });
+    return response;
+  },
+};
+
+// Vision API - for standalone image analysis
+export const visionApi = {
+  analyzeMeal: async (
+    userId: string,
+    imageBase64: string,
+    clientTimezone?: string,
+    clientLocalTime?: string
+  ): Promise<ImageAnalysisResponse> => {
+    return request<ImageAnalysisResponse>('/vision/analyze-meal', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        image_data: imageBase64,
+        client_timezone: clientTimezone,
+        client_local_time: clientLocalTime,
+      }),
+    });
   },
 };
 

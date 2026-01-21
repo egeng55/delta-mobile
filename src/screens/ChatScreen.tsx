@@ -1,5 +1,8 @@
 /**
- * ChatScreen - Main Delta AI chat interface.
+ * ChatScreen - Main Delta AI chat interface with image support.
+ *
+ * Images are treated as contextual signals for meal understanding.
+ * Vision extracts qualitative characteristics, not numeric values.
  */
 
 import React, { useState, useRef } from 'react';
@@ -13,10 +16,15 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Image,
+  Alert,
+  ActionSheetIOS,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeInLeft, FadeInRight, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated, { FadeInLeft, FadeInRight, FadeIn, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { chatApi } from '../services/api';
@@ -36,15 +44,21 @@ interface Message {
   text: string;
   isUser: boolean;
   timestamp: number;
+  imageUri?: string;  // For displaying images in chat
 }
 
 export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const sendButtonScale = useSharedValue(1);
+  const imageButtonScale = useSharedValue(1);
 
   const sendButtonAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: sendButtonScale.value }],
+  }));
+
+  const imageButtonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: imageButtonScale.value }],
   }));
 
   const handleSendPressIn = (): void => {
@@ -55,42 +69,154 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
     sendButtonScale.value = withSpring(1, springConfig);
   };
 
+  const handleImagePressIn = (): void => {
+    imageButtonScale.value = withSpring(0.9, springConfig);
+  };
+
+  const handleImagePressOut = (): void => {
+    imageButtonScale.value = withSpring(1, springConfig);
+  };
+
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
-      text: "Hi! I'm Delta. How can I help you today?",
+      text: "Hi! I'm Delta. How can I help you today? You can also share food photos and I'll help you understand what you're eating.",
       isUser: false,
       timestamp: Date.now(),
     },
   ]);
   const [inputText, setInputText] = useState<string>('');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const flatListRef = useRef<FlatList<Message>>(null);
 
+  const pickImage = async (useCamera: boolean): Promise<void> => {
+    try {
+      // Request permissions
+      if (useCamera === true) {
+        const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
+        if (cameraPermission.granted !== true) {
+          Alert.alert('Permission Required', 'Please allow camera access to take photos.');
+          return;
+        }
+      } else {
+        const libraryPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (libraryPermission.granted !== true) {
+          Alert.alert('Permission Required', 'Please allow photo library access to select images.');
+          return;
+        }
+      }
+
+      const result = useCamera === true
+        ? await ImagePicker.launchCameraAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 0.7,
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 0.7,
+          });
+
+      if (result.canceled !== true && result.assets && result.assets.length > 0) {
+        setSelectedImage(result.assets[0].uri);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Could not access images. Please try again.');
+    }
+  };
+
+  const showImageOptions = (): void => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Take Photo', 'Choose from Library'],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            pickImage(true);
+          } else if (buttonIndex === 2) {
+            pickImage(false);
+          }
+        }
+      );
+    } else {
+      // Android: use Alert
+      Alert.alert(
+        'Add Photo',
+        'How would you like to add a photo?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Take Photo', onPress: () => pickImage(true) },
+          { text: 'Choose from Library', onPress: () => pickImage(false) },
+        ]
+      );
+    }
+  };
+
+  const clearSelectedImage = (): void => {
+    setSelectedImage(null);
+  };
+
   const sendMessage = async (): Promise<void> => {
     const trimmedText = inputText.trim();
-    if (trimmedText.length === 0 || isLoading === true) {
+    const hasText = trimmedText.length > 0;
+    const hasImage = selectedImage !== null;
+
+    if ((hasText !== true && hasImage !== true) || isLoading === true) {
       return;
     }
 
+    // Create user message with optional image
     const userMessage: Message = {
       id: Date.now().toString(),
-      text: trimmedText,
+      text: hasText ? trimmedText : '📷 Shared a photo',
       isUser: true,
       timestamp: Date.now(),
+      imageUri: selectedImage ?? undefined,
     };
 
     setMessages(prev => [...prev, userMessage]);
     setInputText('');
+    const imageToSend = selectedImage;
+    setSelectedImage(null);
     setIsLoading(true);
 
     try {
       const userId = user?.id ?? 'anonymous';
-      const response = await chatApi.sendMessage(userId, trimmedText);
+      let responseText: string;
+
+      if (hasImage && imageToSend) {
+        // Convert image to base64
+        const base64Image = await FileSystem.readAsStringAsync(imageToSend, {
+          encoding: 'base64',
+        });
+
+        // Get timezone info
+        const clientTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const clientLocalTime = new Date().toISOString();
+
+        // Send with image
+        const response = await chatApi.sendMessageWithImage(
+          userId,
+          hasText ? trimmedText : null,
+          base64Image,
+          clientTimezone,
+          clientLocalTime
+        );
+        responseText = response.response;
+      } else {
+        // Text only
+        responseText = await chatApi.sendMessage(userId, trimmedText);
+      }
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: response,
+        text: responseText,
         isUser: false,
         timestamp: Date.now(),
       };
@@ -123,6 +249,13 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
           item.isUser === true ? styles.userBubble : styles.aiBubble,
         ]}
       >
+        {item.imageUri && (
+          <Image
+            source={{ uri: item.imageUri }}
+            style={styles.messageImage}
+            resizeMode="cover"
+          />
+        )}
         <Text
           style={[
             styles.messageText,
@@ -136,6 +269,7 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
   };
 
   const styles = createStyles(theme, insets.top);
+  const canSend = inputText.trim().length > 0 || selectedImage !== null;
 
   return (
     <KeyboardAvoidingView
@@ -164,10 +298,39 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         </View>
       )}
 
+      {/* Image Preview */}
+      {selectedImage !== null && (
+        <Animated.View entering={FadeIn.duration(200)} style={styles.imagePreviewContainer}>
+          <Image source={{ uri: selectedImage }} style={styles.imagePreview} />
+          <Pressable style={styles.removeImageButton} onPress={clearSelectedImage}>
+            <Ionicons name="close-circle" size={24} color={theme.textPrimary} />
+          </Pressable>
+        </Animated.View>
+      )}
+
       <View style={styles.inputContainer}>
+        {/* Image Button */}
+        <Pressable
+          onPress={showImageOptions}
+          onPressIn={handleImagePressIn}
+          onPressOut={handleImagePressOut}
+          disabled={isLoading === true}
+          style={styles.imageButtonWrapper}
+        >
+          <Animated.View
+            style={[
+              styles.imageButton,
+              imageButtonAnimatedStyle,
+              isLoading === true && styles.buttonDisabled,
+            ]}
+          >
+            <Ionicons name="camera-outline" size={22} color={theme.accent} />
+          </Animated.View>
+        </Pressable>
+
         <TextInput
           style={styles.input}
-          placeholder="Message"
+          placeholder={selectedImage ? "Add a message (optional)" : "Message"}
           placeholderTextColor={theme.textSecondary}
           value={inputText}
           onChangeText={setInputText}
@@ -175,17 +338,18 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
           maxLength={500}
           editable={isLoading !== true}
         />
+
         <Pressable
           onPress={sendMessage}
           onPressIn={handleSendPressIn}
           onPressOut={handleSendPressOut}
-          disabled={inputText.trim().length === 0 || isLoading === true}
+          disabled={canSend !== true || isLoading === true}
         >
           <Animated.View
             style={[
               styles.sendButton,
               sendButtonAnimatedStyle,
-              (inputText.trim().length === 0 || isLoading === true) && styles.sendButtonDisabled,
+              (canSend !== true || isLoading === true) && styles.buttonDisabled,
             ]}
           >
             <Ionicons name="arrow-up" size={20} color="#ffffff" />
@@ -242,10 +406,35 @@ function createStyles(theme: Theme, topInset: number) {
     aiText: {
       color: theme.textPrimary,
     },
+    messageImage: {
+      width: 200,
+      height: 150,
+      borderRadius: 12,
+      marginBottom: 8,
+    },
     loadingContainer: {
       paddingHorizontal: 16,
       paddingBottom: 8,
       alignItems: 'flex-start',
+    },
+    imagePreviewContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      backgroundColor: theme.surface,
+      marginHorizontal: 12,
+      marginBottom: 4,
+      borderRadius: 12,
+    },
+    imagePreview: {
+      width: 60,
+      height: 60,
+      borderRadius: 8,
+    },
+    removeImageButton: {
+      marginLeft: 8,
+      padding: 4,
     },
     inputContainer: {
       flexDirection: 'row',
@@ -253,6 +442,17 @@ function createStyles(theme: Theme, topInset: number) {
       paddingVertical: 8,
       backgroundColor: theme.background,
       alignItems: 'flex-end',
+    },
+    imageButtonWrapper: {
+      marginRight: 8,
+    },
+    imageButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: theme.surface,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     input: {
       flex: 1,
@@ -273,7 +473,7 @@ function createStyles(theme: Theme, topInset: number) {
       justifyContent: 'center',
       alignItems: 'center',
     },
-    sendButtonDisabled: {
+    buttonDisabled: {
       opacity: 0.4,
     },
   });
