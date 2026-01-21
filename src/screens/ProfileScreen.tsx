@@ -138,12 +138,9 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
     <>
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>
-            {profileData.displayName.length > 0 ? profileData.displayName : 'Profile'}
-          </Text>
-          <Text style={styles.headerSubtitle}>{user?.email ?? ''}</Text>
-        </View>
+        <Text style={styles.headerTitle}>
+          {profileData.displayName.length > 0 ? profileData.displayName : 'Profile'}
+        </Text>
         <TouchableOpacity style={styles.settingsButton} onPress={onOpenSettings}>
           <Ionicons name="settings-outline" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
@@ -167,7 +164,6 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
         <View style={styles.profileInfo}>
           <Text style={styles.userName}>{profileData.displayName}</Text>
           {profileData.bio.length > 0 && <Text style={styles.userBio}>{profileData.bio}</Text>}
-          <Text style={styles.userEmail}>{user?.email ?? ''}</Text>
         </View>
 
         {/* Edit Button */}

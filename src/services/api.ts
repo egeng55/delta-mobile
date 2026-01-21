@@ -883,4 +883,4 @@ export const subscriptionApi = {
 };
 
 // Pricing URL for redirecting non-subscribers
-export const PRICING_URL = 'https://getdelta.app/pricing';
+export const PRICING_URL = 'https://deltahealthintelligence.com/pricing';

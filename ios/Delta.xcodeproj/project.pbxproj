@@ -7,12 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0252A179D676483E86A09F40 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AE4490D9237D4D15A8561FC8 /* PrivacyInfo.xcprivacy */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		3C85AA86A619409C84628000 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 3F271D7A849D46D9B1471FFC /* PrivacyInfo.xcprivacy */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
+		8D78BD79EF9A799B24CF7068 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 930183972446B6DC5FCBE48E /* ExpoModulesProvider.swift */; };
+		A8F6756F9BBE786303B6F60E /* libPods-Delta.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4DE15B20EE7FE6AA263A597F /* libPods-Delta.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
-		E0553CE0B97ACE70C58BE047 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF2C195D3BC5492496BEF75 /* ExpoModulesProvider.swift */; };
-		EB390F4FDC9CA2AB94933CCA /* libPods-Delta.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 42AC6C90BFB6AC77E8B2DD45 /* libPods-Delta.a */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
@@ -20,13 +20,13 @@
 		13B07F961A680F5B00A75B9A /* Delta.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Delta.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Delta/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Delta/Info.plist; sourceTree = "<group>"; };
-		42AC6C90BFB6AC77E8B2DD45 /* libPods-Delta.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Delta.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		55FA6264D1E8608AF0500927 /* Pods-Delta.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Delta.release.xcconfig"; path = "Target Support Files/Pods-Delta/Pods-Delta.release.xcconfig"; sourceTree = "<group>"; };
+		16DCDAA28662C09A0B82D59A /* Pods-Delta.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Delta.release.xcconfig"; path = "Target Support Files/Pods-Delta/Pods-Delta.release.xcconfig"; sourceTree = "<group>"; };
+		3F271D7A849D46D9B1471FFC /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = PrivacyInfo.xcprivacy; path = Delta/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		4DE15B20EE7FE6AA263A597F /* libPods-Delta.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Delta.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		930183972446B6DC5FCBE48E /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Delta/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		A7108E32722BB6C9F1DDFFCC /* Pods-Delta.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Delta.debug.xcconfig"; path = "Target Support Files/Pods-Delta/Pods-Delta.debug.xcconfig"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Delta/SplashScreen.storyboard; sourceTree = "<group>"; };
-		AE4490D9237D4D15A8561FC8 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = PrivacyInfo.xcprivacy; path = Delta/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		BEF2C195D3BC5492496BEF75 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Delta/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
-		D225283C7C280672FF4C8658 /* Pods-Delta.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Delta.debug.xcconfig"; path = "Target Support Files/Pods-Delta/Pods-Delta.debug.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Delta/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Delta-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Delta-Bridging-Header.h"; path = "Delta/Delta-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -37,7 +37,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				EB390F4FDC9CA2AB94933CCA /* libPods-Delta.a in Frameworks */,
+				A8F6756F9BBE786303B6F60E /* libPods-Delta.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -53,7 +53,7 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				AE4490D9237D4D15A8561FC8 /* PrivacyInfo.xcprivacy */,
+				3F271D7A849D46D9B1471FFC /* PrivacyInfo.xcprivacy */,
 			);
 			name = Delta;
 			sourceTree = "<group>";
@@ -62,19 +62,17 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				42AC6C90BFB6AC77E8B2DD45 /* libPods-Delta.a */,
+				4DE15B20EE7FE6AA263A597F /* libPods-Delta.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		571A3187300F8776BFC07192 /* Pods */ = {
+		319199DA76D73521450D83CC /* Delta */ = {
 			isa = PBXGroup;
 			children = (
-				D225283C7C280672FF4C8658 /* Pods-Delta.debug.xcconfig */,
-				55FA6264D1E8608AF0500927 /* Pods-Delta.release.xcconfig */,
+				930183972446B6DC5FCBE48E /* ExpoModulesProvider.swift */,
 			);
-			name = Pods;
-			path = Pods;
+			name = Delta;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -91,8 +89,8 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				571A3187300F8776BFC07192 /* Pods */,
-				9502CB38E3FF3B79ADC0823E /* ExpoModulesProviders */,
+				BE8B1EC672889DDA0BFEF0B0 /* Pods */,
+				BCFBE1C2F76E671621B1A286 /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -107,22 +105,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		9502CB38E3FF3B79ADC0823E /* ExpoModulesProviders */ = {
-			isa = PBXGroup;
-			children = (
-				B75588248B95DCCC515543CC /* Delta */,
-			);
-			name = ExpoModulesProviders;
-			sourceTree = "<group>";
-		};
-		B75588248B95DCCC515543CC /* Delta */ = {
-			isa = PBXGroup;
-			children = (
-				BEF2C195D3BC5492496BEF75 /* ExpoModulesProvider.swift */,
-			);
-			name = Delta;
-			sourceTree = "<group>";
-		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
 			isa = PBXGroup;
 			children = (
@@ -130,6 +112,24 @@
 			);
 			name = Supporting;
 			path = Delta/Supporting;
+			sourceTree = "<group>";
+		};
+		BCFBE1C2F76E671621B1A286 /* ExpoModulesProviders */ = {
+			isa = PBXGroup;
+			children = (
+				319199DA76D73521450D83CC /* Delta */,
+			);
+			name = ExpoModulesProviders;
+			sourceTree = "<group>";
+		};
+		BE8B1EC672889DDA0BFEF0B0 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				A7108E32722BB6C9F1DDFFCC /* Pods-Delta.debug.xcconfig */,
+				16DCDAA28662C09A0B82D59A /* Pods-Delta.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -140,13 +140,13 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "Delta" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				9B3CC7DE355AB333CFCCC7A6 /* [Expo] Configure project */,
+				3BF783EC3D5D6624D91E1245 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				DF6F0897C0C7ED360092E4D8 /* [CP] Embed Pods Frameworks */,
+				9BA87F76348F4BD9117C8235 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -196,7 +196,7 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				0252A179D676483E86A09F40 /* PrivacyInfo.xcprivacy in Resources */,
+				3C85AA86A619409C84628000 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -242,6 +242,30 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
+		3BF783EC3D5D6624D91E1245 /* [Expo] Configure project */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/.xcode.env",
+				"$(SRCROOT)/.xcode.env.local",
+				"$(SRCROOT)/Delta/Delta.entitlements",
+				"$(SRCROOT)/Pods/Target Support Files/Pods-Delta/expo-configure-project.sh",
+			);
+			name = "[Expo] Configure project";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Pods/Target Support Files/Pods-Delta/ExpoModulesProvider.swift",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-Delta/expo-configure-project.sh\"\n";
+		};
 		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -272,31 +296,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Delta/Pods-Delta-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		9B3CC7DE355AB333CFCCC7A6 /* [Expo] Configure project */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/.xcode.env",
-				"$(SRCROOT)/.xcode.env.local",
-				"$(SRCROOT)/Delta/Delta.entitlements",
-				"$(SRCROOT)/Pods/Target Support Files/Pods-Delta/expo-configure-project.sh",
-			);
-			name = "[Expo] Configure project";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(SRCROOT)/Pods/Target Support Files/Pods-Delta/ExpoModulesProvider.swift",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-Delta/expo-configure-project.sh\"\n";
-		};
-		DF6F0897C0C7ED360092E4D8 /* [CP] Embed Pods Frameworks */ = {
+		9BA87F76348F4BD9117C8235 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -326,7 +326,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				E0553CE0B97ACE70C58BE047 /* ExpoModulesProvider.swift in Sources */,
+				8D78BD79EF9A799B24CF7068 /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -335,7 +335,7 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D225283C7C280672FF4C8658 /* Pods-Delta.debug.xcconfig */;
+			baseConfigurationReference = A7108E32722BB6C9F1DDFFCC /* Pods-Delta.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -371,7 +371,7 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 55FA6264D1E8608AF0500927 /* Pods-Delta.release.xcconfig */;
+			baseConfigurationReference = 16DCDAA28662C09A0B82D59A /* Pods-Delta.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
