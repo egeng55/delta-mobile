@@ -26,7 +26,7 @@ interface AuthScreenProps {
 type AuthMode = 'login' | 'signup';
 
 export default function AuthScreen({ theme }: AuthScreenProps): React.ReactNode {
-  const { login, signup, continueAsGuest } = useAuth();
+  const { login, signup } = useAuth();
 
   const [mode, setMode] = useState<AuthMode>('signup');
   const [email, setEmail] = useState<string>('');
@@ -70,23 +70,6 @@ export default function AuthScreen({ theme }: AuthScreenProps): React.ReactNode 
 
       if (result.success !== true) {
         setError(result.error ?? 'Authentication failed');
-      }
-    } catch {
-      setError('Something went wrong. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleGuestAccess = async (): Promise<void> => {
-    setError('');
-    setSuccessMessage('');
-    setIsSubmitting(true);
-
-    try {
-      const result = await continueAsGuest();
-      if (result.success !== true) {
-        setError(result.error ?? 'Could not continue as guest');
       }
     } catch {
       setError('Something went wrong. Please try again.');
@@ -194,14 +177,6 @@ export default function AuthScreen({ theme }: AuthScreenProps): React.ReactNode 
             </Text>
           </TouchableOpacity>
         </View>
-
-        <TouchableOpacity
-          style={styles.guestLink}
-          onPress={handleGuestAccess}
-          disabled={isSubmitting === true}
-        >
-          <Text style={styles.guestText}>Continue as guest</Text>
-        </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -285,14 +260,6 @@ function createStyles(theme: Theme) {
     toggleText: {
       color: theme.accent,
       fontSize: 15,
-    },
-    guestLink: {
-      marginTop: 48,
-      alignItems: 'center',
-    },
-    guestText: {
-      color: theme.textSecondary,
-      fontSize: 13,
     },
   });
 }

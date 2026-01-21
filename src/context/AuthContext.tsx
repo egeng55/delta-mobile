@@ -38,7 +38,6 @@ interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signup: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
-  continueAsGuest: () => Promise<{ success: boolean; error?: string }>;
 }
 
 // Initial state
@@ -198,26 +197,6 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
     }
   }, []);
 
-  const continueAsGuest = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
-    try {
-      // Create anonymous user with Supabase
-      const { data, error } = await supabase.auth.signInAnonymously();
-
-      if (error !== null) {
-        return { success: false, error: error.message };
-      }
-
-      if (data.session === null) {
-        return { success: false, error: 'Could not create guest session' };
-      }
-
-      return { success: true };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Guest login failed';
-      return { success: false, error: message };
-    }
-  }, []);
-
   const logout = useCallback(async (): Promise<void> => {
     try {
       await supabase.auth.signOut();
@@ -234,7 +213,6 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
     login,
     signup,
     logout,
-    continueAsGuest,
   };
 
   return (

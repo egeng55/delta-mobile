@@ -130,12 +130,6 @@ export const authApi = {
       },
     });
   },
-
-  createGuest: async (): Promise<AuthResponse> => {
-    return request<AuthResponse>('/auth/guest', {
-      method: 'POST',
-    });
-  },
 };
 
 // Chat API
