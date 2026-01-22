@@ -17,6 +17,8 @@ import {
   Alert,
   Pressable,
   TouchableOpacity,
+  Modal,
+  Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,7 +38,13 @@ import {
   derivativesApi,
   DerivativesData,
   InsightCard as DerivativeCard,
+  MenstrualCalendarDay,
+  MenstrualSettings,
+  FlowIntensity,
+  MenstrualSymptom,
+  CyclePhase,
 } from '../services/api';
+import * as menstrualService from '../services/menstrualTracking';
 
 interface InsightsScreenProps {
   theme: Theme;
@@ -71,7 +79,7 @@ const formatMonthYear = (date: Date): string => {
 
 export default function InsightsScreen({ theme }: InsightsScreenProps): React.ReactNode {
   const { user } = useAuth();
-  const { hasAccess, isLoading: accessLoading, openPricing, isDeveloper } = useAccess();
+  const { hasAccess, isLoading: accessLoading, openLearnMore, isDeveloper } = useAccess();
   const insets = useSafeAreaInsets();
 
   const [activeTab, setActiveTab] = useState<TabType>('analytics');
@@ -88,6 +96,16 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [weights, setWeights] = useState<Record<string, string>>({});
+
+  // Menstrual tracking state
+  const [menstrualSettings, setMenstrualSettings] = useState<MenstrualSettings | null>(null);
+  const [menstrualCalendar, setMenstrualCalendar] = useState<MenstrualCalendarDay[]>([]);
+  const [cyclePhase, setCyclePhase] = useState<CyclePhase | null>(null);
+  const [showPeriodModal, setShowPeriodModal] = useState<boolean>(false);
+  const [periodModalDate, setPeriodModalDate] = useState<string>('');
+  const [selectedFlow, setSelectedFlow] = useState<FlowIntensity>('medium');
+  const [selectedSymptoms, setSelectedSymptoms] = useState<MenstrualSymptom[]>([]);
+  const [isSavingPeriod, setIsSavingPeriod] = useState<boolean>(false);
 
   const userId = user?.id ?? 'anonymous';
 
@@ -140,18 +158,35 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
       const year = calendarDate.getFullYear();
       const month = calendarDate.getMonth() + 1;
 
-      const [insightsData, workoutData, derivativesData, cardsData, monthData] = await Promise.all([
+      const [insightsData, workoutData, derivativesData, cardsData, monthData, menstrualSettingsData] = await Promise.all([
         withTimeout(insightsApi.getInsights(userId), 5000, defaultInsights),
         withTimeout(workoutApi.getToday(userId), 5000, { workout: null }),
         withTimeout(derivativesApi.getDerivatives(userId, 30), 5000, defaultDerivatives),
         withTimeout(derivativesApi.getCards(userId, 14), 5000, { cards: [], count: 0 }),
         withTimeout(calendarApi.getMonthLogs(userId, year, month), 5000, { logs: [], days_count: 0, year, month }),
+        menstrualService.getSettings(userId),
       ]);
       setInsights(insightsData);
       setWorkout(workoutData.workout);
       setDerivatives(derivativesData);
       setDerivativeCards(cardsData.cards);
       setMonthLogs(monthData.logs);
+      setMenstrualSettings(menstrualSettingsData);
+
+      // Load menstrual calendar data if tracking is enabled
+      if (menstrualSettingsData.tracking_enabled === true) {
+        const menstrualLogs = await menstrualService.getMonthLogs(userId, year, month);
+        const calendarData = menstrualService.generateCalendarData(year, month, menstrualLogs, menstrualSettingsData);
+        setMenstrualCalendar(calendarData);
+
+        // Calculate current cycle phase
+        const phase = menstrualService.calculateCyclePhase(
+          menstrualSettingsData.last_period_start,
+          menstrualSettingsData.average_cycle_length,
+          menstrualSettingsData.average_period_length
+        );
+        setCyclePhase(phase);
+      }
     } catch {
       setError('Could not load data');
       setInsights(defaultInsights);
@@ -246,6 +281,80 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
     } catch {
       setError('Could not complete workout');
     }
+  };
+
+  // Menstrual tracking functions
+  const openPeriodModal = (date: string): void => {
+    setPeriodModalDate(date);
+    setSelectedFlow('medium');
+    setSelectedSymptoms([]);
+    setShowPeriodModal(true);
+  };
+
+  const closePeriodModal = (): void => {
+    setShowPeriodModal(false);
+    setPeriodModalDate('');
+    setSelectedFlow('medium');
+    setSelectedSymptoms([]);
+  };
+
+  const toggleSymptom = (symptom: MenstrualSymptom): void => {
+    setSelectedSymptoms(prev =>
+      prev.includes(symptom)
+        ? prev.filter(s => s !== symptom)
+        : [...prev, symptom]
+    );
+  };
+
+  const savePeriodLog = async (): Promise<void> => {
+    if (periodModalDate.length === 0) return;
+
+    setIsSavingPeriod(true);
+    try {
+      await menstrualService.logEvent(
+        userId,
+        periodModalDate,
+        'period_start',
+        selectedFlow,
+        selectedSymptoms.length > 0 ? selectedSymptoms : undefined
+      );
+      closePeriodModal();
+      await fetchData();
+      Alert.alert('Logged', 'Period start logged successfully.');
+    } catch {
+      Alert.alert('Error', 'Could not save period log.');
+    } finally {
+      setIsSavingPeriod(false);
+    }
+  };
+
+  const removePeriodLog = async (date: string): Promise<void> => {
+    Alert.alert(
+      'Remove Period Log',
+      'Are you sure you want to remove this period log?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            // Find and delete the log
+            const year = calendarDate.getFullYear();
+            const month = calendarDate.getMonth() + 1;
+            const logs = await menstrualService.getMonthLogs(userId, year, month);
+            const log = logs.find(l => l.date === date && l.event_type === 'period_start');
+            if (log !== undefined) {
+              await menstrualService.deleteLog(log.id);
+              await fetchData();
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const getMenstrualDayData = (dateStr: string): MenstrualCalendarDay | undefined => {
+    return menstrualCalendar.find(d => d.date === dateStr);
   };
 
   const getProgressPercentage = (): number => {
@@ -373,6 +482,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
     const today = new Date().toISOString().split('T')[0];
 
     const logDates = new Set(monthLogs.map(l => l.date));
+    const isCycleTrackingEnabled = menstrualSettings?.tracking_enabled === true;
 
     const weeks: React.ReactNode[] = [];
     let days: React.ReactNode[] = [];
@@ -389,6 +499,9 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
       const isToday = dateStr === today;
       const isSelected = dateStr === selectedDate;
 
+      // Get menstrual data for this day
+      const menstrualDay = isCycleTrackingEnabled ? getMenstrualDayData(dateStr) : undefined;
+
       days.push(
         <TouchableOpacity
           key={day}
@@ -396,19 +509,45 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
             styles.calendarDay,
             isToday && styles.calendarDayToday,
             isSelected && styles.calendarDaySelected,
+            menstrualDay?.is_period === true && styles.calendarDayPeriod,
+            menstrualDay?.is_predicted_period === true && styles.calendarDayPredictedPeriod,
           ]}
           onPress={() => selectDate(dateStr)}
+          onLongPress={() => {
+            if (isCycleTrackingEnabled) {
+              if (menstrualDay?.is_period === true) {
+                removePeriodLog(dateStr);
+              } else {
+                openPeriodModal(dateStr);
+              }
+            }
+          }}
         >
           <Text
             style={[
               styles.calendarDayText,
               isToday && styles.calendarDayTextToday,
               isSelected && styles.calendarDayTextSelected,
+              menstrualDay?.is_period === true && styles.calendarDayTextPeriod,
             ]}
           >
             {day}
           </Text>
-          {hasData && <View style={[styles.calendarDot, { backgroundColor: theme.success }]} />}
+          <View style={styles.calendarDots}>
+            {hasData && <View style={[styles.calendarDot, { backgroundColor: theme.success }]} />}
+            {menstrualDay?.is_period === true && (
+              <View style={[styles.calendarDot, { backgroundColor: '#E57373' }]} />
+            )}
+            {menstrualDay?.is_predicted_period === true && !menstrualDay?.is_period && (
+              <View style={[styles.calendarDot, { backgroundColor: '#E5737380' }]} />
+            )}
+            {menstrualDay?.is_ovulation === true && (
+              <View style={[styles.calendarDot, { backgroundColor: '#64B5F6' }]} />
+            )}
+            {menstrualDay?.is_fertile === true && !menstrualDay?.is_ovulation && (
+              <View style={[styles.calendarDot, { backgroundColor: '#81C784' }]} />
+            )}
+          </View>
         </TouchableOpacity>
       );
 
@@ -435,6 +574,49 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
           </TouchableOpacity>
         </View>
 
+        {/* Cycle phase indicator */}
+        {isCycleTrackingEnabled && cyclePhase !== null && (
+          <View style={styles.cyclePhaseCard}>
+            <View style={[styles.cyclePhaseIcon, { backgroundColor: menstrualService.getPhaseColor(cyclePhase.phase) + '20' }]}>
+              <Ionicons
+                name={cyclePhase.phase === 'menstrual' ? 'water' : cyclePhase.phase === 'ovulation' ? 'sunny' : 'leaf'}
+                size={20}
+                color={menstrualService.getPhaseColor(cyclePhase.phase)}
+              />
+            </View>
+            <View style={styles.cyclePhaseInfo}>
+              <Text style={styles.cyclePhaseTitle}>{menstrualService.getPhaseLabel(cyclePhase.phase)}</Text>
+              <Text style={styles.cyclePhaseSubtitle}>
+                Day {cyclePhase.day_in_cycle}
+                {cyclePhase.days_until_period !== null && ` • ${cyclePhase.days_until_period} days until period`}
+                {cyclePhase.is_fertile_window && ' • Fertile window'}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Cycle tracking legend */}
+        {isCycleTrackingEnabled && (
+          <View style={styles.calendarLegend}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: '#E57373' }]} />
+              <Text style={styles.legendText}>Period</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: '#64B5F6' }]} />
+              <Text style={styles.legendText}>Ovulation</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: '#81C784' }]} />
+              <Text style={styles.legendText}>Fertile</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: theme.success }]} />
+              <Text style={styles.legendText}>Data</Text>
+            </View>
+          </View>
+        )}
+
         {/* Day headers */}
         <View style={styles.calendarWeek}>
           {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
@@ -446,6 +628,11 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
 
         {/* Weeks */}
         {weeks}
+
+        {/* Long press hint for cycle tracking */}
+        {isCycleTrackingEnabled && (
+          <Text style={styles.calendarHint}>Long press a day to log period start</Text>
+        )}
       </View>
     );
   };
@@ -526,21 +713,22 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
     );
   }
 
-  // Show paywall for users without access (unless they're developers)
+  // Show upgrade prompt for users without access (unless they're developers)
+  // App Store Compliant: No pricing, no payment references, informational only
   if (hasAccess !== true && isDeveloper !== true) {
     return (
       <View style={styles.loadingContainer}>
-        <Ionicons name="lock-closed" size={64} color={theme.textSecondary} />
-        <Text style={[styles.emptyTitle, { marginTop: 16 }]}>Premium Feature</Text>
+        <Ionicons name="analytics" size={64} color={theme.textSecondary} />
+        <Text style={[styles.emptyTitle, { marginTop: 16 }]}>Advanced Insights</Text>
         <Text style={[styles.emptySubtitle, { marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }]}>
-          Insights, analytics, and workout coaching require a Delta Premium subscription.
+          Unlock detailed analytics, trend tracking, and personalized workout coaching.
         </Text>
         <TouchableOpacity
           style={[styles.generateButton, { marginTop: 24 }]}
-          onPress={openPricing}
+          onPress={openLearnMore}
         >
-          <Ionicons name="sparkles" size={20} color="#fff" />
-          <Text style={styles.generateButtonText}>View Plans</Text>
+          <Ionicons name="information-circle" size={20} color="#fff" />
+          <Text style={styles.generateButtonText}>Learn More</Text>
         </TouchableOpacity>
       </View>
     );
@@ -801,11 +989,100 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
           )}
         </>
       ) : activeTab === 'calendar' ? (
-        <>
+        <Animated.View entering={FadeInUp.duration(300)}>
           {renderCalendar()}
           {renderSelectedDayDetails()}
-        </>
+        </Animated.View>
       ) : null}
+
+      {/* Period Logging Modal */}
+      <Modal
+        visible={showPeriodModal === true}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={closePeriodModal}
+      >
+        <View style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Log Period Start</Text>
+            <TouchableOpacity onPress={closePeriodModal} style={styles.modalCloseButton}>
+              <Ionicons name="close" size={24} color={theme.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            <Text style={styles.modalDate}>
+              {periodModalDate && new Date(periodModalDate).toLocaleDateString('en-US', {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+              })}
+            </Text>
+
+            {/* Flow Intensity */}
+            <Text style={styles.modalSectionTitle}>Flow Intensity</Text>
+            <View style={styles.flowOptions}>
+              {(['light', 'medium', 'heavy', 'spotting'] as FlowIntensity[]).map((flow) => (
+                <TouchableOpacity
+                  key={flow}
+                  style={[
+                    styles.flowOption,
+                    selectedFlow === flow && styles.flowOptionSelected,
+                  ]}
+                  onPress={() => setSelectedFlow(flow)}
+                >
+                  <View style={[
+                    styles.flowDot,
+                    { backgroundColor: flow === 'light' ? '#FFB6C1' : flow === 'medium' ? '#E57373' : flow === 'heavy' ? '#C62828' : '#FFCDD2' }
+                  ]} />
+                  <Text style={[
+                    styles.flowOptionText,
+                    selectedFlow === flow && styles.flowOptionTextSelected,
+                  ]}>
+                    {flow.charAt(0).toUpperCase() + flow.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Symptoms */}
+            <Text style={styles.modalSectionTitle}>Symptoms (Optional)</Text>
+            <View style={styles.symptomOptions}>
+              {(['cramps', 'headache', 'bloating', 'mood_changes', 'fatigue', 'breast_tenderness', 'acne', 'back_pain', 'nausea'] as MenstrualSymptom[]).map((symptom) => (
+                <TouchableOpacity
+                  key={symptom}
+                  style={[
+                    styles.symptomOption,
+                    selectedSymptoms.includes(symptom) && styles.symptomOptionSelected,
+                  ]}
+                  onPress={() => toggleSymptom(symptom)}
+                >
+                  <Text style={[
+                    styles.symptomOptionText,
+                    selectedSymptoms.includes(symptom) && styles.symptomOptionTextSelected,
+                  ]}>
+                    {symptom.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          <View style={styles.modalFooter}>
+            <TouchableOpacity
+              style={[styles.modalSaveButton, isSavingPeriod === true && styles.buttonDisabled]}
+              onPress={savePeriodLog}
+              disabled={isSavingPeriod === true}
+            >
+              {isSavingPeriod === true ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.modalSaveButtonText}>Log Period Start</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -887,7 +1164,8 @@ function createStyles(theme: Theme, topInset: number) {
     calendarDayTextToday: { fontWeight: '600', color: theme.accent },
     calendarDaySelected: { backgroundColor: theme.accent, borderRadius: 20 },
     calendarDayTextSelected: { color: '#fff', fontWeight: '600' },
-    calendarDot: { width: 4, height: 4, borderRadius: 2, marginTop: 2 },
+    calendarDots: { flexDirection: 'row', justifyContent: 'center', gap: 2, marginTop: 2, minHeight: 4 },
+    calendarDot: { width: 4, height: 4, borderRadius: 2 },
     selectedDayEmpty: { alignItems: 'center', padding: 32 },
     selectedDayEmptyText: { fontSize: 14, color: theme.textSecondary, marginTop: 8 },
     selectedDayHint: { fontSize: 12, color: theme.textSecondary, marginTop: 4 },
@@ -898,5 +1176,41 @@ function createStyles(theme: Theme, topInset: number) {
     logItemMeta: { fontSize: 12, color: theme.textSecondary },
     logNote: { marginTop: 8, padding: 12, backgroundColor: theme.surfaceSecondary, borderRadius: 8 },
     logNoteText: { fontSize: 13, color: theme.textPrimary, fontStyle: 'italic' },
+    // Menstrual tracking calendar styles
+    calendarDayPeriod: { backgroundColor: '#E5737330', borderRadius: 20 },
+    calendarDayPredictedPeriod: { backgroundColor: '#E5737315', borderRadius: 20, borderWidth: 1, borderColor: '#E5737350', borderStyle: 'dashed' },
+    calendarDayTextPeriod: { color: '#C62828', fontWeight: '600' },
+    cyclePhaseCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface, borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: theme.border },
+    cyclePhaseIcon: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+    cyclePhaseInfo: { marginLeft: 12, flex: 1 },
+    cyclePhaseTitle: { fontSize: 15, fontWeight: '600', color: theme.textPrimary },
+    cyclePhaseSubtitle: { fontSize: 12, color: theme.textSecondary, marginTop: 2 },
+    calendarLegend: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12, gap: 12 },
+    legendItem: { flexDirection: 'row', alignItems: 'center' },
+    legendDot: { width: 8, height: 8, borderRadius: 4, marginRight: 4 },
+    legendText: { fontSize: 11, color: theme.textSecondary },
+    calendarHint: { fontSize: 11, color: theme.textSecondary, textAlign: 'center', marginTop: 12, fontStyle: 'italic' },
+    // Period modal styles
+    modalContainer: { flex: 1 },
+    modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: topInset + 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: theme.border },
+    modalTitle: { fontSize: 18, fontWeight: '600', color: theme.textPrimary },
+    modalCloseButton: { padding: 8 },
+    modalContent: { flex: 1, padding: 16 },
+    modalDate: { fontSize: 20, fontWeight: '600', color: theme.textPrimary, marginBottom: 24, textAlign: 'center' },
+    modalSectionTitle: { fontSize: 14, fontWeight: '600', color: theme.textSecondary, marginBottom: 12, marginTop: 16 },
+    flowOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    flowOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 20, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
+    flowOptionSelected: { backgroundColor: '#E5737320', borderColor: '#E57373' },
+    flowDot: { width: 12, height: 12, borderRadius: 6, marginRight: 8 },
+    flowOptionText: { fontSize: 14, color: theme.textPrimary },
+    flowOptionTextSelected: { color: '#C62828', fontWeight: '500' },
+    symptomOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    symptomOption: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 16, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
+    symptomOptionSelected: { backgroundColor: theme.accentLight, borderColor: theme.accent },
+    symptomOptionText: { fontSize: 13, color: theme.textPrimary },
+    symptomOptionTextSelected: { color: theme.accent, fontWeight: '500' },
+    modalFooter: { padding: 16, borderTopWidth: 1, borderTopColor: theme.border },
+    modalSaveButton: { backgroundColor: '#E57373', paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
+    modalSaveButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   });
 }

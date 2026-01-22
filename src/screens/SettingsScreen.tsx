@@ -8,7 +8,7 @@
  * - Dark/Light mode integration
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -30,7 +30,9 @@ import * as Sharing from 'expo-sharing';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { exportApi } from '../services/api';
+import { exportApi, MenstrualSettings } from '../services/api';
+import * as menstrualService from '../services/menstrualTracking';
+import * as notificationService from '../services/notifications';
 import SupportScreen from './SupportScreen';
 
 const API_BASE_URL = 'https://delta-80ht.onrender.com';
@@ -48,10 +50,97 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
   const [notifications, setNotifications] = useState<boolean>(true);
   const [dailyReminder, setDailyReminder] = useState<boolean>(false);
   const [haptics, setHaptics] = useState<boolean>(true);
+  const [menstrualTracking, setMenstrualTracking] = useState<boolean>(false);
+  const [menstrualSettings, setMenstrualSettings] = useState<MenstrualSettings | null>(null);
+  const [isLoadingMenstrual, setIsLoadingMenstrual] = useState<boolean>(true);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState<boolean>(true);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportFormat, setExportFormat] = useState<'pdf' | 'csv' | 'json'>('pdf');
   const [showSupport, setShowSupport] = useState<boolean>(false);
+
+  // Load notification settings on mount
+  useEffect(() => {
+    const loadNotificationSettings = async (): Promise<void> => {
+      try {
+        const settings = await notificationService.getSettings();
+        setNotifications(settings.enabled === true);
+        setDailyReminder(settings.dailyReminder === true);
+      } catch {
+        // Silent fail - use defaults
+      } finally {
+        setIsLoadingNotifications(false);
+      }
+    };
+    loadNotificationSettings();
+  }, []);
+
+  // Load menstrual settings on mount
+  useEffect(() => {
+    const loadMenstrualSettings = async (): Promise<void> => {
+      if (!user?.id) return;
+      try {
+        const settings = await menstrualService.getSettings(user.id);
+        setMenstrualSettings(settings);
+        setMenstrualTracking(settings.tracking_enabled === true);
+      } catch {
+        // Silent fail - use defaults
+      } finally {
+        setIsLoadingMenstrual(false);
+      }
+    };
+    loadMenstrualSettings();
+  }, [user?.id]);
+
+  // Handle notifications toggle
+  const handleNotificationsToggle = useCallback(async (value: boolean): Promise<void> => {
+    setNotifications(value);
+    try {
+      if (value === true) {
+        const hasPermission = await notificationService.requestPermissions();
+        if (hasPermission !== true) {
+          setNotifications(false);
+          Alert.alert(
+            'Notifications Disabled',
+            'Please enable notifications in your device settings to receive reminders.'
+          );
+          return;
+        }
+      }
+      await notificationService.saveSettings({ enabled: value });
+      if (value !== true) {
+        await notificationService.cancelAllNotifications();
+      }
+    } catch {
+      setNotifications(!value);
+      Alert.alert('Error', 'Could not update notification settings.');
+    }
+  }, []);
+
+  // Handle daily reminder toggle
+  const handleDailyReminderToggle = useCallback(async (value: boolean): Promise<void> => {
+    setDailyReminder(value);
+    try {
+      await notificationService.saveSettings({ dailyReminder: value });
+    } catch {
+      setDailyReminder(!value);
+      Alert.alert('Error', 'Could not update reminder settings.');
+    }
+  }, []);
+
+  // Handle menstrual tracking toggle
+  const handleMenstrualToggle = useCallback(async (value: boolean): Promise<void> => {
+    if (!user?.id) return;
+    setMenstrualTracking(value);
+    try {
+      const updated = await menstrualService.updateSettings(user.id, { tracking_enabled: value });
+      setMenstrualSettings(updated);
+    } catch {
+      // Revert on error
+      setMenstrualTracking(!value);
+      Alert.alert('Error', 'Could not update setting. Please try again.');
+    }
+  }, [user?.id]);
 
   const openLink = async (url: string): Promise<void> => {
     try {
@@ -210,6 +299,29 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
         </Text>
       </View>
 
+      {/* Account Info */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Account</Text>
+        <View style={styles.settingRow}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="mail-outline" size={20} color={theme.accent} />
+          </View>
+          <View style={styles.settingContent}>
+            <Text style={styles.settingLabel}>Email</Text>
+            <Text style={styles.settingDescription}>{user?.email ?? 'Not set'}</Text>
+          </View>
+        </View>
+        <View style={styles.settingRow}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="calendar-outline" size={20} color={theme.accent} />
+          </View>
+          <View style={styles.settingContent}>
+            <Text style={styles.settingLabel}>Member Since</Text>
+            <Text style={styles.settingDescription}>January 2025</Text>
+          </View>
+        </View>
+      </View>
+
       {/* Appearance */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Appearance</Text>
@@ -252,12 +364,16 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
             <Text style={styles.settingLabel}>Push Notifications</Text>
             <Text style={styles.settingDescription}>Health tips and reminders</Text>
           </View>
-          <Switch
-            value={notifications === true}
-            onValueChange={setNotifications}
-            trackColor={{ false: theme.border, true: theme.accent }}
-            thumbColor="#ffffff"
-          />
+          {isLoadingNotifications === true ? (
+            <ActivityIndicator size="small" color={theme.accent} />
+          ) : (
+            <Switch
+              value={notifications === true}
+              onValueChange={handleNotificationsToggle}
+              trackColor={{ false: theme.border, true: theme.accent }}
+              thumbColor="#ffffff"
+            />
+          )}
         </View>
         <View style={styles.settingRow}>
           <View style={styles.settingIconContainer}>
@@ -265,14 +381,19 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
           </View>
           <View style={styles.settingContent}>
             <Text style={styles.settingLabel}>Daily Reminder</Text>
-            <Text style={styles.settingDescription}>Check in with Delta daily</Text>
+            <Text style={styles.settingDescription}>Check in with Delta daily at 9 AM</Text>
           </View>
-          <Switch
-            value={dailyReminder === true}
-            onValueChange={setDailyReminder}
-            trackColor={{ false: theme.border, true: theme.accent }}
-            thumbColor="#ffffff"
-          />
+          {isLoadingNotifications === true ? (
+            <ActivityIndicator size="small" color={theme.accent} />
+          ) : (
+            <Switch
+              value={dailyReminder === true}
+              onValueChange={handleDailyReminderToggle}
+              trackColor={{ false: theme.border, true: theme.accent }}
+              thumbColor="#ffffff"
+              disabled={notifications !== true}
+            />
+          )}
         </View>
         <View style={styles.settingRow}>
           <View style={styles.settingIconContainer}>
@@ -288,6 +409,30 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
             trackColor={{ false: theme.border, true: theme.accent }}
             thumbColor="#ffffff"
           />
+        </View>
+      </View>
+
+      {/* Health Tracking */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Health Tracking</Text>
+        <View style={styles.settingRow}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="calendar-outline" size={20} color={theme.accent} />
+          </View>
+          <View style={styles.settingContent}>
+            <Text style={styles.settingLabel}>Cycle Tracking</Text>
+            <Text style={styles.settingDescription}>Track menstrual cycle and hormonal phases</Text>
+          </View>
+          {isLoadingMenstrual === true ? (
+            <ActivityIndicator size="small" color={theme.accent} />
+          ) : (
+            <Switch
+              value={menstrualTracking === true}
+              onValueChange={handleMenstrualToggle}
+              trackColor={{ false: theme.border, true: theme.accent }}
+              thumbColor="#ffffff"
+            />
+          )}
         </View>
       </View>
 

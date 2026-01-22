@@ -31,7 +31,12 @@ import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
+import { useAccess } from '../context/AccessContext';
 import { FadeInView, AnimatedCard } from '../components/Animated';
+import { supabase } from '../services/supabase';
+import { profileApi } from '../services/api';
+
+type Gender = 'male' | 'female' | 'non-binary' | 'other' | null;
 
 const springConfig = {
   damping: 15,
@@ -48,47 +53,108 @@ interface ProfileScreenProps {
 
 interface ProfileData {
   displayName: string;
+  username: string;
+  age: string;
+  gender: Gender;
   bio: string;
   profileImage: string | null;
 }
 
 export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenProps): React.ReactNode {
   const { user } = useAuth();
+  const { profile } = useAccess();
   const insets = useSafeAreaInsets();
 
   const [editModalVisible, setEditModalVisible] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [profileData, setProfileData] = useState<ProfileData>({
     displayName: user?.name ?? 'User',
+    username: profile?.username ?? '',
+    age: profile?.age?.toString() ?? '',
+    gender: profile?.gender ?? null,
     bio: '',
     profileImage: null,
   });
   const [editData, setEditData] = useState<ProfileData>(profileData);
 
-  // Load saved profile data
+  // Load saved profile data (local storage + Supabase profile)
   useEffect(() => {
     const loadProfile = async (): Promise<void> => {
       try {
         const saved = await AsyncStorage.getItem(`${PROFILE_STORAGE_KEY}_${user?.id}`);
-        if (saved !== null) {
-          const parsed = JSON.parse(saved) as ProfileData;
-          setProfileData(parsed);
-          setEditData(parsed);
-        }
+        const localData = saved !== null ? JSON.parse(saved) : {};
+
+        // Merge Supabase profile data with local data
+        const mergedData: ProfileData = {
+          displayName: localData.displayName ?? profile?.name ?? user?.name ?? 'User',
+          username: profile?.username ?? localData.username ?? '',
+          age: profile?.age?.toString() ?? localData.age ?? '',
+          gender: profile?.gender ?? localData.gender ?? null,
+          bio: localData.bio ?? '',
+          profileImage: localData.profileImage ?? null,
+        };
+
+        setProfileData(mergedData);
+        setEditData(mergedData);
       } catch {
         // Use defaults
       }
     };
     loadProfile();
-  }, [user?.id]);
+  }, [user?.id, user?.name, profile?.name, profile?.username, profile?.age, profile?.gender]);
 
   const saveProfile = async (): Promise<void> => {
+    // Validate username
+    if (editData.username.length > 0 && editData.username.length < 3) {
+      Alert.alert('Error', 'Username must be at least 3 characters');
+      return;
+    }
+    if (editData.username.length > 0 && !/^[a-z0-9_]+$/.test(editData.username)) {
+      Alert.alert('Error', 'Username can only contain letters, numbers, and underscores');
+      return;
+    }
+
     setIsSaving(true);
     try {
+      // Save to AsyncStorage (local data: bio, profileImage, displayName)
       await AsyncStorage.setItem(
         `${PROFILE_STORAGE_KEY}_${user?.id}`,
         JSON.stringify(editData)
       );
+
+      // Save to Supabase (username, age, gender, name)
+      if (user?.id) {
+        const ageNum = editData.age.length > 0 ? parseInt(editData.age, 10) : null;
+
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({
+            name: editData.displayName,
+            username: editData.username.length > 0 ? editData.username : null,
+            age: ageNum,
+            gender: editData.gender,
+          })
+          .eq('id', user.id);
+
+        if (updateError) {
+          console.error('Error updating profile:', updateError);
+          // Check for username conflict
+          if (updateError.code === '23505') {
+            Alert.alert('Error', 'This username is already taken');
+            setIsSaving(false);
+            return;
+          }
+        }
+
+        // Sync profile to Delta's memory so Delta knows about the changes
+        try {
+          await profileApi.syncToDelta(user.id);
+        } catch (syncError) {
+          // Non-fatal - profile is saved, just not synced to Delta yet
+          console.log('Profile sync to Delta deferred:', syncError);
+        }
+      }
+
       setProfileData(editData);
       setEditModalVisible(false);
     } catch {
@@ -139,7 +205,7 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
-          {profileData.displayName.length > 0 ? profileData.displayName : 'Profile'}
+          @{profile?.username ?? (profile?.name ?? user?.name ?? 'user').toLowerCase().replace(/\s/g, '')}
         </Text>
         <TouchableOpacity style={styles.settingsButton} onPress={onOpenSettings}>
           <Ionicons name="settings-outline" size={24} color={theme.textPrimary} />
@@ -172,27 +238,6 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
         </TouchableOpacity>
       </Animated.View>
 
-      <FadeInView style={styles.section} delay={200}>
-        <Text style={styles.sectionTitle}>Account Info</Text>
-        <AnimatedCard style={styles.infoRow} delay={250}>
-          <View style={styles.infoIconContainer}>
-            <Ionicons name="mail-outline" size={20} color={theme.accent} />
-          </View>
-          <View style={styles.infoContent}>
-            <Text style={styles.infoLabel}>Email</Text>
-            <Text style={styles.infoValue}>{user?.email ?? 'Not set'}</Text>
-          </View>
-        </AnimatedCard>
-        <AnimatedCard style={styles.infoRow} delay={300}>
-          <View style={styles.infoIconContainer}>
-            <Ionicons name="calendar-outline" size={20} color={theme.accent} />
-          </View>
-          <View style={styles.infoContent}>
-            <Text style={styles.infoLabel}>Member Since</Text>
-            <Text style={styles.infoValue}>January 2025</Text>
-          </View>
-        </AnimatedCard>
-      </FadeInView>
 
     </ScrollView>
 
@@ -259,6 +304,64 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
               placeholderTextColor={theme.textSecondary}
               maxLength={30}
             />
+          </View>
+
+          {/* Username Input */}
+          <View style={styles.modalInputGroup}>
+            <Text style={styles.modalLabel}>Username</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editData.username}
+              onChangeText={(text) => setEditData(prev => ({
+                ...prev,
+                username: text.toLowerCase().replace(/[^a-z0-9_]/g, '')
+              }))}
+              placeholder="your_username"
+              placeholderTextColor={theme.textSecondary}
+              autoCapitalize="none"
+              maxLength={20}
+            />
+            <Text style={styles.inputHint}>Letters, numbers, and underscores only</Text>
+          </View>
+
+          {/* Age Input */}
+          <View style={styles.modalInputGroup}>
+            <Text style={styles.modalLabel}>Age</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editData.age}
+              onChangeText={(text) => setEditData(prev => ({ ...prev, age: text.replace(/[^0-9]/g, '') }))}
+              placeholder="Your age"
+              placeholderTextColor={theme.textSecondary}
+              keyboardType="number-pad"
+              maxLength={3}
+            />
+          </View>
+
+          {/* Gender Selection */}
+          <View style={styles.modalInputGroup}>
+            <Text style={styles.modalLabel}>Gender</Text>
+            <View style={styles.genderOptions}>
+              {(['male', 'female', 'non-binary', 'other'] as const).map((option) => (
+                <TouchableOpacity
+                  key={option}
+                  style={[
+                    styles.genderOption,
+                    editData.gender === option && styles.genderOptionSelected,
+                  ]}
+                  onPress={() => setEditData(prev => ({ ...prev, gender: option }))}
+                >
+                  <Text
+                    style={[
+                      styles.genderOptionText,
+                      editData.gender === option && styles.genderOptionTextSelected,
+                    ]}
+                  >
+                    {option.charAt(0).toUpperCase() + option.slice(1).replace('-', ' ')}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
 
           {/* Bio Input */}
@@ -519,6 +622,36 @@ function createStyles(theme: Theme, topInset: number) {
       color: theme.textSecondary,
       textAlign: 'right',
       marginTop: 4,
+    },
+    inputHint: {
+      fontSize: 12,
+      color: theme.textSecondary,
+      marginTop: 4,
+    },
+    genderOptions: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    genderOption: {
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      borderRadius: 20,
+      backgroundColor: theme.surface,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    genderOptionSelected: {
+      backgroundColor: theme.accentLight,
+      borderColor: theme.accent,
+    },
+    genderOptionText: {
+      fontSize: 14,
+      color: theme.textSecondary,
+    },
+    genderOptionTextSelected: {
+      color: theme.accent,
+      fontWeight: '600',
     },
   });
 }

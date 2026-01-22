@@ -25,6 +25,7 @@ import InsightsScreen from '../screens/InsightsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import WelcomeAnimationScreen from '../screens/WelcomeAnimationScreen';
+import OnboardingScreen, { hasCompletedOnboarding } from '../screens/OnboardingScreen';
 
 // Type definitions
 export type RootStackParamList = {
@@ -79,7 +80,7 @@ function MainTabs(): React.ReactNode {
           options={{
             tabBarShowLabel: false,
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="chatbubbles-outline" size={size} color={color} />
+              <Ionicons name="triangle-outline" size={size} color={color} />
             ),
           }}
         >
@@ -134,7 +135,19 @@ export default function AppNavigator(): React.ReactNode {
   const { isLoading, isAuthenticated } = useAuth();
   const { theme } = useTheme();
   const [showWelcome, setShowWelcome] = useState<boolean>(false);
+  const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+  const [isCheckingOnboarding, setIsCheckingOnboarding] = useState<boolean>(true);
   const wasAuthenticated = useRef<boolean>(false);
+
+  // Check if onboarding has been completed
+  useEffect(() => {
+    const checkOnboarding = async (): Promise<void> => {
+      const completed = await hasCompletedOnboarding();
+      setShowOnboarding(completed !== true);
+      setIsCheckingOnboarding(false);
+    };
+    checkOnboarding();
+  }, []);
 
   // Track auth state changes to trigger welcome animation on login
   useEffect(() => {
@@ -149,12 +162,23 @@ export default function AppNavigator(): React.ReactNode {
     setShowWelcome(false);
   };
 
+  const handleOnboardingComplete = (): void => {
+    setShowOnboarding(false);
+  };
+
   // SAFETY: Explicit boolean check
-  if (isLoading === true) {
+  if (isLoading === true || isCheckingOnboarding === true) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
         <ActivityIndicator size="large" color={theme.accent} />
       </View>
+    );
+  }
+
+  // Show onboarding on first launch (before auth)
+  if (showOnboarding === true && isAuthenticated !== true) {
+    return (
+      <OnboardingScreen theme={theme} onComplete={handleOnboardingComplete} />
     );
   }
 

@@ -8,7 +8,7 @@
  * - Safe color scheme detection
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -16,6 +16,7 @@ import { AuthProvider } from './src/context/AuthContext';
 import { AccessProvider } from './src/context/AccessContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import AppNavigator from './src/navigation/AppNavigator';
+import { initNetworkMonitoring } from './src/services/offlineCache';
 
 function AppContent(): React.ReactNode {
   const { theme, isDark } = useTheme();
@@ -32,6 +33,14 @@ function AppContent(): React.ReactNode {
 }
 
 export default function App(): React.ReactNode {
+  // Initialize network monitoring for offline support
+  useEffect(() => {
+    const unsubscribe = initNetworkMonitoring();
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   return (
     <SafeAreaProvider>
       <ThemeProvider>

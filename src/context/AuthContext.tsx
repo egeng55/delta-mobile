@@ -36,7 +36,7 @@ interface AuthState {
 // Context type
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  signup: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
+  signup: (email: string, password: string, name: string, username?: string, age?: number, gender?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
 }
 
@@ -139,7 +139,10 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
   const signup = useCallback(async (
     email: string,
     password: string,
-    name: string
+    name: string,
+    username?: string,
+    age?: number,
+    gender?: string
   ): Promise<{ success: boolean; error?: string }> => {
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -148,6 +151,9 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
         options: {
           data: {
             name: name,
+            username: username,
+            age: age,
+            gender: gender,
           },
         },
       });

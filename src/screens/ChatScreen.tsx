@@ -39,10 +39,17 @@ import Animated, {
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import Markdown from 'react-native-markdown-display';
+import { useNavigation } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
+import { useAccess } from '../context/AccessContext';
 import { chatApi } from '../services/api';
 import { DeltaLogoSimple } from '../components/DeltaLogo';
+import { MainTabParamList } from '../navigation/AppNavigator';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const PROFILE_STORAGE_KEY = '@delta_user_profile';
 
 const springConfig = {
   damping: 15,
@@ -90,10 +97,31 @@ To get started, try saying something like:
 
 export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode {
   const { user } = useAuth();
+  const { profile } = useAccess();
+  const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
   const insets = useSafeAreaInsets();
   const sendButtonScale = useSharedValue(1);
   const imageButtonScale = useSharedValue(1);
   const logoRotation = useSharedValue(0);
+  const [profileImage, setProfileImage] = React.useState<string | null>(null);
+
+  // Load profile image
+  React.useEffect(() => {
+    const loadProfileImage = async (): Promise<void> => {
+      try {
+        const saved = await AsyncStorage.getItem(`${PROFILE_STORAGE_KEY}_${user?.id}`);
+        if (saved !== null) {
+          const parsed = JSON.parse(saved);
+          if (parsed.profileImage) {
+            setProfileImage(parsed.profileImage);
+          }
+        }
+      } catch {
+        // Ignore errors
+      }
+    };
+    loadProfileImage();
+  }, [user?.id]);
 
   const sendButtonAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: sendButtonScale.value }],
@@ -449,6 +477,20 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
           </Animated.View>
         </Pressable>
         <Text style={styles.headerTitle}>DELTA</Text>
+        <Pressable
+          style={styles.profileButton}
+          onPress={() => navigation.navigate('Profile')}
+        >
+          {profileImage !== null ? (
+            <Image source={{ uri: profileImage }} style={styles.profileImage} />
+          ) : (
+            <View style={styles.profilePlaceholder}>
+              <Text style={styles.profileInitial}>
+                {(profile?.name ?? user?.name ?? 'U').charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+        </Pressable>
       </View>
 
       <FlatList
@@ -553,10 +595,32 @@ function createStyles(theme: Theme, topInset: number) {
       marginRight: 10,
     },
     headerTitle: {
+      flex: 1,
       fontSize: 17,
       fontWeight: '600',
       color: theme.textPrimary,
       letterSpacing: 1,
+    },
+    profileButton: {
+      marginLeft: 10,
+    },
+    profileImage: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+    },
+    profilePlaceholder: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme.accentLight,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    profileInitial: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.accent,
     },
     messageList: {
       padding: 16,

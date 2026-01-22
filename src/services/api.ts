@@ -9,6 +9,14 @@
 
 const API_BASE_URL = 'https://delta-80ht.onrender.com';
 
+// Timeouts for Render free tier cold starts
+const COLD_START_TIMEOUT = 45000; // 45 seconds for first request (cold start)
+const NORMAL_TIMEOUT = 15000; // 15 seconds for subsequent requests
+const MAX_RETRIES = 2; // Number of retry attempts
+
+// Track if we've successfully connected (server is warm)
+let serverIsWarm = false;
+
 // Response types
 export interface User {
   id: string;
@@ -69,33 +77,67 @@ export class ApiError extends Error {
   }
 }
 
-// Helper to make requests
+// Helper to make requests with timeout and retry logic
 async function request<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retries: number = MAX_RETRIES
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+  const timeout = serverIsWarm ? NORMAL_TIMEOUT : COLD_START_TIMEOUT;
 
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  if (response.ok !== true) {
-    let errorMessage = 'Request failed';
-    try {
-      const errorData = await response.json();
-      errorMessage = errorData.detail || errorData.message || errorMessage;
-    } catch {
-      // Use default error message
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+
+    clearTimeout(timeoutId);
+
+    // Mark server as warm after successful response
+    serverIsWarm = true;
+
+    if (response.ok !== true) {
+      let errorMessage = 'Request failed';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch {
+        // Use default error message
+      }
+      throw new ApiError(errorMessage, response.status);
     }
-    throw new ApiError(errorMessage, response.status);
-  }
 
-  return response.json() as Promise<T>;
+    return response.json() as Promise<T>;
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    // Check if this is a timeout or network error that we should retry
+    const isRetryableError =
+      error instanceof Error &&
+      (error.name === 'AbortError' ||
+        error.message.includes('Network request failed') ||
+        error.message.includes('timeout') ||
+        error.message.includes('network'));
+
+    if (isRetryableError && retries > 0) {
+      // Wait before retrying (exponential backoff)
+      const backoffMs = 1000 * (MAX_RETRIES - retries + 1);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+
+      // Retry with warm timeout since we've already waited
+      return request<T>(endpoint, options, retries - 1);
+    }
+
+    throw error;
+  }
 }
 
 // Auth API
@@ -386,6 +428,22 @@ export const fitnessPreferencesApi = {
       method: 'PUT',
       body: JSON.stringify(preferences),
     });
+  },
+};
+
+// Profile API - for syncing profile data to Delta's memory
+export const profileApi = {
+  /**
+   * Sync profile from auth profiles to Delta's memory.
+   * Call this after updating profile directly in Supabase.
+   */
+  syncToDelta: async (
+    userId: string
+  ): Promise<{ status: string; message: string; profile: { name: string | null; age: number | null; sex: string | null } }> => {
+    return request<{ status: string; message: string; profile: { name: string | null; age: number | null; sex: string | null } }>(
+      `/user/${userId}/sync-profile`,
+      { method: 'POST' }
+    );
   },
 };
 
@@ -696,6 +754,45 @@ export interface ExportRequest {
   end_date?: string;
 }
 
+// Helper for fetch with timeout and retry (for non-JSON responses)
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit = {},
+  retries: number = MAX_RETRIES
+): Promise<Response> {
+  const timeout = serverIsWarm ? NORMAL_TIMEOUT : COLD_START_TIMEOUT;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    serverIsWarm = true;
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    const isRetryableError =
+      error instanceof Error &&
+      (error.name === 'AbortError' ||
+        error.message.includes('Network request failed') ||
+        error.message.includes('timeout') ||
+        error.message.includes('network'));
+
+    if (isRetryableError && retries > 0) {
+      const backoffMs = 1000 * (MAX_RETRIES - retries + 1);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      return fetchWithRetry(url, options, retries - 1);
+    }
+
+    throw error;
+  }
+}
+
 // Export API
 export const exportApi = {
   /**
@@ -707,7 +804,7 @@ export const exportApi = {
     options?: ExportRequest
   ): Promise<Blob> => {
     const url = `${API_BASE_URL}/export/${userId}/pdf`;
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(options || {}),
@@ -729,7 +826,7 @@ export const exportApi = {
     options?: ExportRequest
   ): Promise<string> => {
     const url = `${API_BASE_URL}/export/${userId}/csv`;
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(options || {}),
@@ -882,5 +979,50 @@ export const subscriptionApi = {
   },
 };
 
-// Pricing URL for redirecting non-subscribers
-export const PRICING_URL = 'https://deltahealthintelligence.com/pricing';
+// Info URL for learning more about features (App Store compliant - no pricing)
+export const INFO_URL = 'https://deltahealthintelligence.com/learn-more';
+
+// Menstrual Tracking Types
+export type MenstrualEventType = 'period_start' | 'period_end' | 'ovulation' | 'fertile_start' | 'fertile_end' | 'symptom';
+export type FlowIntensity = 'light' | 'medium' | 'heavy' | 'spotting';
+export type MenstrualSymptom = 'cramps' | 'headache' | 'bloating' | 'mood_changes' | 'fatigue' | 'breast_tenderness' | 'acne' | 'back_pain' | 'nausea';
+
+export interface MenstrualLog {
+  id: string;
+  user_id: string;
+  date: string;
+  event_type: MenstrualEventType;
+  flow_intensity: FlowIntensity | null;
+  symptoms: MenstrualSymptom[];
+  notes: string | null;
+  created_at: string;
+}
+
+export interface MenstrualSettings {
+  user_id: string;
+  tracking_enabled: boolean;
+  average_cycle_length: number;
+  average_period_length: number;
+  last_period_start: string | null;
+  notifications_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CyclePhase {
+  phase: 'menstrual' | 'follicular' | 'ovulation' | 'luteal';
+  day_in_cycle: number;
+  days_until_period: number | null;
+  is_fertile_window: boolean;
+}
+
+export interface MenstrualCalendarDay {
+  date: string;
+  is_period: boolean;
+  is_predicted_period: boolean;
+  is_fertile: boolean;
+  is_ovulation: boolean;
+  flow_intensity: FlowIntensity | null;
+  symptoms: MenstrualSymptom[];
+  has_log: boolean;
+}
