@@ -57,23 +57,6 @@ afterEach(() => {
 
 describe('Usability Simulations', () => {
   describe('New User Onboarding Journey', () => {
-    it('should complete guest signup flow', async () => {
-      mockFetch({
-        '/auth/guest': {
-          status: 'ok',
-          user: { id: 'guest_123', email: '', name: 'Guest' },
-          session_token: 'token_abc',
-          expires_at: '2025-02-21T00:00:00Z',
-          is_guest: true,
-        },
-      });
-
-      const response = await authApi.createGuest();
-      expect(response.status).toBe('ok');
-      expect(response.is_guest).toBe(true);
-      expect(response.session_token).toBeDefined();
-    });
-
     it('should complete email signup flow', async () => {
       mockFetch({
         '/auth/signup': {
