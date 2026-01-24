@@ -19,36 +19,39 @@ export const BackgroundImages = {
 
 export type BackgroundImageKey = keyof typeof BackgroundImages;
 
+// Gradient color tuple type for LinearGradient
+type GradientColors = readonly [string, string];
+
 // Preset tint colors (Oura-inspired)
-export const TintPresets = {
+export const TintPresets: Record<string, { colors: GradientColors; image: BackgroundImageKey }> = {
   // Sleep/Rest - deep blue/purple
   sleep: {
     colors: ['rgba(30, 41, 82, 0.85)', 'rgba(45, 55, 110, 0.75)'],
-    image: 'aerialIce' as BackgroundImageKey,
+    image: 'aerialIce',
   },
   // Activity/Energy - teal/green
   activity: {
     colors: ['rgba(20, 80, 80, 0.8)', 'rgba(30, 100, 90, 0.7)'],
-    image: 'coastalWildflowers' as BackgroundImageKey,
+    image: 'coastalWildflowers',
   },
   // Recovery/Wellness - calm blue
   recovery: {
     colors: ['rgba(40, 70, 100, 0.8)', 'rgba(50, 90, 120, 0.7)'],
-    image: 'waterfallStones' as BackgroundImageKey,
+    image: 'waterfallStones',
   },
   // Readiness - warm purple
   readiness: {
     colors: ['rgba(60, 40, 80, 0.8)', 'rgba(80, 50, 100, 0.7)'],
-    image: 'sunsetShore' as BackgroundImageKey,
+    image: 'sunsetShore',
   },
   // General/Insights - soft green
   insights: {
     colors: ['rgba(40, 70, 60, 0.8)', 'rgba(50, 90, 80, 0.7)'],
-    image: 'riverBlooms' as BackgroundImageKey,
+    image: 'riverBlooms',
   },
-} as const;
+};
 
-export type TintPresetKey = keyof typeof TintPresets;
+export type TintPresetKey = 'sleep' | 'activity' | 'recovery' | 'readiness' | 'insights';
 
 interface BackgroundCardProps {
   children: React.ReactNode;
@@ -81,7 +84,7 @@ export function BackgroundCard({
 }: BackgroundCardProps) {
   // Determine image source and tint colors
   let imageSource: ImageSourcePropType;
-  let colors: string[];
+  let colors: readonly [string, string];
 
   if (preset) {
     const presetConfig = TintPresets[preset];
@@ -97,10 +100,12 @@ export function BackgroundCard({
       imageSource = BackgroundImages.aerialIce;
     }
 
-    colors = tintColors || [
-      `rgba(30, 50, 80, ${tintOpacity})`,
-      `rgba(40, 60, 90, ${tintOpacity * 0.9})`,
-    ];
+    colors = tintColors && tintColors.length >= 2
+      ? [tintColors[0], tintColors[1]]
+      : [
+          `rgba(30, 50, 80, ${tintOpacity})`,
+          `rgba(40, 60, 90, ${tintOpacity * 0.9})`,
+        ];
   }
 
   return (

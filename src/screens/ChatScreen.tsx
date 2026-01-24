@@ -8,7 +8,7 @@
  * - Rich formatting support (bold, headers, lists, tables)
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo, useCallback, memo } from 'react';
 import {
   View,
   Text,
@@ -311,8 +311,8 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
     }
   };
 
-  // Markdown styles for Delta messages
-  const markdownStyles = {
+  // Markdown styles for Delta messages (memoized to prevent recreation)
+  const markdownStyles = useMemo(() => ({
     body: {
       color: theme.textPrimary,
       fontSize: 15,
@@ -417,15 +417,17 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
     link: {
       color: theme.accent,
     },
-  };
+  }), [theme]);
 
-  const renderMessage = ({ item }: { item: Message }): React.ReactElement => {
+  const styles = createStyles(theme, insets.top);
+
+  // Memoized message component to prevent unnecessary re-renders
+  const MessageBubble = useCallback(({ item }: { item: Message }): React.ReactElement => {
     const entering = item.isUser === true
       ? FadeInRight.duration(300).springify()
       : FadeInLeft.duration(300).springify();
 
     if (item.isUser === true) {
-      // User message with bubble
       return (
         <Animated.View
           entering={entering}
@@ -443,7 +445,6 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
       );
     }
 
-    // Delta message - no bubble, markdown rendered
     return (
       <Animated.View entering={entering} style={styles.deltaMessage}>
         <View style={styles.deltaHeader}>
@@ -455,9 +456,13 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         </View>
       </Animated.View>
     );
-  };
+  }, [styles, theme.accent, markdownStyles]);
 
-  const styles = createStyles(theme, insets.top);
+  // Use memoized MessageBubble for rendering
+  const renderMessage = useCallback(({ item }: { item: Message }): React.ReactElement => {
+    return <MessageBubble item={item} />;
+  }, [MessageBubble]);
+
   const canSend = inputText.trim().length > 0 || selectedImage !== null;
 
   return (
@@ -499,6 +504,12 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         renderItem={renderMessage}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.messageList}
+        // Performance optimizations
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        updateCellsBatchingPeriod={50}
+        windowSize={10}
+        initialNumToRender={15}
         onContentSizeChange={() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         }}

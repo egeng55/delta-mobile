@@ -166,6 +166,26 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
         return { success: false, error: 'Signup failed' };
       }
 
+      // Create profile row in Supabase (upsert to handle race conditions with triggers)
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert({
+          id: data.user.id,
+          email: email,
+          name: name,
+          username: username ?? null,
+          age: age ?? null,
+          gender: gender ?? null,
+          role: 'user',
+        }, {
+          onConflict: 'id',
+        });
+
+      if (profileError !== null) {
+        console.error('Error creating profile:', profileError.message);
+        // Don't fail signup if profile creation fails - user can still use the app
+      }
+
       // Check if email confirmation is required
       if (data.session === null) {
         return { success: true };

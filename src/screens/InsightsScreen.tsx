@@ -5,7 +5,7 @@
  * Analytics shows derivative trends and patterns.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -79,7 +79,7 @@ const formatMonthYear = (date: Date): string => {
 
 export default function InsightsScreen({ theme }: InsightsScreenProps): React.ReactNode {
   const { user } = useAuth();
-  const { hasAccess, isLoading: accessLoading, openLearnMore, isDeveloper } = useAccess();
+  const { hasAccess, isLoading: accessLoading, showPaywall, isDeveloper } = useAccess();
   const insets = useSafeAreaInsets();
 
   const [activeTab, setActiveTab] = useState<TabType>('analytics');
@@ -353,17 +353,23 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
     );
   };
 
-  const getMenstrualDayData = (dateStr: string): MenstrualCalendarDay | undefined => {
-    return menstrualCalendar.find(d => d.date === dateStr);
-  };
+  // Pre-indexed menstrual calendar for O(1) lookup instead of O(n) per day
+  const menstrualDayMap = useMemo(() => {
+    return new Map(menstrualCalendar.map(d => [d.date, d]));
+  }, [menstrualCalendar]);
 
-  const getProgressPercentage = (): number => {
+  const getMenstrualDayData = useCallback((dateStr: string): MenstrualCalendarDay | undefined => {
+    return menstrualDayMap.get(dateStr);
+  }, [menstrualDayMap]);
+
+  // Memoize progress calculation
+  const progressPercentage = useMemo((): number => {
     if (workout === null) return 0;
     const exercises = workout.exercise_details ?? [];
     if (exercises.length === 0) return 0;
     const completed = exercises.filter(e => e.completed === true).length;
     return Math.round((completed / exercises.length) * 100);
-  };
+  }, [workout]);
 
   const getMetricIcon = (metricKey: string): keyof typeof Ionicons.glyphMap => {
     const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -471,7 +477,8 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
     return cards;
   };
 
-  const trendCards = buildTrendCards();
+  // Memoize trend cards to prevent recalculation on every render
+  const trendCards = useMemo(() => buildTrendCards(), [derivatives, insights, theme]);
 
   // Build calendar grid
   const renderCalendar = (): React.ReactNode => {
@@ -714,7 +721,6 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   }
 
   // Show upgrade prompt for users without access (unless they're developers)
-  // App Store Compliant: No pricing, no payment references, informational only
   if (hasAccess !== true && isDeveloper !== true) {
     return (
       <View style={styles.loadingContainer}>
@@ -725,10 +731,10 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
         </Text>
         <TouchableOpacity
           style={[styles.generateButton, { marginTop: 24 }]}
-          onPress={openLearnMore}
+          onPress={showPaywall}
         >
-          <Ionicons name="information-circle" size={20} color="#fff" />
-          <Text style={styles.generateButtonText}>Learn More</Text>
+          <Ionicons name="diamond" size={20} color="#fff" />
+          <Text style={styles.generateButtonText}>Upgrade to Pro</Text>
         </TouchableOpacity>
       </View>
     );
@@ -928,13 +934,13 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
                 </View>
                 <View style={styles.progressContainer}>
                   <AnimatedProgress
-                    progress={getProgressPercentage()}
+                    progress={progressPercentage}
                     height={8}
                     backgroundColor={theme.border}
                     fillColor={theme.success}
                     style={styles.progressBar}
                   />
-                  <Text style={styles.progressText}>{getProgressPercentage()}%</Text>
+                  <Text style={styles.progressText}>{progressPercentage}%</Text>
                 </View>
               </AnimatedCard>
 
