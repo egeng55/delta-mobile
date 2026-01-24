@@ -46,13 +46,15 @@ import {
   MenstrualSymptom,
   CyclePhase,
   dashboardApi,
+  DailyTargets as ApiDailyTargets,
+  DashboardResponse,
 } from '../services/api';
 import * as menstrualService from '../services/menstrualTracking';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Daily targets configuration
-interface DailyTargets {
+// Local targets interface for display
+interface DisplayTargets {
   calories: number;
   protein: number;
   water_oz: number;
@@ -60,7 +62,7 @@ interface DailyTargets {
   workouts: number;
 }
 
-const DEFAULT_TARGETS: DailyTargets = {
+const DEFAULT_TARGETS: DisplayTargets = {
   calories: 2000,
   protein: 150,
   water_oz: 64,
@@ -124,7 +126,7 @@ const mapCardColor = (colorName: string | undefined, theme: Theme): string => {
     warning: theme.warning,
     success: theme.success,
     error: theme.error,
-    primary: theme.primary,
+    primary: theme.accent, // Use accent as primary
     secondary: theme.textSecondary,
   };
   return colorMap[colorName] ?? theme.accent;
@@ -151,7 +153,8 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [weights, setWeights] = useState<Record<string, string>>({});
-  const [targets] = useState<DailyTargets>(DEFAULT_TARGETS);
+  const [targets, setTargets] = useState<DisplayTargets>(DEFAULT_TARGETS);
+  const [targetsPersonalized, setTargetsPersonalized] = useState<boolean>(false);
   const [selectedChartMetric, setSelectedChartMetric] = useState<'calories' | 'protein' | 'sleep' | 'workouts'>('calories');
 
   // Menstrual tracking state
@@ -216,7 +219,14 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
       const month = calendarDate.getMonth() + 1;
 
       const defaultWeekly = { weekly_summaries: [], days_count: 0 };
-      const defaultDashboard = { today: null, streak: { current_streak: 0 }, recent_entries: [] };
+      const defaultDashboard: DashboardResponse = {
+        today: null,
+        streak: { current_streak: 0, longest_streak: 0, last_active_date: null },
+        recent_entries: [],
+        targets: DEFAULT_TARGETS as unknown as ApiDailyTargets,
+        targets_calculated: false,
+        targets_source: 'default',
+      };
 
       const [insightsData, workoutData, derivativesData, cardsData, monthData, weeklyData, dashboardData, menstrualSettingsData] = await Promise.all([
         withTimeout(insightsApi.getInsights(userId), 5000, defaultInsights),
@@ -225,7 +235,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
         withTimeout(derivativesApi.getCards(userId, 14), 5000, { cards: [], count: 0 }),
         withTimeout(calendarApi.getMonthLogs(userId, year, month), 5000, { logs: [], days_count: 0, year, month }),
         withTimeout(dashboardApi.getWeekly(userId) as Promise<{ weekly_summaries: WeeklySummary[] }>, 5000, defaultWeekly),
-        withTimeout(dashboardApi.getDashboard(userId) as Promise<{ today: WeeklySummary | null }>, 5000, defaultDashboard),
+        withTimeout(dashboardApi.getDashboard(userId), 5000, defaultDashboard),
         menstrualService.getSettings(userId),
       ]);
       setInsights(insightsData);
@@ -234,8 +244,20 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
       setDerivativeCards(cardsData.cards);
       setMonthLogs(monthData.logs);
       setWeeklySummaries(weeklyData.weekly_summaries?.reverse() ?? []);
-      setTodaySummary(dashboardData.today);
+      setTodaySummary(dashboardData.today as WeeklySummary | null);
       setMenstrualSettings(menstrualSettingsData);
+
+      // Set personalized targets from dashboard
+      if (dashboardData.targets) {
+        setTargets({
+          calories: dashboardData.targets.calories ?? DEFAULT_TARGETS.calories,
+          protein: dashboardData.targets.protein_g ?? DEFAULT_TARGETS.protein,
+          water_oz: dashboardData.targets.water_oz ?? DEFAULT_TARGETS.water_oz,
+          sleep_hours: dashboardData.targets.sleep_hours ?? DEFAULT_TARGETS.sleep_hours,
+          workouts: 1, // Daily workout target
+        });
+        setTargetsPersonalized(dashboardData.targets_calculated ?? false);
+      }
 
       // Load menstrual calendar data if tracking is enabled
       if (menstrualSettingsData.tracking_enabled === true) {
@@ -988,30 +1010,33 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
         <>
           {/* Weekly Chart Section */}
           <FadeInView style={styles.section} delay={50}>
-            <View style={styles.chartHeader}>
-              <Text style={styles.sectionTitle}>Weekly Trends</Text>
-              <View style={styles.chartMetricSelector}>
-                {(['calories', 'protein', 'sleep', 'workouts'] as const).map(metric => (
-                  <TouchableOpacity
-                    key={metric}
+            <Text style={styles.sectionTitle}>Weekly Trends</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.chartMetricScroll}
+              contentContainerStyle={styles.chartMetricContainer}
+            >
+              {(['calories', 'protein', 'sleep', 'workouts'] as const).map(metric => (
+                <TouchableOpacity
+                  key={metric}
+                  style={[
+                    styles.metricChip,
+                    selectedChartMetric === metric && styles.metricChipActive,
+                  ]}
+                  onPress={() => setSelectedChartMetric(metric)}
+                >
+                  <Text
                     style={[
-                      styles.metricChip,
-                      selectedChartMetric === metric && styles.metricChipActive,
+                      styles.metricChipText,
+                      selectedChartMetric === metric && styles.metricChipTextActive,
                     ]}
-                    onPress={() => setSelectedChartMetric(metric)}
                   >
-                    <Text
-                      style={[
-                        styles.metricChipText,
-                        selectedChartMetric === metric && styles.metricChipTextActive,
-                      ]}
-                    >
-                      {metric.charAt(0).toUpperCase() + metric.slice(1)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
+                    {metric.charAt(0).toUpperCase() + metric.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
             <AnimatedCard style={styles.chartCard} delay={100}>
               {chartData.length > 0 && chartData.some(d => d.value !== null) ? (
                 <LineChart
@@ -1041,7 +1066,17 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
 
           {/* Today's Progress Section */}
           <FadeInView style={styles.section} delay={150}>
-            <Text style={styles.sectionTitle}>Today's Progress</Text>
+            <View style={styles.progressTitleRow}>
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Today's Progress</Text>
+              {targetsPersonalized ? (
+                <View style={styles.personalizedBadge}>
+                  <Ionicons name="person" size={10} color={theme.success} />
+                  <Text style={styles.personalizedBadgeText}>Personalized</Text>
+                </View>
+              ) : (
+                <Text style={styles.defaultTargetsHint}>Default targets</Text>
+              )}
+            </View>
             <View style={styles.progressGrid}>
               <AnimatedCard style={styles.progressCard} delay={170}>
                 <View style={styles.progressHeader}>
@@ -1461,17 +1496,21 @@ function createStyles(theme: Theme, topInset: number) {
     cardSubtitle: { fontSize: 11, color: theme.textSecondary, marginTop: 2 },
     section: { padding: 16 },
     sectionTitle: { fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginBottom: 12 },
+    progressTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+    personalizedBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.success + '15', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, gap: 4 },
+    personalizedBadgeText: { fontSize: 10, color: theme.success, fontWeight: '500' },
+    defaultTargetsHint: { fontSize: 10, color: theme.textSecondary, fontStyle: 'italic' },
     activityCard: { backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border },
     activityContent: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     activityText: { fontSize: 14, color: theme.textPrimary, lineHeight: 20, flex: 1 },
     // Chart styles
-    chartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+    chartMetricScroll: { marginBottom: 12 },
+    chartMetricContainer: { flexDirection: 'row', gap: 8 },
     chartCard: { backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border, alignItems: 'center' },
-    chartMetricSelector: { flexDirection: 'row', gap: 4 },
-    metricChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: theme.surfaceSecondary },
+    metricChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16, backgroundColor: theme.surfaceSecondary },
     metricChipActive: { backgroundColor: theme.accent },
-    metricChipText: { fontSize: 11, color: theme.textSecondary, fontWeight: '500' },
-    metricChipTextActive: { color: '#fff' },
+    metricChipText: { fontSize: 13, color: theme.textSecondary, fontWeight: '500' },
+    metricChipTextActive: { color: '#fff', fontWeight: '600' },
     chartEmpty: { height: 140, justifyContent: 'center', alignItems: 'center', gap: 8 },
     chartEmptyText: { fontSize: 13, color: theme.textSecondary, textAlign: 'center' },
     // Progress grid styles

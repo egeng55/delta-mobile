@@ -253,14 +253,73 @@ export const insightsApi = {
   },
 };
 
+// Personalized Targets
+export interface DailyTargets {
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  water_oz: number;
+  sleep_hours: number;
+  workouts_per_week: number;
+}
+
+export interface DashboardResponse {
+  today: {
+    date: string;
+    meals: number;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    workouts: number;
+    workout_minutes: number;
+    sleep_hours: number | null;
+    sleep_quality: number | null;
+    mood_avg: number | null;
+    water_oz: number;
+    weight: number | null;
+  } | null;
+  streak: {
+    current_streak: number;
+    longest_streak: number;
+    last_active_date: string | null;
+  };
+  recent_entries: unknown[];
+  targets: DailyTargets;
+  targets_calculated: boolean;
+  targets_source: 'default' | 'profile' | 'user_specified' | 'goal';
+}
+
+export interface TargetsResponse {
+  calculated: boolean;
+  source: string;
+  targets: DailyTargets;
+  bmr?: number;
+  tdee?: number;
+  activity_level?: string;
+  profile_data: {
+    weight_kg: number | null;
+    height_cm: number | null;
+    age: number | null;
+    sex: string | null;
+    phase: string;
+  };
+  recommendations: string[];
+}
+
 // Dashboard API
 export const dashboardApi = {
-  getDashboard: async (userId: string): Promise<unknown> => {
-    return request<unknown>(`/dashboard/${userId}`);
+  getDashboard: async (userId: string): Promise<DashboardResponse> => {
+    return request<DashboardResponse>(`/dashboard/${userId}`);
   },
 
   getWeekly: async (userId: string): Promise<unknown> => {
     return request<unknown>(`/dashboard/${userId}/weekly`);
+  },
+
+  getTargets: async (userId: string): Promise<TargetsResponse> => {
+    return request<TargetsResponse>(`/targets/${userId}`);
   },
 };
 
