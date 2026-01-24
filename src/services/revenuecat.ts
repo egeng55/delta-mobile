@@ -8,26 +8,58 @@
  * - User ID linked to Supabase auth for consistency
  * - All purchases go through RevenueCat SDK
  * - CustomerInfo is the source of truth for entitlements
- * - Lazy loading to avoid NativeEventEmitter initialization issues
+ * - Early native module check to prevent crashes when not linked
+ *
+ * NOTE: Native modules are checked at load time. If not available,
+ * all functions become no-ops that return null/empty results.
  */
 
+import { NativeModules } from 'react-native';
 import Constants from 'expo-constants';
 
-// Lazy load RevenueCat to avoid NativeEventEmitter issues on startup
-let Purchases: typeof import('react-native-purchases').default;
-let RevenueCatUI: typeof import('react-native-purchases-ui').default;
-let LOG_LEVEL: typeof import('react-native-purchases').LOG_LEVEL;
-let PURCHASES_ERROR_CODE: typeof import('react-native-purchases').PURCHASES_ERROR_CODE;
-let PAYWALL_RESULT: typeof import('react-native-purchases-ui').PAYWALL_RESULT;
+// Early check for native modules - prevents crashes when not linked
+const NATIVE_MODULES_AVAILABLE = Boolean(NativeModules.RNPurchases);
 
-// Re-export types
-export type { CustomerInfo, PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
-export type { PurchasesError } from 'react-native-purchases';
+// Module references - populated by loadModules()
+// Using 'any' to avoid importing types that might trigger module resolution
+let Purchases: any;
+let RevenueCatUI: any;
+let LOG_LEVEL: any;
+let PURCHASES_ERROR_CODE: any;
+let PAYWALL_RESULT: any;
 
-type CustomerInfo = import('react-native-purchases').CustomerInfo;
-type PurchasesOffering = import('react-native-purchases').PurchasesOffering;
-type PurchasesPackage = import('react-native-purchases').PurchasesPackage;
-type PurchasesError = import('react-native-purchases').PurchasesError;
+// Define our own types to avoid importing from react-native-purchases at top level
+export interface CustomerInfo {
+  entitlements: {
+    active: Record<string, {
+      isActive: boolean;
+      willRenew: boolean;
+      periodType: string;
+      productIdentifier: string;
+      expirationDate: string | null;
+    }>;
+  };
+  managementURL: string | null;
+}
+
+export interface PurchasesOffering {
+  identifier: string;
+  availablePackages: PurchasesPackage[];
+}
+
+export interface PurchasesPackage {
+  identifier: string;
+  packageType: string;
+  product: {
+    identifier: string;
+    priceString: string;
+  };
+}
+
+export interface PurchasesError {
+  code: number;
+  message: string;
+}
 
 // RevenueCat API key from app.json extra config
 // For production, update the key in app.json with your iOS public key (starts with appl_)
@@ -65,23 +97,39 @@ export type PaywallResultType =
 
 // RevenueCat initialization state
 let isConfigured = false;
+let isAvailable = NATIVE_MODULES_AVAILABLE; // Based on early native module check
 
 /**
  * Load RevenueCat modules lazily.
+ * Returns false if modules couldn't be loaded (native not linked).
  */
-async function loadModules(): Promise<void> {
-  if (Purchases !== undefined) {
-    return;
+async function loadModules(): Promise<boolean> {
+  // Early exit if native modules not available (checked at load time)
+  if (isAvailable === false) {
+    return false;
   }
 
-  const purchasesModule = await import('react-native-purchases');
-  const purchasesUIModule = await import('react-native-purchases-ui');
+  // Already loaded
+  if (Purchases !== undefined) {
+    return true;
+  }
 
-  Purchases = purchasesModule.default;
-  LOG_LEVEL = purchasesModule.LOG_LEVEL;
-  PURCHASES_ERROR_CODE = purchasesModule.PURCHASES_ERROR_CODE;
-  RevenueCatUI = purchasesUIModule.default;
-  PAYWALL_RESULT = purchasesUIModule.PAYWALL_RESULT;
+  try {
+    // Dynamic import - only runs if native modules are confirmed available
+    const purchasesModule = await import('react-native-purchases');
+    const purchasesUIModule = await import('react-native-purchases-ui');
+
+    Purchases = purchasesModule.default;
+    LOG_LEVEL = purchasesModule.LOG_LEVEL;
+    PURCHASES_ERROR_CODE = purchasesModule.PURCHASES_ERROR_CODE;
+    RevenueCatUI = purchasesUIModule.default;
+    PAYWALL_RESULT = purchasesUIModule.PAYWALL_RESULT;
+    return true;
+  } catch {
+    // Silently mark as unavailable
+    isAvailable = false;
+    return false;
+  }
 }
 
 /**
@@ -95,7 +143,12 @@ export async function configure(): Promise<void> {
 
   try {
     // Load modules first
-    await loadModules();
+    const modulesLoaded = await loadModules();
+    if (modulesLoaded === false) {
+      // Native modules not available - silently skip
+      isConfigured = true;
+      return;
+    }
 
     // Enable debug logs in development
     if (__DEV__ === true) {
@@ -108,11 +161,9 @@ export async function configure(): Promise<void> {
 
     isConfigured = true;
     console.log('RevenueCat: Configured successfully');
-  } catch (error) {
-    console.warn('RevenueCat: Configuration failed - IAP will be unavailable', error);
-    // Still mark as configured to prevent retry loops
+  } catch {
+    // Configuration failed - silently mark as configured to prevent retry loops
     isConfigured = true;
-    throw error;
   }
 }
 
@@ -120,15 +171,18 @@ export async function configure(): Promise<void> {
  * Login user to RevenueCat with Supabase user ID.
  * Links RevenueCat purchases to Supabase user.
  */
-export async function login(userId: string): Promise<CustomerInfo> {
+export async function login(userId: string): Promise<CustomerInfo | null> {
   try {
-    await loadModules();
+    const modulesLoaded = await loadModules();
+    if (modulesLoaded === false) {
+      return null;
+    }
     const { customerInfo } = await Purchases.logIn(userId);
     console.log('RevenueCat: User logged in', userId);
     return customerInfo;
   } catch (error) {
-    console.error('RevenueCat: Login failed', error);
-    throw error;
+    // Silently fail - IAP not available
+    return null;
   }
 }
 
@@ -136,15 +190,18 @@ export async function login(userId: string): Promise<CustomerInfo> {
  * Logout user from RevenueCat.
  * Creates a new anonymous user.
  */
-export async function logout(): Promise<CustomerInfo> {
+export async function logout(): Promise<CustomerInfo | null> {
   try {
-    await loadModules();
+    const modulesLoaded = await loadModules();
+    if (modulesLoaded === false) {
+      return null;
+    }
     const customerInfo = await Purchases.logOut();
     console.log('RevenueCat: User logged out');
     return customerInfo;
   } catch (error) {
-    console.error('RevenueCat: Logout failed', error);
-    throw error;
+    // Silently fail - IAP not available
+    return null;
   }
 }
 
@@ -152,9 +209,12 @@ export async function logout(): Promise<CustomerInfo> {
  * Get current customer info.
  * Contains entitlements and subscription status.
  */
-export async function getCustomerInfo(): Promise<CustomerInfo> {
+export async function getCustomerInfo(): Promise<CustomerInfo | null> {
   try {
-    await loadModules();
+    const modulesLoaded = await loadModules();
+    if (modulesLoaded === false) {
+      return null;
+    }
     const customerInfo = await Purchases.getCustomerInfo();
     return customerInfo;
   } catch (error) {
@@ -169,7 +229,10 @@ export async function getCustomerInfo(): Promise<CustomerInfo> {
  */
 export async function getOfferings(): Promise<PurchasesOffering | null> {
   try {
-    await loadModules();
+    const modulesLoaded = await loadModules();
+    if (modulesLoaded === false) {
+      return null;
+    }
     const offerings = await Purchases.getOfferings();
     return offerings.current ?? null;
   } catch (error) {
@@ -420,7 +483,14 @@ export function addCustomerInfoUpdateListener(
  * Check if RevenueCat is configured and ready.
  */
 export function isReady(): boolean {
-  return isConfigured === true;
+  return isConfigured === true && isAvailable === true;
+}
+
+/**
+ * Check if RevenueCat native modules are available.
+ */
+export function isNativeAvailable(): boolean {
+  return isAvailable === true;
 }
 
 /**

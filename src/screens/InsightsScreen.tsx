@@ -77,6 +77,20 @@ const formatMonthYear = (date: Date): string => {
   return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 };
 
+// Map semantic color names from API to actual theme colors
+const mapCardColor = (colorName: string | undefined, theme: Theme): string => {
+  if (!colorName) return theme.accent;
+  const colorMap: Record<string, string> = {
+    accent: theme.accent,
+    warning: theme.warning,
+    success: theme.success,
+    error: theme.error,
+    primary: theme.primary,
+    secondary: theme.textSecondary,
+  };
+  return colorMap[colorName] ?? theme.accent;
+};
+
 export default function InsightsScreen({ theme }: InsightsScreenProps): React.ReactNode {
   const { user } = useAuth();
   const { hasAccess, isLoading: accessLoading, showPaywall, isDeveloper } = useAccess();
@@ -841,7 +855,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
                     <View style={styles.insightCardHeader}>
                       <Text style={styles.insightCardTitle}>{card.title}</Text>
                       {card.trend && (
-                        <Text style={[styles.insightTrendSymbol, { color: card.color ?? theme.accent }]}>
+                        <Text style={[styles.insightTrendSymbol, { color: mapCardColor(card.color, theme) }]}>
                           {card.trend}
                         </Text>
                       )}
@@ -854,7 +868,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
                       progress={card.confidence * 100}
                       height={4}
                       backgroundColor={theme.border}
-                      fillColor={card.color ?? theme.accent}
+                      fillColor={mapCardColor(card.color, theme)}
                       style={styles.insightConfidenceBar}
                     />
                   )}
