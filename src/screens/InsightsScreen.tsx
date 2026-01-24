@@ -19,11 +19,13 @@ import {
   TouchableOpacity,
   Modal,
   Switch,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeInRight, FadeInUp } from 'react-native-reanimated';
 import { AnimatedCard, AnimatedListItem, AnimatedProgress, AnimatedButton, FadeInView } from '../components/Animated';
+import LineChart, { DataPoint } from '../components/LineChart';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useAccess } from '../context/AccessContext';
@@ -43,8 +45,45 @@ import {
   FlowIntensity,
   MenstrualSymptom,
   CyclePhase,
+  dashboardApi,
 } from '../services/api';
 import * as menstrualService from '../services/menstrualTracking';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Daily targets configuration
+interface DailyTargets {
+  calories: number;
+  protein: number;
+  water_oz: number;
+  sleep_hours: number;
+  workouts: number;
+}
+
+const DEFAULT_TARGETS: DailyTargets = {
+  calories: 2000,
+  protein: 150,
+  water_oz: 64,
+  sleep_hours: 8,
+  workouts: 1,
+};
+
+// Weekly summary from dashboard API
+interface WeeklySummary {
+  date: string;
+  meals: number;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  workouts: number;
+  workout_minutes: number;
+  sleep_hours: number | null;
+  sleep_quality: number | null;
+  mood_avg: number | null;
+  water_oz: number;
+  weight: number | null;
+}
 
 interface InsightsScreenProps {
   theme: Theme;
@@ -102,6 +141,8 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   const [derivativeCards, setDerivativeCards] = useState<DerivativeCard[]>([]);
   const [workout, setWorkout] = useState<WorkoutPlan | null>(null);
   const [monthLogs, setMonthLogs] = useState<DailyLog[]>([]);
+  const [weeklySummaries, setWeeklySummaries] = useState<WeeklySummary[]>([]);
+  const [todaySummary, setTodaySummary] = useState<WeeklySummary | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<DailyLog | null>(null);
   const [calendarDate, setCalendarDate] = useState<Date>(new Date());
@@ -110,6 +151,8 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [weights, setWeights] = useState<Record<string, string>>({});
+  const [targets] = useState<DailyTargets>(DEFAULT_TARGETS);
+  const [selectedChartMetric, setSelectedChartMetric] = useState<'calories' | 'protein' | 'sleep' | 'workouts'>('calories');
 
   // Menstrual tracking state
   const [menstrualSettings, setMenstrualSettings] = useState<MenstrualSettings | null>(null);
@@ -172,12 +215,17 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
       const year = calendarDate.getFullYear();
       const month = calendarDate.getMonth() + 1;
 
-      const [insightsData, workoutData, derivativesData, cardsData, monthData, menstrualSettingsData] = await Promise.all([
+      const defaultWeekly = { weekly_summaries: [], days_count: 0 };
+      const defaultDashboard = { today: null, streak: { current_streak: 0 }, recent_entries: [] };
+
+      const [insightsData, workoutData, derivativesData, cardsData, monthData, weeklyData, dashboardData, menstrualSettingsData] = await Promise.all([
         withTimeout(insightsApi.getInsights(userId), 5000, defaultInsights),
         withTimeout(workoutApi.getToday(userId), 5000, { workout: null }),
         withTimeout(derivativesApi.getDerivatives(userId, 30), 5000, defaultDerivatives),
         withTimeout(derivativesApi.getCards(userId, 14), 5000, { cards: [], count: 0 }),
         withTimeout(calendarApi.getMonthLogs(userId, year, month), 5000, { logs: [], days_count: 0, year, month }),
+        withTimeout(dashboardApi.getWeekly(userId) as Promise<{ weekly_summaries: WeeklySummary[] }>, 5000, defaultWeekly),
+        withTimeout(dashboardApi.getDashboard(userId) as Promise<{ today: WeeklySummary | null }>, 5000, defaultDashboard),
         menstrualService.getSettings(userId),
       ]);
       setInsights(insightsData);
@@ -185,6 +233,8 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
       setDerivatives(derivativesData);
       setDerivativeCards(cardsData.cards);
       setMonthLogs(monthData.logs);
+      setWeeklySummaries(weeklyData.weekly_summaries?.reverse() ?? []);
+      setTodaySummary(dashboardData.today);
       setMenstrualSettings(menstrualSettingsData);
 
       // Load menstrual calendar data if tracking is enabled
@@ -493,6 +543,122 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
 
   // Memoize trend cards to prevent recalculation on every render
   const trendCards = useMemo(() => buildTrendCards(), [derivatives, insights, theme]);
+
+  // Build chart data from weekly summaries
+  const chartData = useMemo((): DataPoint[] => {
+    if (weeklySummaries.length === 0) return [];
+
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    return weeklySummaries.map(summary => {
+      const date = new Date(summary.date);
+      const label = dayNames[date.getDay()];
+      let value: number | null = null;
+
+      switch (selectedChartMetric) {
+        case 'calories':
+          value = summary.calories > 0 ? summary.calories : null;
+          break;
+        case 'protein':
+          value = summary.protein > 0 ? summary.protein : null;
+          break;
+        case 'sleep':
+          value = summary.sleep_hours;
+          break;
+        case 'workouts':
+          value = summary.workout_minutes > 0 ? summary.workout_minutes : null;
+          break;
+      }
+
+      return { label, value };
+    });
+  }, [weeklySummaries, selectedChartMetric]);
+
+  // Get current target based on selected metric
+  const currentTarget = useMemo((): number | undefined => {
+    switch (selectedChartMetric) {
+      case 'calories':
+        return targets.calories;
+      case 'protein':
+        return targets.protein;
+      case 'sleep':
+        return targets.sleep_hours;
+      case 'workouts':
+        return 45; // 45 min workout target
+      default:
+        return undefined;
+    }
+  }, [selectedChartMetric, targets]);
+
+  // Calculate today's progress
+  const todayProgress = useMemo(() => {
+    const summary = todaySummary;
+    if (!summary) {
+      return {
+        calories: { current: 0, target: targets.calories, percent: 0 },
+        protein: { current: 0, target: targets.protein, percent: 0 },
+        water: { current: 0, target: targets.water_oz, percent: 0 },
+        workouts: { current: 0, target: targets.workouts, percent: 0 },
+      };
+    }
+
+    return {
+      calories: {
+        current: summary.calories,
+        target: targets.calories,
+        percent: Math.min(100, Math.round((summary.calories / targets.calories) * 100)),
+      },
+      protein: {
+        current: summary.protein,
+        target: targets.protein,
+        percent: Math.min(100, Math.round((summary.protein / targets.protein) * 100)),
+      },
+      water: {
+        current: summary.water_oz,
+        target: targets.water_oz,
+        percent: Math.min(100, Math.round((summary.water_oz / targets.water_oz) * 100)),
+      },
+      workouts: {
+        current: summary.workouts,
+        target: targets.workouts,
+        percent: Math.min(100, summary.workouts >= targets.workouts ? 100 : 0),
+      },
+    };
+  }, [todaySummary, targets]);
+
+  // Calculate weekly totals and averages
+  const weeklyStats = useMemo(() => {
+    if (weeklySummaries.length === 0) {
+      return {
+        totalCalories: 0,
+        avgCalories: 0,
+        totalProtein: 0,
+        avgProtein: 0,
+        totalWorkouts: 0,
+        avgSleep: 0,
+        daysLogged: 0,
+      };
+    }
+
+    const daysWithCalories = weeklySummaries.filter(s => s.calories > 0);
+    const daysWithSleep = weeklySummaries.filter(s => s.sleep_hours !== null);
+    const daysWithProtein = weeklySummaries.filter(s => s.protein > 0);
+
+    const totalCalories = weeklySummaries.reduce((sum, s) => sum + s.calories, 0);
+    const totalProtein = weeklySummaries.reduce((sum, s) => sum + s.protein, 0);
+    const totalWorkouts = weeklySummaries.reduce((sum, s) => sum + s.workouts, 0);
+    const totalSleep = daysWithSleep.reduce((sum, s) => sum + (s.sleep_hours ?? 0), 0);
+
+    return {
+      totalCalories,
+      avgCalories: daysWithCalories.length > 0 ? Math.round(totalCalories / daysWithCalories.length) : 0,
+      totalProtein,
+      avgProtein: daysWithProtein.length > 0 ? Math.round(totalProtein / daysWithProtein.length) : 0,
+      totalWorkouts,
+      avgSleep: daysWithSleep.length > 0 ? Math.round((totalSleep / daysWithSleep.length) * 10) / 10 : 0,
+      daysLogged: daysWithCalories.length,
+    };
+  }, [weeklySummaries]);
 
   // Build calendar grid
   const renderCalendar = (): React.ReactNode => {
@@ -820,35 +986,197 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
 
       {activeTab === 'analytics' ? (
         <>
-          {/* Trend Cards */}
-          <View style={styles.cardsContainer}>
-            {trendCards.map((card, index) => (
-              <AnimatedCard key={card.id} style={styles.card} delay={index * 80}>
-                <View style={[styles.iconContainer, { backgroundColor: card.color + '20' }]}>
-                  <Ionicons name={card.icon} size={24} color={card.color} />
-                </View>
-                <Text style={styles.cardTitle}>{card.title}</Text>
-                <View style={styles.trendValueRow}>
-                  <Text style={[styles.cardValue, styles.trendSymbol, { color: card.color }]}>
-                    {card.value}
+          {/* Weekly Chart Section */}
+          <FadeInView style={styles.section} delay={50}>
+            <View style={styles.chartHeader}>
+              <Text style={styles.sectionTitle}>Weekly Trends</Text>
+              <View style={styles.chartMetricSelector}>
+                {(['calories', 'protein', 'sleep', 'workouts'] as const).map(metric => (
+                  <TouchableOpacity
+                    key={metric}
+                    style={[
+                      styles.metricChip,
+                      selectedChartMetric === metric && styles.metricChipActive,
+                    ]}
+                    onPress={() => setSelectedChartMetric(metric)}
+                  >
+                    <Text
+                      style={[
+                        styles.metricChipText,
+                        selectedChartMetric === metric && styles.metricChipTextActive,
+                      ]}
+                    >
+                      {metric.charAt(0).toUpperCase() + metric.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            <AnimatedCard style={styles.chartCard} delay={100}>
+              {chartData.length > 0 && chartData.some(d => d.value !== null) ? (
+                <LineChart
+                  data={chartData}
+                  width={SCREEN_WIDTH - 64}
+                  height={160}
+                  color={theme.accent}
+                  backgroundColor={theme.surface}
+                  textColor={theme.textPrimary}
+                  secondaryTextColor={theme.textSecondary}
+                  target={currentTarget}
+                  targetColor={theme.success}
+                  showLabels={true}
+                  showDots={true}
+                  showGradient={true}
+                />
+              ) : (
+                <View style={styles.chartEmpty}>
+                  <Ionicons name="bar-chart-outline" size={32} color={theme.textSecondary} />
+                  <Text style={styles.chartEmptyText}>
+                    Log your meals and activities to see trends
                   </Text>
-                  {card.confidence !== undefined && card.confidence > 0 && (
-                    <View style={styles.confidenceBadge}>
-                      <Text style={styles.confidenceText}>
-                        {Math.round(card.confidence * 100)}%
-                      </Text>
-                    </View>
-                  )}
                 </View>
-                <Text style={styles.cardSubtitle} numberOfLines={2}>{card.subtitle}</Text>
+              )}
+            </AnimatedCard>
+          </FadeInView>
+
+          {/* Today's Progress Section */}
+          <FadeInView style={styles.section} delay={150}>
+            <Text style={styles.sectionTitle}>Today's Progress</Text>
+            <View style={styles.progressGrid}>
+              <AnimatedCard style={styles.progressCard} delay={170}>
+                <View style={styles.progressHeader}>
+                  <View style={[styles.progressIconContainer, { backgroundColor: theme.accent + '20' }]}>
+                    <Ionicons name="flame-outline" size={18} color={theme.accent} />
+                  </View>
+                  <Text style={styles.progressLabel}>Calories</Text>
+                </View>
+                <Text style={styles.progressValue}>
+                  {todayProgress.calories.current.toLocaleString()}
+                  <Text style={styles.progressTarget}> / {todayProgress.calories.target.toLocaleString()}</Text>
+                </Text>
+                <View style={styles.progressBarContainer}>
+                  <View style={[styles.progressBarFill, { width: `${todayProgress.calories.percent}%`, backgroundColor: theme.accent }]} />
+                </View>
               </AnimatedCard>
-            ))}
-          </View>
+
+              <AnimatedCard style={styles.progressCard} delay={190}>
+                <View style={styles.progressHeader}>
+                  <View style={[styles.progressIconContainer, { backgroundColor: theme.success + '20' }]}>
+                    <Ionicons name="nutrition-outline" size={18} color={theme.success} />
+                  </View>
+                  <Text style={styles.progressLabel}>Protein</Text>
+                </View>
+                <Text style={styles.progressValue}>
+                  {todayProgress.protein.current}g
+                  <Text style={styles.progressTarget}> / {todayProgress.protein.target}g</Text>
+                </Text>
+                <View style={styles.progressBarContainer}>
+                  <View style={[styles.progressBarFill, { width: `${todayProgress.protein.percent}%`, backgroundColor: theme.success }]} />
+                </View>
+              </AnimatedCard>
+
+              <AnimatedCard style={styles.progressCard} delay={210}>
+                <View style={styles.progressHeader}>
+                  <View style={[styles.progressIconContainer, { backgroundColor: '#4FC3F7' + '20' }]}>
+                    <Ionicons name="water-outline" size={18} color="#4FC3F7" />
+                  </View>
+                  <Text style={styles.progressLabel}>Water</Text>
+                </View>
+                <Text style={styles.progressValue}>
+                  {todayProgress.water.current} oz
+                  <Text style={styles.progressTarget}> / {todayProgress.water.target} oz</Text>
+                </Text>
+                <View style={styles.progressBarContainer}>
+                  <View style={[styles.progressBarFill, { width: `${todayProgress.water.percent}%`, backgroundColor: '#4FC3F7' }]} />
+                </View>
+              </AnimatedCard>
+
+              <AnimatedCard style={styles.progressCard} delay={230}>
+                <View style={styles.progressHeader}>
+                  <View style={[styles.progressIconContainer, { backgroundColor: theme.warning + '20' }]}>
+                    <Ionicons name="barbell-outline" size={18} color={theme.warning} />
+                  </View>
+                  <Text style={styles.progressLabel}>Workout</Text>
+                </View>
+                <Text style={styles.progressValue}>
+                  {todayProgress.workouts.current}
+                  <Text style={styles.progressTarget}> / {todayProgress.workouts.target}</Text>
+                </Text>
+                <View style={styles.progressBarContainer}>
+                  <View style={[styles.progressBarFill, { width: `${todayProgress.workouts.percent}%`, backgroundColor: theme.warning }]} />
+                </View>
+              </AnimatedCard>
+            </View>
+          </FadeInView>
+
+          {/* Weekly Summary Section */}
+          <FadeInView style={styles.section} delay={250}>
+            <Text style={styles.sectionTitle}>This Week</Text>
+            <AnimatedCard style={styles.weeklySummaryCard} delay={280}>
+              <View style={styles.weeklyStatsGrid}>
+                <View style={styles.weeklyStat}>
+                  <Text style={styles.weeklyStatValue}>{weeklyStats.avgCalories.toLocaleString()}</Text>
+                  <Text style={styles.weeklyStatLabel}>Avg Calories</Text>
+                </View>
+                <View style={styles.weeklyStatDivider} />
+                <View style={styles.weeklyStat}>
+                  <Text style={styles.weeklyStatValue}>{weeklyStats.avgProtein}g</Text>
+                  <Text style={styles.weeklyStatLabel}>Avg Protein</Text>
+                </View>
+                <View style={styles.weeklyStatDivider} />
+                <View style={styles.weeklyStat}>
+                  <Text style={styles.weeklyStatValue}>{weeklyStats.totalWorkouts}</Text>
+                  <Text style={styles.weeklyStatLabel}>Workouts</Text>
+                </View>
+                <View style={styles.weeklyStatDivider} />
+                <View style={styles.weeklyStat}>
+                  <Text style={styles.weeklyStatValue}>{weeklyStats.avgSleep}h</Text>
+                  <Text style={styles.weeklyStatLabel}>Avg Sleep</Text>
+                </View>
+              </View>
+              <View style={styles.weeklyFooter}>
+                <Ionicons name="calendar-outline" size={14} color={theme.textSecondary} />
+                <Text style={styles.weeklyFooterText}>
+                  {weeklyStats.daysLogged} of 7 days logged
+                </Text>
+              </View>
+            </AnimatedCard>
+          </FadeInView>
+
+          {/* Trend Cards */}
+          {trendCards.length > 0 && (
+            <FadeInView style={styles.section} delay={300}>
+              <Text style={styles.sectionTitle}>Momentum</Text>
+              <View style={styles.cardsContainer}>
+                {trendCards.slice(0, 4).map((card, index) => (
+                  <AnimatedCard key={card.id} style={styles.card} delay={320 + index * 50}>
+                    <View style={[styles.iconContainer, { backgroundColor: card.color + '20' }]}>
+                      <Ionicons name={card.icon} size={24} color={card.color} />
+                    </View>
+                    <Text style={styles.cardTitle}>{card.title}</Text>
+                    <View style={styles.trendValueRow}>
+                      <Text style={[styles.cardValue, styles.trendSymbol, { color: card.color }]}>
+                        {card.value}
+                      </Text>
+                      {card.confidence !== undefined && card.confidence > 0 && (
+                        <View style={styles.confidenceBadge}>
+                          <Text style={styles.confidenceText}>
+                            {Math.round(card.confidence * 100)}%
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.cardSubtitle} numberOfLines={2}>{card.subtitle}</Text>
+                  </AnimatedCard>
+                ))}
+              </View>
+            </FadeInView>
+          )}
 
           {/* Derivative Insight Cards */}
           {derivativeCards.length > 0 && (
-            <FadeInView style={styles.section} delay={200}>
-              <Text style={styles.sectionTitle}>Trends</Text>
+            <FadeInView style={styles.section} delay={400}>
+              <Text style={styles.sectionTitle}>Detailed Trends</Text>
               {derivativeCards.map((card, index) => (
                 <AnimatedListItem key={card.id} index={index} style={styles.insightCardRow}>
                   <View style={styles.insightCardContent}>
@@ -878,18 +1206,22 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
           )}
 
           {/* Activity Summary */}
-          <FadeInView style={styles.section} delay={300}>
-            <Text style={styles.sectionTitle}>Activity</Text>
-            <AnimatedCard style={styles.activityCard} delay={350}>
+          <FadeInView style={styles.section} delay={450}>
+            <AnimatedCard style={styles.activityCard} delay={480}>
               {derivatives?.has_data === true ? (
-                <Text style={styles.activityText}>
-                  Analyzing {derivatives.days_analyzed} days of data with {derivatives.data_points} data points.
-                  Delta tracks your patterns to show what's working.
-                </Text>
+                <View style={styles.activityContent}>
+                  <Ionicons name="analytics" size={20} color={theme.accent} />
+                  <Text style={styles.activityText}>
+                    Analyzing {derivatives.days_analyzed} days with {derivatives.data_points} data points
+                  </Text>
+                </View>
               ) : (
-                <Text style={styles.activityText}>
-                  Chat with Delta about your day to see trend analysis and insights here.
-                </Text>
+                <View style={styles.activityContent}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={20} color={theme.textSecondary} />
+                  <Text style={styles.activityText}>
+                    Chat with Delta about your day to see trend analysis
+                  </Text>
+                </View>
               )}
             </AnimatedCard>
           </FadeInView>
@@ -1130,7 +1462,37 @@ function createStyles(theme: Theme, topInset: number) {
     section: { padding: 16 },
     sectionTitle: { fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginBottom: 12 },
     activityCard: { backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border },
-    activityText: { fontSize: 14, color: theme.textPrimary, lineHeight: 20 },
+    activityContent: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    activityText: { fontSize: 14, color: theme.textPrimary, lineHeight: 20, flex: 1 },
+    // Chart styles
+    chartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+    chartCard: { backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border, alignItems: 'center' },
+    chartMetricSelector: { flexDirection: 'row', gap: 4 },
+    metricChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: theme.surfaceSecondary },
+    metricChipActive: { backgroundColor: theme.accent },
+    metricChipText: { fontSize: 11, color: theme.textSecondary, fontWeight: '500' },
+    metricChipTextActive: { color: '#fff' },
+    chartEmpty: { height: 140, justifyContent: 'center', alignItems: 'center', gap: 8 },
+    chartEmptyText: { fontSize: 13, color: theme.textSecondary, textAlign: 'center' },
+    // Progress grid styles
+    progressGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 },
+    progressCard: { width: '50%', padding: 4 },
+    progressHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+    progressIconContainer: { width: 28, height: 28, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginRight: 8 },
+    progressLabel: { fontSize: 12, color: theme.textSecondary, fontWeight: '500' },
+    progressValue: { fontSize: 18, fontWeight: '600', color: theme.textPrimary, marginBottom: 6 },
+    progressTarget: { fontSize: 12, fontWeight: '400', color: theme.textSecondary },
+    progressBarContainer: { height: 4, backgroundColor: theme.border, borderRadius: 2, overflow: 'hidden' },
+    progressBarFill: { height: '100%', borderRadius: 2 },
+    // Weekly summary styles
+    weeklySummaryCard: { backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border },
+    weeklyStatsGrid: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    weeklyStat: { flex: 1, alignItems: 'center' },
+    weeklyStatValue: { fontSize: 18, fontWeight: '700', color: theme.textPrimary },
+    weeklyStatLabel: { fontSize: 10, color: theme.textSecondary, marginTop: 2, textAlign: 'center' },
+    weeklyStatDivider: { width: 1, height: 32, backgroundColor: theme.border },
+    weeklyFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.border, gap: 6 },
+    weeklyFooterText: { fontSize: 12, color: theme.textSecondary },
     emptyState: { alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32 },
     emptyTitle: { fontSize: 20, fontWeight: '600', color: theme.textPrimary, marginTop: 16 },
     emptySubtitle: { fontSize: 14, color: theme.textSecondary, marginTop: 8, textAlign: 'center' },
