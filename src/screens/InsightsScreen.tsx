@@ -1178,88 +1178,57 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
             </AnimatedCard>
           </FadeInView>
 
-          {/* Trend Cards */}
-          {trendCards.length > 0 && (
+          {/* Insights Summary - only show if we have meaningful data */}
+          {derivatives?.has_data === true && (
             <FadeInView style={styles.section} delay={300}>
-              <Text style={styles.sectionTitle}>Momentum</Text>
-              <View style={styles.cardsContainer}>
-                {trendCards.slice(0, 4).map((card, index) => (
-                  <AnimatedCard key={card.id} style={styles.card} delay={320 + index * 50}>
-                    <View style={[styles.iconContainer, { backgroundColor: card.color + '20' }]}>
-                      <Ionicons name={card.icon} size={24} color={card.color} />
-                    </View>
-                    <Text style={styles.cardTitle}>{card.title}</Text>
-                    <View style={styles.trendValueRow}>
-                      <Text style={[styles.cardValue, styles.trendSymbol, { color: card.color }]}>
-                        {card.value}
-                      </Text>
-                      {card.confidence !== undefined && card.confidence > 0 && (
-                        <View style={styles.confidenceBadge}>
-                          <Text style={styles.confidenceText}>
-                            {Math.round(card.confidence * 100)}%
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={styles.cardSubtitle} numberOfLines={2}>{card.subtitle}</Text>
-                  </AnimatedCard>
-                ))}
-              </View>
-            </FadeInView>
-          )}
-
-          {/* Derivative Insight Cards */}
-          {derivativeCards.length > 0 && (
-            <FadeInView style={styles.section} delay={400}>
-              <Text style={styles.sectionTitle}>Detailed Trends</Text>
-              {derivativeCards.map((card, index) => (
-                <AnimatedListItem key={card.id} index={index} style={styles.insightCardRow}>
-                  <View style={styles.insightCardContent}>
-                    <View style={styles.insightCardHeader}>
-                      <Text style={styles.insightCardTitle}>{card.title}</Text>
-                      {card.trend && (
-                        <Text style={[styles.insightTrendSymbol, { color: mapCardColor(card.color, theme) }]}>
-                          {card.trend}
-                        </Text>
-                      )}
-                    </View>
-                    <Text style={styles.insightCardValue}>{card.value}</Text>
-                    <Text style={styles.insightCardSubtitle}>{card.subtitle}</Text>
+              <Text style={styles.sectionTitle}>Insights</Text>
+              <AnimatedCard style={styles.insightsSummaryCard} delay={320}>
+                <View style={styles.insightsSummaryRow}>
+                  <View style={styles.insightsSummaryItem}>
+                    <Ionicons name="calendar-outline" size={20} color={theme.accent} />
+                    <Text style={styles.insightsSummaryValue}>{derivatives.days_analyzed}</Text>
+                    <Text style={styles.insightsSummaryLabel}>days analyzed</Text>
                   </View>
-                  {card.confidence > 0 && (
-                    <AnimatedProgress
-                      progress={card.confidence * 100}
-                      height={4}
-                      backgroundColor={theme.border}
-                      fillColor={mapCardColor(card.color, theme)}
-                      style={styles.insightConfidenceBar}
-                    />
-                  )}
-                </AnimatedListItem>
-              ))}
+                  <View style={styles.insightsSummaryDivider} />
+                  <View style={styles.insightsSummaryItem}>
+                    <Ionicons name="analytics-outline" size={20} color={theme.success} />
+                    <Text style={styles.insightsSummaryValue}>{derivatives.data_points}</Text>
+                    <Text style={styles.insightsSummaryLabel}>data points</Text>
+                  </View>
+                  <View style={styles.insightsSummaryDivider} />
+                  <View style={styles.insightsSummaryItem}>
+                    <Ionicons name="trending-up" size={20} color={theme.warning} />
+                    <Text style={styles.insightsSummaryValue}>
+                      {derivatives.composite?.physiological_momentum?.symbol ?? '→'}
+                    </Text>
+                    <Text style={styles.insightsSummaryLabel}>trend</Text>
+                  </View>
+                </View>
+                {derivatives.recovery_patterns?.description && (
+                  <View style={styles.recoveryPatternRow}>
+                    <Ionicons name="fitness-outline" size={16} color={theme.textSecondary} />
+                    <Text style={styles.recoveryPatternText}>
+                      {derivatives.recovery_patterns.description}
+                    </Text>
+                  </View>
+                )}
+              </AnimatedCard>
             </FadeInView>
           )}
 
-          {/* Activity Summary */}
-          <FadeInView style={styles.section} delay={450}>
-            <AnimatedCard style={styles.activityCard} delay={480}>
-              {derivatives?.has_data === true ? (
-                <View style={styles.activityContent}>
-                  <Ionicons name="analytics" size={20} color={theme.accent} />
-                  <Text style={styles.activityText}>
-                    Analyzing {derivatives.days_analyzed} days with {derivatives.data_points} data points
-                  </Text>
-                </View>
-              ) : (
+          {/* Activity Prompt - only show when no data */}
+          {derivatives?.has_data !== true && (
+            <FadeInView style={styles.section} delay={300}>
+              <AnimatedCard style={styles.activityCard} delay={320}>
                 <View style={styles.activityContent}>
                   <Ionicons name="chatbubble-ellipses-outline" size={20} color={theme.textSecondary} />
                   <Text style={styles.activityText}>
-                    Chat with Delta about your day to see trend analysis
+                    Chat with Delta about your meals, workouts, and sleep to see personalized insights
                   </Text>
                 </View>
-              )}
-            </AnimatedCard>
-          </FadeInView>
+              </AnimatedCard>
+            </FadeInView>
+          )}
         </>
       ) : activeTab === 'workout' ? (
         <>
@@ -1557,21 +1526,15 @@ function createStyles(theme: Theme, topInset: number) {
     weightInput: { backgroundColor: theme.surfaceSecondary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, fontSize: 13, color: theme.textPrimary, marginTop: 8, marginLeft: 36, width: 80 },
     completeButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.success, paddingVertical: 14, borderRadius: 12 },
     completeButtonText: { color: '#fff', fontSize: 16, fontWeight: '600', marginLeft: 8 },
-    // Trend card styles
-    trendValueRow: { flexDirection: 'row', alignItems: 'center' },
-    trendSymbol: { fontSize: 28 },
-    confidenceBadge: { backgroundColor: theme.surfaceSecondary, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 6 },
-    confidenceText: { fontSize: 10, color: theme.textSecondary, fontWeight: '500' },
-    // Insight card row styles
-    insightCardRow: { flexDirection: 'row', backgroundColor: theme.surface, borderRadius: 12, padding: 16, marginBottom: 8, borderWidth: 1, borderColor: theme.border },
-    insightCardContent: { flex: 1 },
-    insightCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    insightCardTitle: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
-    insightTrendSymbol: { fontSize: 18, fontWeight: '600' },
-    insightCardValue: { fontSize: 16, fontWeight: '500', color: theme.textPrimary, marginTop: 4 },
-    insightCardSubtitle: { fontSize: 12, color: theme.textSecondary, marginTop: 2 },
-    insightConfidenceBar: { width: 4, backgroundColor: theme.border, borderRadius: 2, marginLeft: 12, overflow: 'hidden', justifyContent: 'flex-end' },
-    insightConfidenceFill: { width: '100%', borderRadius: 2 },
+    // Insights summary styles
+    insightsSummaryCard: { backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border },
+    insightsSummaryRow: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' },
+    insightsSummaryItem: { alignItems: 'center', flex: 1 },
+    insightsSummaryValue: { fontSize: 20, fontWeight: '700', color: theme.textPrimary, marginTop: 6 },
+    insightsSummaryLabel: { fontSize: 11, color: theme.textSecondary, marginTop: 2 },
+    insightsSummaryDivider: { width: 1, height: 40, backgroundColor: theme.border },
+    recoveryPatternRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.border, gap: 8 },
+    recoveryPatternText: { fontSize: 13, color: theme.textSecondary, flex: 1 },
     // Calendar styles
     calendarGrid: { marginHorizontal: 16, marginBottom: 16 },
     calendarNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
