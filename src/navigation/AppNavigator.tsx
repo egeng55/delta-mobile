@@ -26,6 +26,8 @@ import ProfileScreen from '../screens/ProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import WelcomeAnimationScreen from '../screens/WelcomeAnimationScreen';
 import OnboardingScreen, { hasCompletedOnboarding } from '../screens/OnboardingScreen';
+// Note: Using RevenueCat's built-in Paywall UI instead of custom PaywallScreen
+// Access showPaywall() from useAccess() to present the paywall
 
 // Type definitions
 export type RootStackParamList = {

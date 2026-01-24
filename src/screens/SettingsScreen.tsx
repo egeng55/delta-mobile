@@ -30,9 +30,11 @@ import * as Sharing from 'expo-sharing';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useAccess } from '../context/AccessContext';
 import { exportApi, MenstrualSettings } from '../services/api';
 import * as menstrualService from '../services/menstrualTracking';
 import * as notificationService from '../services/notifications';
+import { formatPeriod, formatExpirationDate, formatSubscriptionStatus } from '../services/subscriptionSync';
 import SupportScreen from './SupportScreen';
 
 const API_BASE_URL = 'https://delta-80ht.onrender.com';
@@ -46,6 +48,7 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
   const { isDark, toggleTheme, useSystemTheme, isUsingSystem } = useTheme();
+  const { subscription, hasAccess, isDeveloper, showPaywall, showCustomerCenter, subscriptionStatus } = useAccess();
 
   const [notifications, setNotifications] = useState<boolean>(true);
   const [dailyReminder, setDailyReminder] = useState<boolean>(false);
@@ -320,6 +323,87 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
             <Text style={styles.settingDescription}>January 2025</Text>
           </View>
         </View>
+      </View>
+
+      {/* Subscription */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Subscription</Text>
+        {isDeveloper === true ? (
+          <View style={styles.settingRow}>
+            <View style={[styles.settingIconContainer, { backgroundColor: theme.success + '20' }]}>
+              <Ionicons name="shield-checkmark" size={20} color={theme.success} />
+            </View>
+            <View style={styles.settingContent}>
+              <Text style={styles.settingLabel}>Developer Access</Text>
+              <Text style={styles.settingDescription}>All features unlocked</Text>
+            </View>
+          </View>
+        ) : hasAccess === true && subscriptionStatus !== null ? (
+          <>
+            <View style={styles.settingRow}>
+              <View style={[styles.settingIconContainer, { backgroundColor: theme.accent + '20' }]}>
+                <Ionicons name="diamond" size={20} color={theme.accent} />
+              </View>
+              <View style={styles.settingContent}>
+                <Text style={styles.settingLabel}>
+                  Delta Health Intelligence Pro
+                </Text>
+                <Text style={styles.settingDescription}>
+                  {formatPeriod(subscriptionStatus.periodType)} subscription
+                </Text>
+              </View>
+              <View style={[styles.statusBadge, { backgroundColor: theme.success + '20' }]}>
+                <Text style={[styles.statusBadgeText, { color: theme.success }]}>
+                  {subscriptionStatus.isTrialing ? 'Trial' : subscriptionStatus.isActive ? 'Active' : 'Inactive'}
+                </Text>
+              </View>
+            </View>
+            {subscriptionStatus.expirationDate !== null && (
+              <View style={styles.settingRow}>
+                <View style={styles.settingIconContainer}>
+                  <Ionicons name="time-outline" size={20} color={theme.accent} />
+                </View>
+                <View style={styles.settingContent}>
+                  <Text style={styles.settingLabel}>
+                    {subscriptionStatus.willRenew ? 'Renews' : 'Access Until'}
+                  </Text>
+                  <Text style={styles.settingDescription}>
+                    {formatExpirationDate(subscriptionStatus.expirationDate)}
+                  </Text>
+                </View>
+              </View>
+            )}
+            <TouchableOpacity
+              style={styles.linkRow}
+              onPress={showCustomerCenter}
+            >
+              <View style={styles.settingIconContainer}>
+                <Ionicons name="settings-outline" size={20} color={theme.accent} />
+              </View>
+              <Text style={styles.linkText}>Manage Subscription</Text>
+              <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <View style={styles.settingRow}>
+              <View style={styles.settingIconContainer}>
+                <Ionicons name="person-outline" size={20} color={theme.accent} />
+              </View>
+              <View style={styles.settingContent}>
+                <Text style={styles.settingLabel}>Free Plan</Text>
+                <Text style={styles.settingDescription}>Limited features</Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[styles.upgradeButton, { backgroundColor: theme.accent }]}
+              onPress={showPaywall}
+            >
+              <Ionicons name="diamond" size={18} color="#fff" />
+              <Text style={styles.upgradeButtonText}>Upgrade to Pro</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       {/* Appearance */}
@@ -667,6 +751,17 @@ function createStyles(theme: Theme, topInset: number) {
       borderColor: theme.error + '50',
     },
     signOutText: { fontSize: 14, color: theme.error, fontWeight: '500', marginLeft: 6 },
+    statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+    statusBadgeText: { fontSize: 12, fontWeight: '600' },
+    upgradeButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 14,
+      borderRadius: 10,
+      marginTop: 8,
+    },
+    upgradeButtonText: { color: '#fff', fontSize: 15, fontWeight: '600', marginLeft: 8 },
     footer: { alignItems: 'center', padding: 24 },
     footerText: { fontSize: 13, color: theme.textSecondary },
     footerDisclaimer: {
