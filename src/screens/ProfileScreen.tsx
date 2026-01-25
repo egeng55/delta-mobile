@@ -36,7 +36,7 @@ import { FadeInView, AnimatedCard } from '../components/Animated';
 import { supabase } from '../services/supabase';
 import { profileApi } from '../services/api';
 
-type Gender = 'male' | 'female' | 'non-binary' | 'other' | null;
+type Gender = 'male' | 'female' | 'other' | null;
 
 const springConfig = {
   damping: 15,
@@ -62,7 +62,7 @@ interface ProfileData {
 
 export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenProps): React.ReactNode {
   const { user } = useAuth();
-  const { profile } = useAccess();
+  const { profile, checkAccess } = useAccess();
   const insets = useSafeAreaInsets();
 
   const [editModalVisible, setEditModalVisible] = useState<boolean>(false);
@@ -153,6 +153,9 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
           // Non-fatal - profile is saved, just not synced to Delta yet
           console.log('Profile sync to Delta deferred:', syncError);
         }
+
+        // Refresh profile in AccessContext to update UI
+        await checkAccess();
       }
 
       setProfileData(editData);
@@ -205,7 +208,7 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
-          @{profile?.username ?? (profile?.name ?? user?.name ?? 'user').toLowerCase().replace(/\s/g, '')}
+          @{profile?.username || profileData.username || (profile?.name ?? user?.name ?? 'user').toLowerCase().replace(/\s/g, '')}
         </Text>
         <TouchableOpacity style={styles.settingsButton} onPress={onOpenSettings}>
           <Ionicons name="settings-outline" size={24} color={theme.textPrimary} />
@@ -342,7 +345,7 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
           <View style={styles.modalInputGroup}>
             <Text style={styles.modalLabel}>Gender</Text>
             <View style={styles.genderOptions}>
-              {(['male', 'female', 'non-binary', 'other'] as const).map((option) => (
+              {(['male', 'female', 'other'] as const).map((option) => (
                 <TouchableOpacity
                   key={option}
                   style={[

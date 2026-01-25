@@ -8,9 +8,8 @@
  * - Maps RevenueCat entitlements to Supabase plan types
  */
 
-import type { CustomerInfo } from 'react-native-purchases';
 import { supabase } from './supabase';
-import { parseSubscriptionStatus, PRODUCT_IDS, ENTITLEMENTS } from './revenuecat';
+import { parseSubscriptionStatus, PRODUCT_IDS, ENTITLEMENTS, CustomerInfo } from './revenuecat';
 
 // Supabase subscription record
 export interface SupabaseSubscription {

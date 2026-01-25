@@ -63,6 +63,24 @@ interface DisplayTargets {
   workouts: number;
 }
 
+interface WorkoutDayTargets {
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  water_oz: number;
+  note: string;
+}
+
+interface TargetsInfo {
+  isWorkoutDay: boolean;
+  workoutDayTargets: WorkoutDayTargets | null;
+  activityLevel: string | null;
+  phase: string | null;
+  bmr: number | null;
+  tdee: number | null;
+}
+
 const DEFAULT_TARGETS: DisplayTargets = {
   calories: 2000,
   protein: 150,
@@ -156,6 +174,14 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [targets, setTargets] = useState<DisplayTargets>(DEFAULT_TARGETS);
   const [targetsPersonalized, setTargetsPersonalized] = useState<boolean>(false);
+  const [targetsInfo, setTargetsInfo] = useState<TargetsInfo>({
+    isWorkoutDay: false,
+    workoutDayTargets: null,
+    activityLevel: null,
+    phase: null,
+    bmr: null,
+    tdee: null,
+  });
   const [selectedChartMetric, setSelectedChartMetric] = useState<'calories' | 'protein' | 'sleep' | 'workouts'>('calories');
 
   // HealthKit state
@@ -255,14 +281,32 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
 
       // Set personalized targets from dashboard
       if (dashboardData.targets) {
+        // Use workout day targets if it's a workout day
+        const isWorkoutDay = dashboardData.is_workout_day === true;
+        const workoutDayTargets = dashboardData.workout_day_targets as WorkoutDayTargets | null;
+
         setTargets({
-          calories: dashboardData.targets.calories ?? DEFAULT_TARGETS.calories,
-          protein: dashboardData.targets.protein_g ?? DEFAULT_TARGETS.protein,
-          water_oz: dashboardData.targets.water_oz ?? DEFAULT_TARGETS.water_oz,
+          calories: isWorkoutDay && workoutDayTargets
+            ? workoutDayTargets.calories
+            : (dashboardData.targets.calories ?? DEFAULT_TARGETS.calories),
+          protein: isWorkoutDay && workoutDayTargets
+            ? workoutDayTargets.protein_g
+            : (dashboardData.targets.protein_g ?? DEFAULT_TARGETS.protein),
+          water_oz: isWorkoutDay && workoutDayTargets
+            ? workoutDayTargets.water_oz
+            : (dashboardData.targets.water_oz ?? DEFAULT_TARGETS.water_oz),
           sleep_hours: dashboardData.targets.sleep_hours ?? DEFAULT_TARGETS.sleep_hours,
           workouts: 1, // Daily workout target
         });
         setTargetsPersonalized(dashboardData.targets_calculated ?? false);
+        setTargetsInfo({
+          isWorkoutDay,
+          workoutDayTargets,
+          activityLevel: dashboardData.activity_level as string | null ?? null,
+          phase: dashboardData.phase as string | null ?? null,
+          bmr: dashboardData.bmr as number | null ?? null,
+          tdee: dashboardData.tdee as number | null ?? null,
+        });
       }
 
       // Load HealthKit data if available on iOS
@@ -1098,15 +1142,34 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
           <FadeInView style={styles.section} delay={150}>
             <View style={styles.progressTitleRow}>
               <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Today's Progress</Text>
-              {targetsPersonalized ? (
-                <View style={styles.personalizedBadge}>
-                  <Ionicons name="person" size={10} color={theme.success} />
-                  <Text style={styles.personalizedBadgeText}>Personalized</Text>
-                </View>
-              ) : (
-                <Text style={styles.defaultTargetsHint}>Default targets</Text>
-              )}
+              <View style={styles.badgeRow}>
+                {targetsInfo.isWorkoutDay && (
+                  <View style={[styles.personalizedBadge, { backgroundColor: theme.accent + '20', marginRight: 6 }]}>
+                    <Ionicons name="barbell" size={10} color={theme.accent} />
+                    <Text style={[styles.personalizedBadgeText, { color: theme.accent }]}>Workout Day</Text>
+                  </View>
+                )}
+                {targetsPersonalized ? (
+                  <View style={styles.personalizedBadge}>
+                    <Ionicons name="person" size={10} color={theme.success} />
+                    <Text style={styles.personalizedBadgeText}>Personalized</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.defaultTargetsHint}>Default targets</Text>
+                )}
+              </View>
             </View>
+            {/* Activity and Phase Info */}
+            {targetsPersonalized && targetsInfo.activityLevel && (
+              <View style={styles.activityInfoRow}>
+                <Text style={styles.activityInfoText}>
+                  {targetsInfo.phase === 'bulk' ? '🎯 Bulking' : targetsInfo.phase === 'cut' ? '✂️ Cutting' : '⚖️ Maintaining'}
+                  {' • '}
+                  {targetsInfo.activityLevel?.replace('_', ' ')}
+                  {targetsInfo.tdee ? ` • TDEE: ${targetsInfo.tdee} cal` : ''}
+                </Text>
+              </View>
+            )}
             <View style={styles.progressGrid}>
               <AnimatedCard style={styles.progressCard} delay={170}>
                 <View style={styles.progressHeader}>
@@ -1634,7 +1697,10 @@ function createStyles(theme: Theme, topInset: number) {
     section: { padding: 16 },
     sectionTitle: { fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginBottom: 12 },
     progressTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+    badgeRow: { flexDirection: 'row', alignItems: 'center' },
     personalizedBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.success + '15', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, gap: 4 },
+    activityInfoRow: { marginBottom: 12 },
+    activityInfoText: { fontSize: 12, color: theme.textSecondary, textTransform: 'capitalize' },
     personalizedBadgeText: { fontSize: 10, color: theme.success, fontWeight: '500' },
     defaultTargetsHint: { fontSize: 10, color: theme.textSecondary, fontStyle: 'italic' },
     activityCard: { backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border },

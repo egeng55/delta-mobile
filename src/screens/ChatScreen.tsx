@@ -171,6 +171,7 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const flatListRef = useRef<FlatList<Message>>(null);
+  const inputRef = useRef<TextInput>(null);
 
   const pickImage = async (useCamera: boolean): Promise<void> => {
     try {
@@ -243,6 +244,12 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
   };
 
   const sendMessage = async (): Promise<void> => {
+    // Blur input first to commit any autocorrect
+    inputRef.current?.blur();
+
+    // Small delay to allow autocorrect to commit
+    await new Promise(resolve => setTimeout(resolve, 10));
+
     const trimmedText = inputText.trim();
     const hasText = trimmedText.length > 0;
     const hasImage = selectedImage !== null;
@@ -419,7 +426,7 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
     },
   }), [theme]);
 
-  const styles = createStyles(theme, insets.top);
+  const styles = useMemo(() => createStyles(theme, insets.top), [theme, insets.top]);
 
   // Memoized message component to prevent unnecessary re-renders
   const MessageBubble = useCallback(({ item }: { item: Message }): React.ReactElement => {
@@ -555,6 +562,7 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         </Pressable>
 
         <TextInput
+          ref={inputRef}
           style={styles.input}
           placeholder={selectedImage ? "Add a message (optional)" : "Message"}
           placeholderTextColor={theme.textSecondary}

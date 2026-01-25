@@ -26,12 +26,11 @@ interface AuthScreenProps {
 
 type AuthMode = 'login' | 'signup';
 type SignupStep = 1 | 2;
-type Gender = 'male' | 'female' | 'non-binary' | 'other' | '';
+type Gender = 'male' | 'female' | 'other' | '';
 
 const GENDER_OPTIONS: { value: Gender; label: string }[] = [
   { value: 'male', label: 'Male' },
   { value: 'female', label: 'Female' },
-  { value: 'non-binary', label: 'Non-binary' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -383,7 +382,7 @@ function createStyles(theme: Theme) {
     },
     title: {
       fontSize: 56,
-      fontWeight: '800',
+      fontWeight: '300',
       color: theme.accent,
       letterSpacing: 4,
     },

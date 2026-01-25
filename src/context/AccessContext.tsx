@@ -24,7 +24,7 @@ import React, {
   ReactNode,
 } from 'react';
 import { Alert } from 'react-native';
-import type { CustomerInfo, PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
+import type { CustomerInfo, PurchasesOffering, PurchasesPackage } from '../services/revenuecat';
 import { useAuth } from './AuthContext';
 import { supabase } from '../services/supabase';
 import * as RevenueCat from '../services/revenuecat';
@@ -40,7 +40,7 @@ interface Profile {
   name: string | null;
   username: string | null;
   age: number | null;
-  gender: 'male' | 'female' | 'non-binary' | 'other' | null;
+  gender: 'male' | 'female' | 'other' | null;
   role: 'user' | 'developer' | 'admin';
   created_at: string;
   updated_at: string;
