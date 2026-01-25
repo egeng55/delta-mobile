@@ -50,6 +50,7 @@ import {
   DashboardResponse,
 } from '../services/api';
 import * as menstrualService from '../services/menstrualTracking';
+import healthKitService, { SleepSummary, HealthSummary } from '../services/healthKit';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -157,6 +158,11 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   const [targetsPersonalized, setTargetsPersonalized] = useState<boolean>(false);
   const [selectedChartMetric, setSelectedChartMetric] = useState<'calories' | 'protein' | 'sleep' | 'workouts'>('calories');
 
+  // HealthKit state
+  const [healthKitAuthorized, setHealthKitAuthorized] = useState<boolean>(false);
+  const [healthKitSleep, setHealthKitSleep] = useState<SleepSummary | null>(null);
+  const [healthSummary, setHealthSummary] = useState<HealthSummary | null>(null);
+
   // Menstrual tracking state
   const [menstrualSettings, setMenstrualSettings] = useState<MenstrualSettings | null>(null);
   const [menstrualCalendar, setMenstrualCalendar] = useState<MenstrualCalendarDay[]>([]);
@@ -257,6 +263,26 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
           workouts: 1, // Daily workout target
         });
         setTargetsPersonalized(dashboardData.targets_calculated ?? false);
+      }
+
+      // Load HealthKit data if available on iOS
+      if (healthKitService.isHealthKitAvailable()) {
+        try {
+          const authorized = await healthKitService.isAuthorized();
+          setHealthKitAuthorized(authorized);
+
+          if (authorized) {
+            // Fetch today's health summary from HealthKit
+            const summary = await healthKitService.getTodayHealthSummary();
+            setHealthSummary(summary);
+
+            // Fetch today's sleep data
+            const sleepData = await healthKitService.getSleepSummary(new Date());
+            setHealthKitSleep(sleepData);
+          }
+        } catch (healthKitError) {
+          console.log('HealthKit data fetch error:', healthKitError);
+        }
       }
 
       // Load menstrual calendar data if tracking is enabled
@@ -1216,10 +1242,148 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
             </FadeInView>
           )}
 
+          {/* HealthKit Sleep Section - show when we have HealthKit data */}
+          {healthKitService.isHealthKitAvailable() && healthKitAuthorized && healthKitSleep?.hasData && (
+            <FadeInView style={styles.section} delay={350}>
+              <View style={styles.progressTitleRow}>
+                <Text style={styles.sectionTitle}>Sleep Analysis</Text>
+                <View style={styles.healthKitBadge}>
+                  <Ionicons name="heart" size={10} color="#FF2D55" />
+                  <Text style={styles.healthKitBadgeText}>HealthKit</Text>
+                </View>
+              </View>
+              <AnimatedCard style={styles.sleepCard} delay={370}>
+                <View style={styles.sleepMainRow}>
+                  <View style={styles.sleepDurationContainer}>
+                    <Ionicons name="bed-outline" size={24} color={theme.accent} />
+                    <View style={styles.sleepDurationInfo}>
+                      <Text style={styles.sleepDurationValue}>
+                        {healthKitSleep.totalSleepHours.toFixed(1)}h
+                      </Text>
+                      <Text style={styles.sleepDurationLabel}>Total Sleep</Text>
+                    </View>
+                  </View>
+                  <View style={styles.sleepQualityContainer}>
+                    <Text style={styles.sleepQualityValue}>
+                      {healthKitService.calculateSleepQuality(healthKitSleep)}
+                    </Text>
+                    <Text style={styles.sleepQualityLabel}>Sleep Score</Text>
+                  </View>
+                </View>
+
+                {/* Sleep Stages */}
+                <View style={styles.sleepStagesRow}>
+                  <View style={styles.sleepStage}>
+                    <View style={[styles.sleepStageDot, { backgroundColor: '#5E35B1' }]} />
+                    <Text style={styles.sleepStageLabel}>Deep</Text>
+                    <Text style={styles.sleepStageValue}>{healthKitSleep.deepSleepHours.toFixed(1)}h</Text>
+                  </View>
+                  <View style={styles.sleepStage}>
+                    <View style={[styles.sleepStageDot, { backgroundColor: '#7E57C2' }]} />
+                    <Text style={styles.sleepStageLabel}>REM</Text>
+                    <Text style={styles.sleepStageValue}>{healthKitSleep.remSleepHours.toFixed(1)}h</Text>
+                  </View>
+                  <View style={styles.sleepStage}>
+                    <View style={[styles.sleepStageDot, { backgroundColor: '#9575CD' }]} />
+                    <Text style={styles.sleepStageLabel}>Core</Text>
+                    <Text style={styles.sleepStageValue}>{healthKitSleep.coreSleepHours.toFixed(1)}h</Text>
+                  </View>
+                  <View style={styles.sleepStage}>
+                    <View style={[styles.sleepStageDot, { backgroundColor: theme.textSecondary }]} />
+                    <Text style={styles.sleepStageLabel}>Efficiency</Text>
+                    <Text style={styles.sleepStageValue}>{Math.round(healthKitSleep.sleepEfficiency)}%</Text>
+                  </View>
+                </View>
+
+                {/* Bed/Wake times */}
+                {healthKitSleep.bedTime && healthKitSleep.wakeTime && (
+                  <View style={styles.sleepTimesRow}>
+                    <View style={styles.sleepTime}>
+                      <Ionicons name="moon-outline" size={14} color={theme.textSecondary} />
+                      <Text style={styles.sleepTimeLabel}>Bedtime</Text>
+                      <Text style={styles.sleepTimeValue}>
+                        {new Date(healthKitSleep.bedTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                    <View style={styles.sleepTime}>
+                      <Ionicons name="sunny-outline" size={14} color={theme.textSecondary} />
+                      <Text style={styles.sleepTimeLabel}>Wake</Text>
+                      <Text style={styles.sleepTimeValue}>
+                        {new Date(healthKitSleep.wakeTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </AnimatedCard>
+            </FadeInView>
+          )}
+
+          {/* HealthKit Heart Metrics - show HRV and RHR when available */}
+          {healthKitService.isHealthKitAvailable() && healthKitAuthorized && healthSummary && (healthSummary.latestHRV || healthSummary.latestRestingHeartRate) && (
+            <FadeInView style={styles.section} delay={400}>
+              <Text style={styles.sectionTitle}>Heart Metrics</Text>
+              <View style={styles.heartMetricsRow}>
+                {healthSummary.latestHRV && (
+                  <AnimatedCard style={styles.heartMetricCard} delay={420}>
+                    <View style={[styles.heartMetricIcon, { backgroundColor: '#FF2D5520' }]}>
+                      <Ionicons name="pulse" size={18} color="#FF2D55" />
+                    </View>
+                    <Text style={styles.heartMetricValue}>{Math.round(healthSummary.latestHRV.hrvMs)} ms</Text>
+                    <Text style={styles.heartMetricLabel}>HRV</Text>
+                    <Text style={[styles.heartMetricAssessment, { color: healthKitService.assessHRV(healthSummary.latestHRV.hrvMs) === 'excellent' ? theme.success : healthKitService.assessHRV(healthSummary.latestHRV.hrvMs) === 'good' ? theme.accent : theme.textSecondary }]}>
+                      {healthKitService.assessHRV(healthSummary.latestHRV.hrvMs).charAt(0).toUpperCase() + healthKitService.assessHRV(healthSummary.latestHRV.hrvMs).slice(1)}
+                    </Text>
+                  </AnimatedCard>
+                )}
+                {healthSummary.latestRestingHeartRate && (
+                  <AnimatedCard style={styles.heartMetricCard} delay={440}>
+                    <View style={[styles.heartMetricIcon, { backgroundColor: '#FF2D5520' }]}>
+                      <Ionicons name="heart" size={18} color="#FF2D55" />
+                    </View>
+                    <Text style={styles.heartMetricValue}>{Math.round(healthSummary.latestRestingHeartRate.bpm)} bpm</Text>
+                    <Text style={styles.heartMetricLabel}>Resting HR</Text>
+                    <Text style={[styles.heartMetricAssessment, { color: healthKitService.assessRestingHeartRate(healthSummary.latestRestingHeartRate.bpm) === 'athletic' || healthKitService.assessRestingHeartRate(healthSummary.latestRestingHeartRate.bpm) === 'excellent' ? theme.success : theme.textSecondary }]}>
+                      {healthKitService.assessRestingHeartRate(healthSummary.latestRestingHeartRate.bpm).charAt(0).toUpperCase() + healthKitService.assessRestingHeartRate(healthSummary.latestRestingHeartRate.bpm).slice(1)}
+                    </Text>
+                  </AnimatedCard>
+                )}
+              </View>
+            </FadeInView>
+          )}
+
+          {/* HealthKit Connect Prompt - show if HealthKit available but not authorized */}
+          {healthKitService.isHealthKitAvailable() && !healthKitAuthorized && (
+            <FadeInView style={styles.section} delay={350}>
+              <AnimatedCard style={styles.healthKitPromptCard} delay={370}>
+                <View style={styles.healthKitPromptContent}>
+                  <View style={[styles.healthKitPromptIcon, { backgroundColor: '#FF2D5520' }]}>
+                    <Ionicons name="heart" size={24} color="#FF2D55" />
+                  </View>
+                  <View style={styles.healthKitPromptText}>
+                    <Text style={styles.healthKitPromptTitle}>Connect Apple Health</Text>
+                    <Text style={styles.healthKitPromptSubtitle}>Get real sleep, HRV, and heart rate data from your Apple Watch</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.healthKitConnectButton}
+                  onPress={async () => {
+                    const authorized = await healthKitService.requestAuthorization();
+                    setHealthKitAuthorized(authorized);
+                    if (authorized) {
+                      fetchData();
+                    }
+                  }}
+                >
+                  <Text style={styles.healthKitConnectButtonText}>Connect</Text>
+                </TouchableOpacity>
+              </AnimatedCard>
+            </FadeInView>
+          )}
+
           {/* Activity Prompt - only show when no data */}
           {derivatives?.has_data !== true && (
-            <FadeInView style={styles.section} delay={300}>
-              <AnimatedCard style={styles.activityCard} delay={320}>
+            <FadeInView style={styles.section} delay={450}>
+              <AnimatedCard style={styles.activityCard} delay={470}>
                 <View style={styles.activityContent}>
                   <Ionicons name="chatbubble-ellipses-outline" size={20} color={theme.textSecondary} />
                   <Text style={styles.activityText}>
@@ -1596,5 +1760,40 @@ function createStyles(theme: Theme, topInset: number) {
     modalFooter: { padding: 16, borderTopWidth: 1, borderTopColor: theme.border },
     modalSaveButton: { backgroundColor: '#E57373', paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
     modalSaveButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+    // HealthKit styles
+    healthKitBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FF2D5515', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, gap: 4 },
+    healthKitBadgeText: { fontSize: 10, color: '#FF2D55', fontWeight: '500' },
+    sleepCard: { backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border },
+    sleepMainRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    sleepDurationContainer: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    sleepDurationInfo: {},
+    sleepDurationValue: { fontSize: 28, fontWeight: '700', color: theme.textPrimary },
+    sleepDurationLabel: { fontSize: 12, color: theme.textSecondary },
+    sleepQualityContainer: { alignItems: 'center', backgroundColor: theme.accentLight, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12 },
+    sleepQualityValue: { fontSize: 24, fontWeight: '700', color: theme.accent },
+    sleepQualityLabel: { fontSize: 10, color: theme.textSecondary, marginTop: 2 },
+    sleepStagesRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: theme.border },
+    sleepStage: { alignItems: 'center', flex: 1 },
+    sleepStageDot: { width: 8, height: 8, borderRadius: 4, marginBottom: 4 },
+    sleepStageLabel: { fontSize: 10, color: theme.textSecondary, marginBottom: 2 },
+    sleepStageValue: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
+    sleepTimesRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 12 },
+    sleepTime: { alignItems: 'center', gap: 4 },
+    sleepTimeLabel: { fontSize: 10, color: theme.textSecondary },
+    sleepTimeValue: { fontSize: 13, fontWeight: '500', color: theme.textPrimary },
+    heartMetricsRow: { flexDirection: 'row', gap: 12 },
+    heartMetricCard: { flex: 1, backgroundColor: theme.surface, borderRadius: 12, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: theme.border },
+    heartMetricIcon: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+    heartMetricValue: { fontSize: 22, fontWeight: '700', color: theme.textPrimary },
+    heartMetricLabel: { fontSize: 12, color: theme.textSecondary, marginTop: 2 },
+    heartMetricAssessment: { fontSize: 11, fontWeight: '500', marginTop: 4 },
+    healthKitPromptCard: { backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border },
+    healthKitPromptContent: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+    healthKitPromptIcon: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center' },
+    healthKitPromptText: { marginLeft: 12, flex: 1 },
+    healthKitPromptTitle: { fontSize: 16, fontWeight: '600', color: theme.textPrimary },
+    healthKitPromptSubtitle: { fontSize: 13, color: theme.textSecondary, marginTop: 4 },
+    healthKitConnectButton: { backgroundColor: '#FF2D55', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+    healthKitConnectButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   });
 }
