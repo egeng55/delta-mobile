@@ -688,13 +688,17 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
       };
     }
 
-    const daysWithCalories = weeklySummaries.filter(s => s.calories > 0);
-    const daysWithSleep = weeklySummaries.filter(s => s.sleep_hours !== null);
-    const daysWithProtein = weeklySummaries.filter(s => s.protein > 0);
+    // Exclude today from averages - only count completed days
+    const today = new Date().toISOString().split('T')[0];
+    const completedDays = weeklySummaries.filter(s => s.date !== today);
 
-    const totalCalories = weeklySummaries.reduce((sum, s) => sum + s.calories, 0);
-    const totalProtein = weeklySummaries.reduce((sum, s) => sum + s.protein, 0);
-    const totalWorkouts = weeklySummaries.reduce((sum, s) => sum + s.workouts, 0);
+    const daysWithCalories = completedDays.filter(s => s.calories > 0);
+    const daysWithSleep = completedDays.filter(s => s.sleep_hours !== null);
+    const daysWithProtein = completedDays.filter(s => s.protein > 0);
+
+    const totalCalories = daysWithCalories.reduce((sum, s) => sum + s.calories, 0);
+    const totalProtein = daysWithProtein.reduce((sum, s) => sum + s.protein, 0);
+    const totalWorkouts = completedDays.reduce((sum, s) => sum + s.workouts, 0);
     const totalSleep = daysWithSleep.reduce((sum, s) => sum + (s.sleep_hours ?? 0), 0);
 
     return {
