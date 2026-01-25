@@ -264,6 +264,15 @@ export interface DailyTargets {
   workouts_per_week: number;
 }
 
+export interface WorkoutDayTargets {
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  water_oz: number;
+  note: string;
+}
+
 export interface DashboardResponse {
   today: {
     date: string;
@@ -287,8 +296,14 @@ export interface DashboardResponse {
   };
   recent_entries: unknown[];
   targets: DailyTargets;
+  workout_day_targets?: WorkoutDayTargets | null;
+  is_workout_day?: boolean;
   targets_calculated: boolean;
   targets_source: 'default' | 'profile' | 'user_specified' | 'goal';
+  activity_level?: string | null;
+  phase?: string | null;
+  bmr?: number | null;
+  tdee?: number | null;
 }
 
 export interface TargetsResponse {

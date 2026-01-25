@@ -8,7 +8,7 @@
  * - Rich formatting support (bold, headers, lists, tables)
  */
 
-import React, { useState, useRef, useMemo, useCallback, memo } from 'react';
+import React, { useState, useRef, useMemo, useCallback, memo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,9 @@ import {
   Alert,
   ActionSheetIOS,
   ScrollView,
+  Modal,
+  TouchableOpacity,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -68,6 +71,18 @@ interface Message {
   timestamp: number;
   imageUri?: string;
 }
+
+interface SavedConversation {
+  id: string;
+  title: string;
+  messages: Message[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+const CONVERSATIONS_STORAGE_KEY = '@delta_conversations';
+const CURRENT_CONVERSATION_KEY = '@delta_current_conversation';
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const WELCOME_MESSAGE = `**Welcome to Delta!**
 
@@ -170,8 +185,151 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
   const [inputText, setInputText] = useState<string>('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [showSidebar, setShowSidebar] = useState<boolean>(false);
+  const [conversations, setConversations] = useState<SavedConversation[]>([]);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState<boolean>(false);
   const flatListRef = useRef<FlatList<Message>>(null);
   const inputRef = useRef<TextInput>(null);
+
+  // Load saved conversations on mount
+  useEffect(() => {
+    loadConversations();
+  }, [user?.id]);
+
+  // Auto-save current conversation when messages change
+  useEffect(() => {
+    if (messages.length > 1) { // Don't save just the welcome message
+      saveCurrentConversation();
+    }
+  }, [messages]);
+
+  const loadConversations = async (): Promise<void> => {
+    try {
+      const saved = await AsyncStorage.getItem(`${CONVERSATIONS_STORAGE_KEY}_${user?.id}`);
+      if (saved) {
+        const parsed = JSON.parse(saved) as SavedConversation[];
+        setConversations(parsed.sort((a, b) => b.updatedAt - a.updatedAt));
+      }
+      // Load current conversation ID
+      const currentId = await AsyncStorage.getItem(`${CURRENT_CONVERSATION_KEY}_${user?.id}`);
+      if (currentId) {
+        setCurrentConversationId(currentId);
+        // Load the conversation messages
+        const conv = JSON.parse(saved || '[]').find((c: SavedConversation) => c.id === currentId);
+        if (conv) {
+          setMessages(conv.messages);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load conversations:', error);
+    }
+  };
+
+  const saveCurrentConversation = async (): Promise<void> => {
+    try {
+      let convId = currentConversationId;
+      const now = Date.now();
+
+      // Generate title from first user message
+      const firstUserMsg = messages.find(m => m.isUser);
+      const title = firstUserMsg
+        ? firstUserMsg.text.slice(0, 40) + (firstUserMsg.text.length > 40 ? '...' : '')
+        : 'New conversation';
+
+      if (!convId) {
+        convId = `conv_${now}`;
+        setCurrentConversationId(convId);
+        await AsyncStorage.setItem(`${CURRENT_CONVERSATION_KEY}_${user?.id}`, convId);
+      }
+
+      const updatedConversations = [...conversations];
+      const existingIndex = updatedConversations.findIndex(c => c.id === convId);
+
+      const conversation: SavedConversation = {
+        id: convId,
+        title,
+        messages,
+        createdAt: existingIndex >= 0 ? updatedConversations[existingIndex].createdAt : now,
+        updatedAt: now,
+      };
+
+      if (existingIndex >= 0) {
+        updatedConversations[existingIndex] = conversation;
+      } else {
+        updatedConversations.unshift(conversation);
+      }
+
+      setConversations(updatedConversations.sort((a, b) => b.updatedAt - a.updatedAt));
+      await AsyncStorage.setItem(
+        `${CONVERSATIONS_STORAGE_KEY}_${user?.id}`,
+        JSON.stringify(updatedConversations)
+      );
+    } catch (error) {
+      console.error('Failed to save conversation:', error);
+    }
+  };
+
+  const startNewConversation = async (): Promise<void> => {
+    setMessages([
+      {
+        id: 'welcome',
+        text: WELCOME_MESSAGE,
+        isUser: false,
+        timestamp: Date.now(),
+      },
+    ]);
+    setCurrentConversationId(null);
+    await AsyncStorage.removeItem(`${CURRENT_CONVERSATION_KEY}_${user?.id}`);
+    setShowSidebar(false);
+  };
+
+  const loadConversation = (conv: SavedConversation): void => {
+    setMessages(conv.messages);
+    setCurrentConversationId(conv.id);
+    AsyncStorage.setItem(`${CURRENT_CONVERSATION_KEY}_${user?.id}`, conv.id);
+    setShowSidebar(false);
+  };
+
+  const deleteConversation = async (convId: string): Promise<void> => {
+    Alert.alert(
+      'Delete Conversation',
+      'Are you sure you want to delete this conversation?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            const updated = conversations.filter(c => c.id !== convId);
+            setConversations(updated);
+            await AsyncStorage.setItem(
+              `${CONVERSATIONS_STORAGE_KEY}_${user?.id}`,
+              JSON.stringify(updated)
+            );
+            if (convId === currentConversationId) {
+              startNewConversation();
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const toggleVoiceInput = (): void => {
+    if (isListening) {
+      setIsListening(false);
+      // Voice recognition would stop here
+    } else {
+      setIsListening(true);
+      // For iOS, we'll show an alert about using the keyboard's dictation
+      Alert.alert(
+        'Voice Input',
+        'Tap the microphone icon on your keyboard to use voice dictation.\n\nTip: Hold the space bar on iOS to activate dictation.',
+        [{ text: 'OK', onPress: () => setIsListening(false) }]
+      );
+    }
+  };
 
   const pickImage = async (useCamera: boolean): Promise<void> => {
     try {
@@ -478,7 +636,79 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
+      {/* Sidebar Modal */}
+      <Modal
+        visible={showSidebar}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowSidebar(false)}
+      >
+        <View style={styles.sidebarOverlay}>
+          <Pressable style={styles.sidebarDismiss} onPress={() => setShowSidebar(false)} />
+          <View style={styles.sidebar}>
+            <View style={styles.sidebarHeader}>
+              <Text style={styles.sidebarTitle}>Conversations</Text>
+              <TouchableOpacity onPress={() => setShowSidebar(false)}>
+                <Ionicons name="close" size={24} color={theme.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={styles.newChatButton} onPress={startNewConversation}>
+              <Ionicons name="add-circle-outline" size={20} color={theme.accent} />
+              <Text style={styles.newChatText}>New Conversation</Text>
+            </TouchableOpacity>
+
+            <ScrollView style={styles.conversationList}>
+              {conversations.length === 0 ? (
+                <Text style={styles.noConversations}>No saved conversations yet</Text>
+              ) : (
+                conversations.map(conv => (
+                  <TouchableOpacity
+                    key={conv.id}
+                    style={[
+                      styles.conversationItem,
+                      conv.id === currentConversationId && styles.conversationItemActive,
+                    ]}
+                    onPress={() => loadConversation(conv)}
+                    onLongPress={() => deleteConversation(conv.id)}
+                  >
+                    <View style={styles.conversationContent}>
+                      <Text
+                        style={[
+                          styles.conversationTitle,
+                          conv.id === currentConversationId && styles.conversationTitleActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {conv.title}
+                      </Text>
+                      <Text style={styles.conversationDate}>
+                        {new Date(conv.updatedAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={() => deleteConversation(conv.id)}
+                    >
+                      <Ionicons name="trash-outline" size={16} color={theme.textSecondary} />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+
+            <Text style={styles.sidebarHint}>Long press to delete</Text>
+          </View>
+        </View>
+      </Modal>
+
       <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.menuButton}
+          onPress={() => setShowSidebar(true)}
+        >
+          <Ionicons name="menu" size={24} color={theme.textPrimary} />
+        </TouchableOpacity>
         <Pressable
           onPressIn={handleLogoPressIn}
           onPressOut={handleLogoPressOut}
@@ -560,6 +790,19 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
             <Ionicons name="camera-outline" size={22} color={theme.accent} />
           </Animated.View>
         </Pressable>
+
+        {/* Voice Button */}
+        <TouchableOpacity
+          onPress={toggleVoiceInput}
+          disabled={isLoading === true}
+          style={[styles.voiceButton, isListening && styles.voiceButtonActive]}
+        >
+          <Ionicons
+            name={isListening ? 'mic' : 'mic-outline'}
+            size={22}
+            color={isListening ? '#fff' : theme.accent}
+          />
+        </TouchableOpacity>
 
         <TextInput
           ref={inputRef}
@@ -766,6 +1009,111 @@ function createStyles(theme: Theme, topInset: number) {
     },
     buttonDisabled: {
       opacity: 0.4,
+    },
+    voiceButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: theme.surface,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 8,
+    },
+    voiceButtonActive: {
+      backgroundColor: theme.accent,
+    },
+    menuButton: {
+      marginRight: 8,
+      padding: 4,
+    },
+    // Sidebar styles
+    sidebarOverlay: {
+      flex: 1,
+      flexDirection: 'row',
+      backgroundColor: 'rgba(0,0,0,0.5)',
+    },
+    sidebarDismiss: {
+      flex: 1,
+    },
+    sidebar: {
+      width: SCREEN_WIDTH * 0.8,
+      maxWidth: 320,
+      backgroundColor: theme.background,
+      paddingTop: topInset + 16,
+      paddingHorizontal: 16,
+      paddingBottom: 32,
+    },
+    sidebarHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 20,
+    },
+    sidebarTitle: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: theme.textPrimary,
+    },
+    newChatButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.surface,
+      padding: 12,
+      borderRadius: 10,
+      marginBottom: 16,
+      gap: 8,
+    },
+    newChatText: {
+      fontSize: 16,
+      fontWeight: '500',
+      color: theme.accent,
+    },
+    conversationList: {
+      flex: 1,
+    },
+    noConversations: {
+      color: theme.textSecondary,
+      fontSize: 14,
+      textAlign: 'center',
+      marginTop: 20,
+    },
+    conversationItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 12,
+      borderRadius: 10,
+      marginBottom: 8,
+      backgroundColor: theme.surface,
+    },
+    conversationItemActive: {
+      backgroundColor: theme.accent + '20',
+      borderColor: theme.accent,
+      borderWidth: 1,
+    },
+    conversationContent: {
+      flex: 1,
+    },
+    conversationTitle: {
+      fontSize: 15,
+      fontWeight: '500',
+      color: theme.textPrimary,
+      marginBottom: 4,
+    },
+    conversationTitleActive: {
+      color: theme.accent,
+    },
+    conversationDate: {
+      fontSize: 12,
+      color: theme.textSecondary,
+    },
+    deleteButton: {
+      padding: 8,
+    },
+    sidebarHint: {
+      fontSize: 12,
+      color: theme.textSecondary,
+      textAlign: 'center',
+      marginTop: 12,
     },
   });
 }

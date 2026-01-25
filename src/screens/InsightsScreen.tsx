@@ -48,6 +48,7 @@ import {
   dashboardApi,
   DailyTargets as ApiDailyTargets,
   DashboardResponse,
+  WorkoutDayTargets,
 } from '../services/api';
 import * as menstrualService from '../services/menstrualTracking';
 import healthKitService, { SleepSummary, HealthSummary } from '../services/healthKit';
@@ -61,15 +62,6 @@ interface DisplayTargets {
   water_oz: number;
   sleep_hours: number;
   workouts: number;
-}
-
-interface WorkoutDayTargets {
-  calories: number;
-  protein_g: number;
-  carbs_g: number;
-  fat_g: number;
-  water_oz: number;
-  note: string;
 }
 
 interface TargetsInfo {
@@ -1028,6 +1020,9 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
       }
     >
       <View style={styles.header}>
+        <Text style={styles.dateHeader}>
+          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+        </Text>
         <Text style={styles.headerTitle}>INSIGHTS</Text>
       </View>
 
@@ -1680,7 +1675,8 @@ function createStyles(theme: Theme, topInset: number) {
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background },
     loadingText: { marginTop: 12, fontSize: 16, color: theme.textSecondary },
     header: { paddingHorizontal: 16, paddingTop: topInset + 8, paddingBottom: 8 },
-    headerTitle: { fontSize: 17, fontWeight: '600', color: theme.textPrimary, letterSpacing: 1 },
+    dateHeader: { fontSize: 28, fontWeight: '700', color: theme.textPrimary, marginBottom: 4 },
+    headerTitle: { fontSize: 13, fontWeight: '600', color: theme.textSecondary, letterSpacing: 1.5 },
     tabContainer: { flexDirection: 'row', marginHorizontal: 16, backgroundColor: theme.surface, borderRadius: 12, padding: 4, marginBottom: 16 },
     tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8 },
     tabActive: { backgroundColor: theme.accentLight },
