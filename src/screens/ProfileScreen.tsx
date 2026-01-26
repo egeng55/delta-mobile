@@ -28,13 +28,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useAccess } from '../context/AccessContext';
 import { FadeInView, AnimatedCard } from '../components/Animated';
 import { supabase } from '../services/supabase';
-import { profileApi } from '../services/api';
+import { profileApi, profileCardsApi, StatCard as StatCardType, StatCardInput } from '../services/api';
+import { decode } from 'base64-arraybuffer';
+import { StatCard, StatCardEditor } from '../components/Profile';
 
 type Gender = 'male' | 'female' | 'other' | null;
 
@@ -67,6 +70,9 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
 
   const [editModalVisible, setEditModalVisible] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [statCards, setStatCards] = useState<StatCardType[]>([]);
+  const [statCardEditorVisible, setStatCardEditorVisible] = useState<boolean>(false);
+  const [editingStatCard, setEditingStatCard] = useState<StatCardType | null>(null);
   const [profileData, setProfileData] = useState<ProfileData>({
     displayName: user?.name ?? 'User',
     username: profile?.username ?? '',
@@ -77,21 +83,36 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
   });
   const [editData, setEditData] = useState<ProfileData>(profileData);
 
-  // Load saved profile data (local storage + Supabase profile)
+  // Load saved profile data (from Supabase + local storage fallback)
   useEffect(() => {
     const loadProfile = async (): Promise<void> => {
       try {
+        // Load local data for bio (still stored locally)
         const saved = await AsyncStorage.getItem(`${PROFILE_STORAGE_KEY}_${user?.id}`);
         const localData = saved !== null ? JSON.parse(saved) : {};
 
+        // Load profile image URL from Supabase
+        let cloudProfileImage: string | null = null;
+        if (user?.id) {
+          const { data: profileRow } = await supabase
+            .from('profiles')
+            .select('avatar_url')
+            .eq('id', user.id)
+            .single();
+
+          if (profileRow?.avatar_url) {
+            cloudProfileImage = profileRow.avatar_url;
+          }
+        }
+
         // Merge Supabase profile data with local data
         const mergedData: ProfileData = {
-          displayName: localData.displayName ?? profile?.name ?? user?.name ?? 'User',
-          username: profile?.username ?? localData.username ?? '',
-          age: profile?.age?.toString() ?? localData.age ?? '',
-          gender: profile?.gender ?? localData.gender ?? null,
+          displayName: profile?.name ?? user?.name ?? 'User',
+          username: profile?.username ?? '',
+          age: profile?.age?.toString() ?? '',
+          gender: profile?.gender ?? null,
           bio: localData.bio ?? '',
-          profileImage: localData.profileImage ?? null,
+          profileImage: cloudProfileImage ?? localData.profileImage ?? null,
         };
 
         setProfileData(mergedData);
@@ -102,6 +123,50 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
     };
     loadProfile();
   }, [user?.id, user?.name, profile?.name, profile?.username, profile?.age, profile?.gender]);
+
+  // Load stat cards
+  useEffect(() => {
+    const loadStatCards = async (): Promise<void> => {
+      if (!user?.id) return;
+      try {
+        const response = await profileCardsApi.getCards(user.id);
+        setStatCards(response.cards);
+      } catch {
+        // Cards might not exist yet, that's fine
+      }
+    };
+    loadStatCards();
+  }, [user?.id]);
+
+  const handleAddStatCard = (): void => {
+    setEditingStatCard(null);
+    setStatCardEditorVisible(true);
+  };
+
+  const handleEditStatCard = (card: StatCardType): void => {
+    setEditingStatCard(card);
+    setStatCardEditorVisible(true);
+  };
+
+  const handleSaveStatCard = async (data: StatCardInput): Promise<void> => {
+    if (!user?.id) return;
+
+    if (editingStatCard !== null) {
+      // Update existing card
+      const response = await profileCardsApi.updateCard(user.id, editingStatCard.id, data);
+      setStatCards(prev => prev.map(c => c.id === editingStatCard.id ? response.card : c));
+    } else {
+      // Create new card
+      const response = await profileCardsApi.createCard(user.id, data);
+      setStatCards(prev => [...prev, response.card]);
+    }
+  };
+
+  const handleDeleteStatCard = async (cardId: string): Promise<void> => {
+    if (!user?.id) return;
+    await profileCardsApi.deleteCard(user.id, cardId);
+    setStatCards(prev => prev.filter(c => c.id !== cardId));
+  };
 
   const saveProfile = async (): Promise<void> => {
     // Validate username
@@ -116,13 +181,54 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
 
     setIsSaving(true);
     try {
-      // Save to AsyncStorage (local data: bio, profileImage, displayName)
+      let avatarUrl: string | null = profileData.profileImage;
+
+      // Upload profile image to Supabase Storage if it changed
+      if (user?.id && editData.profileImage !== profileData.profileImage) {
+        if (editData.profileImage) {
+          try {
+            // Read image as base64
+            const base64 = await FileSystem.readAsStringAsync(editData.profileImage, {
+              encoding: 'base64',
+            });
+
+            // Determine file extension
+            const ext = editData.profileImage.split('.').pop()?.toLowerCase() || 'jpg';
+            const fileName = `${user.id}/avatar.${ext}`;
+            const contentType = ext === 'png' ? 'image/png' : 'image/jpeg';
+
+            // Upload to Supabase Storage
+            const { error: uploadError } = await supabase.storage
+              .from('avatars')
+              .upload(fileName, decode(base64), {
+                contentType,
+                upsert: true,
+              });
+
+            if (uploadError) {
+              console.error('Error uploading avatar:', uploadError);
+            } else {
+              // Get public URL
+              const { data: urlData } = supabase.storage
+                .from('avatars')
+                .getPublicUrl(fileName);
+              avatarUrl = urlData?.publicUrl ?? null;
+            }
+          } catch (uploadErr) {
+            console.error('Error uploading profile image:', uploadErr);
+          }
+        } else {
+          avatarUrl = null;
+        }
+      }
+
+      // Save bio to AsyncStorage (still local - it's user content that doesn't need sync)
       await AsyncStorage.setItem(
         `${PROFILE_STORAGE_KEY}_${user?.id}`,
-        JSON.stringify(editData)
+        JSON.stringify({ bio: editData.bio })
       );
 
-      // Save to Supabase (username, age, gender, name)
+      // Save to Supabase (username, age, gender, name, avatar_url)
       if (user?.id) {
         const ageNum = editData.age.length > 0 ? parseInt(editData.age, 10) : null;
 
@@ -133,6 +239,7 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
             username: editData.username.length > 0 ? editData.username : null,
             age: ageNum,
             gender: editData.gender,
+            avatar_url: avatarUrl,
           })
           .eq('id', user.id);
 
@@ -241,8 +348,47 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
         </TouchableOpacity>
       </Animated.View>
 
+      {/* My Stats Section */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>My Stats</Text>
+          <TouchableOpacity style={styles.addButton} onPress={handleAddStatCard}>
+            <Ionicons name="add-circle-outline" size={24} color={theme.accent} />
+          </TouchableOpacity>
+        </View>
+
+        {statCards.length === 0 ? (
+          <TouchableOpacity style={styles.emptyStatsCard} onPress={handleAddStatCard}>
+            <Ionicons name="analytics-outline" size={32} color={theme.textSecondary} />
+            <Text style={styles.emptyStatsText}>Add your first stat</Text>
+            <Text style={styles.emptyStatsHint}>Track PRs, body metrics, and more</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.statsGrid}>
+            {statCards.map((card, index) => (
+              <StatCard
+                key={card.id}
+                theme={theme}
+                card={card}
+                onEdit={handleEditStatCard}
+                index={index}
+              />
+            ))}
+          </View>
+        )}
+      </View>
 
     </ScrollView>
+
+    {/* Stat Card Editor Modal */}
+    <StatCardEditor
+      theme={theme}
+      visible={statCardEditorVisible}
+      card={editingStatCard}
+      onClose={() => setStatCardEditorVisible(false)}
+      onSave={handleSaveStatCard}
+      onDelete={handleDeleteStatCard}
+    />
 
     {/* Edit Profile Modal */}
     <Modal
@@ -655,6 +801,38 @@ function createStyles(theme: Theme, topInset: number) {
     genderOptionTextSelected: {
       color: theme.accent,
       fontWeight: '600',
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 12,
+    },
+    addButton: {
+      padding: 4,
+    },
+    emptyStatsCard: {
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+      padding: 32,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderStyle: 'dashed',
+    },
+    emptyStatsText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: theme.textPrimary,
+      marginTop: 12,
+    },
+    emptyStatsHint: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      marginTop: 4,
+    },
+    statsGrid: {
+      gap: 0,
     },
   });
 }

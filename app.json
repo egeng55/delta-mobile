@@ -22,6 +22,8 @@
         "NSHealthShareUsageDescription": "Delta uses health data to provide personalized wellness insights and track your fitness progress.",
         "NSHealthUpdateUsageDescription": "Delta can log your workouts and health metrics to Apple Health.",
         "NSPhotoLibraryUsageDescription": "Delta needs access to your photo library to set a profile picture.",
+        "NSCameraUsageDescription": "Delta uses the camera for body scanning and progress photos.",
+        "NSMicrophoneUsageDescription": "Delta uses the microphone for voice input.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "config": {

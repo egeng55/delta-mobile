@@ -20,6 +20,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeInRight } from 'react-native-reanimated';
 import { Theme } from '../theme/colors';
 import { spacing, typography, borderRadius, shadows } from '../theme/designSystem';
@@ -33,6 +34,7 @@ interface ActivityScreenProps {
 }
 
 export default function ActivityScreen({ theme }: ActivityScreenProps): React.ReactElement {
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const {
     workout,
@@ -140,7 +142,7 @@ export default function ActivityScreen({ theme }: ActivityScreenProps): React.Re
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
       refreshControl={
         <RefreshControl
           refreshing={workoutLoading}

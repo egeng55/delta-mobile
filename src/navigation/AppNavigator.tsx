@@ -86,7 +86,7 @@ function MainTabs(): React.ReactNode {
           options={{
             tabBarShowLabel: false,
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="chatbubble-outline" size={size} color={color} />
+              <Ionicons name="triangle-outline" size={size} color={color} />
             ),
           }}
         >

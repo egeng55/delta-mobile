@@ -5,7 +5,7 @@
  * Analytics shows derivative trends and patterns.
  */
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -24,11 +24,49 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeInRight, FadeInUp } from 'react-native-reanimated';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AnimatedCard, AnimatedListItem, AnimatedProgress, AnimatedButton, FadeInView } from '../components/Animated';
 import LineChart, { DataPoint } from '../components/LineChart';
+import { AvatarCanvas } from '../components/Avatar';
+import { UserAvatar, AvatarInsight, DEFAULT_AVATAR } from '../types/avatar';
+import { avatarService } from '../services/avatarService';
+import AvatarCustomizeScreen from './AvatarCustomizeScreen';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useAccess } from '../context/AccessContext';
+
+// Cache configuration
+const CACHE_PREFIX = '@delta_insights_';
+const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+
+interface CachedData<T> {
+  data: T;
+  timestamp: number;
+}
+
+const getCached = async <T,>(key: string): Promise<T | null> => {
+  try {
+    const cached = await AsyncStorage.getItem(`${CACHE_PREFIX}${key}`);
+    if (cached) {
+      const parsed: CachedData<T> = JSON.parse(cached);
+      if (Date.now() - parsed.timestamp < CACHE_DURATION_MS) {
+        return parsed.data;
+      }
+    }
+  } catch {
+    // Ignore cache errors
+  }
+  return null;
+};
+
+const setCache = async <T,>(key: string, data: T): Promise<void> => {
+  try {
+    const cached: CachedData<T> = { data, timestamp: Date.now() };
+    await AsyncStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(cached));
+  } catch {
+    // Ignore cache errors
+  }
+};
 import {
   insightsApi,
   InsightsData,
@@ -49,7 +87,12 @@ import {
   DailyTargets as ApiDailyTargets,
   DashboardResponse,
   WorkoutDayTargets,
+  healthIntelligenceApi,
+  HealthStateResponse,
+  CausalChain,
 } from '../services/api';
+import { StateCard, AlignmentRing } from '../components/HealthState';
+import { ChainCard } from '../components/CausalChain';
 import * as menstrualService from '../services/menstrualTracking';
 import healthKitService, { SleepSummary, HealthSummary } from '../services/healthKit';
 
@@ -116,6 +159,14 @@ interface TrendCard {
 
 type TabType = 'analytics' | 'workout' | 'calendar';
 
+// Get local date string in YYYY-MM-DD format (phone's timezone, not UTC)
+const getLocalDateString = (date: Date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 // Calendar helper functions
 const getDaysInMonth = (year: number, month: number): number => {
   return new Date(year, month + 1, 0).getDate();
@@ -159,7 +210,6 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<DailyLog | null>(null);
   const [calendarDate, setCalendarDate] = useState<Date>(new Date());
-  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
@@ -176,6 +226,17 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   });
   const [selectedChartMetric, setSelectedChartMetric] = useState<'calories' | 'protein' | 'sleep' | 'workouts'>('calories');
 
+  // Avatar state
+  const [userAvatar, setUserAvatar] = useState<UserAvatar>(DEFAULT_AVATAR);
+  const [avatarInsights, setAvatarInsights] = useState<AvatarInsight[]>([]);
+  const [showAvatarCustomize, setShowAvatarCustomize] = useState<boolean>(false);
+
+  // Track which tabs have been loaded
+  const loadedTabs = useRef<Set<TabType>>(new Set());
+  const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(true);
+  const [workoutLoading, setWorkoutLoading] = useState<boolean>(false);
+  const [calendarLoading, setCalendarLoading] = useState<boolean>(false);
+
   // HealthKit state
   const [healthKitAuthorized, setHealthKitAuthorized] = useState<boolean>(false);
   const [healthKitSleep, setHealthKitSleep] = useState<SleepSummary | null>(null);
@@ -191,57 +252,87 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   const [selectedSymptoms, setSelectedSymptoms] = useState<MenstrualSymptom[]>([]);
   const [isSavingPeriod, setIsSavingPeriod] = useState<boolean>(false);
 
+  // Health Intelligence state
+  const [healthState, setHealthState] = useState<HealthStateResponse | null>(null);
+  const [causalChains, setCausalChains] = useState<CausalChain[]>([]);
+  const [showCausalChains, setShowCausalChains] = useState<boolean>(false);
+
   const userId = user?.id ?? 'anonymous';
 
-  const fetchData = useCallback(async (showRefreshIndicator: boolean = false): Promise<void> => {
-    if (showRefreshIndicator === true) {
-      setIsRefreshing(true);
-    } else {
-      setIsLoading(true);
+  // Default data structures
+  const defaultInsights: InsightsData = useMemo(() => ({
+    user_id: userId,
+    total_conversations: 0,
+    topics_discussed: [],
+    wellness_score: 0,
+    streak_days: 0,
+  }), [userId]);
+
+  const defaultDerivatives: DerivativesData = useMemo(() => ({
+    has_data: false,
+    days_analyzed: 0,
+    data_points: 0,
+    date_range: { start: '', end: '' },
+    metrics: {},
+    composite: {
+      physiological_momentum: {
+        score: 0,
+        label: 'insufficient_data',
+        symbol: '→',
+        confidence: 0,
+        signals_analyzed: 0,
+      },
+    },
+    recovery_patterns: {
+      pattern: 'insufficient_data',
+      description: 'Continue logging data to see recovery patterns.',
+      insufficient_data: true,
+    },
+  }), []);
+
+  const withTimeout = useCallback(<T,>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+    ]);
+  }, []);
+
+  // Fetch Analytics tab data (dashboard, derivatives, weekly summaries)
+  const fetchAnalyticsData = useCallback(async (forceRefresh: boolean = false): Promise<void> => {
+    const cacheKey = `analytics_${userId}`;
+
+    // Try cache first (unless forcing refresh)
+    if (!forceRefresh) {
+      const cached = await getCached<{
+        insights: InsightsData;
+        derivatives: DerivativesData;
+        cards: DerivativeCard[];
+        weekly: WeeklySummary[];
+        today: WeeklySummary | null;
+        targets: DisplayTargets;
+        targetsPersonalized: boolean;
+        targetsInfo: TargetsInfo;
+      }>(cacheKey);
+
+      if (cached) {
+        setInsights(cached.insights);
+        setDerivatives(cached.derivatives);
+        setDerivativeCards(cached.cards);
+        setWeeklySummaries(cached.weekly);
+        setTodaySummary(cached.today);
+        setTargets(cached.targets);
+        setTargetsPersonalized(cached.targetsPersonalized);
+        setTargetsInfo(cached.targetsInfo);
+        setAnalyticsLoading(false);
+        loadedTabs.current.add('analytics');
+        return;
+      }
     }
+
+    setAnalyticsLoading(true);
     setError('');
 
-    const defaultInsights: InsightsData = {
-      user_id: userId,
-      total_conversations: 0,
-      topics_discussed: [],
-      wellness_score: 0,
-      streak_days: 0,
-    };
-
-    const defaultDerivatives: DerivativesData = {
-      has_data: false,
-      days_analyzed: 0,
-      data_points: 0,
-      date_range: { start: '', end: '' },
-      metrics: {},
-      composite: {
-        physiological_momentum: {
-          score: 0,
-          label: 'insufficient_data',
-          symbol: '→',
-          confidence: 0,
-          signals_analyzed: 0,
-        },
-      },
-      recovery_patterns: {
-        pattern: 'insufficient_data',
-        description: 'Continue logging data to see recovery patterns.',
-        insufficient_data: true,
-      },
-    };
-
-    const withTimeout = <T,>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
-      return Promise.race([
-        promise,
-        new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
-      ]);
-    };
-
     try {
-      const year = calendarDate.getFullYear();
-      const month = calendarDate.getMonth() + 1;
-
       const defaultWeekly = { weekly_summaries: [], days_count: 0 };
       const defaultDashboard: DashboardResponse = {
         today: null,
@@ -252,108 +343,311 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
         targets_source: 'default',
       };
 
-      const [insightsData, workoutData, derivativesData, cardsData, monthData, weeklyData, dashboardData, menstrualSettingsData] = await Promise.all([
-        withTimeout(insightsApi.getInsights(userId), 5000, defaultInsights),
-        withTimeout(workoutApi.getToday(userId), 5000, { workout: null }),
-        withTimeout(derivativesApi.getDerivatives(userId, 30), 5000, defaultDerivatives),
-        withTimeout(derivativesApi.getCards(userId, 14), 5000, { cards: [], count: 0 }),
-        withTimeout(calendarApi.getMonthLogs(userId, year, month), 5000, { logs: [], days_count: 0, year, month }),
-        withTimeout(dashboardApi.getWeekly(userId) as Promise<{ weekly_summaries: WeeklySummary[] }>, 5000, defaultWeekly),
-        withTimeout(dashboardApi.getDashboard(userId), 5000, defaultDashboard),
-        menstrualService.getSettings(userId),
+      const defaultHealthState: HealthStateResponse = { has_data: false };
+
+      const [insightsData, derivativesData, cardsData, weeklyData, dashboardData, healthStateData] = await Promise.all([
+        withTimeout(insightsApi.getInsights(userId), 8000, defaultInsights),
+        withTimeout(derivativesApi.getDerivatives(userId, 30), 8000, defaultDerivatives),
+        withTimeout(derivativesApi.getCards(userId, 14), 8000, { cards: [], count: 0 }),
+        withTimeout(dashboardApi.getWeekly(userId) as Promise<{ weekly_summaries: WeeklySummary[] }>, 8000, defaultWeekly),
+        withTimeout(dashboardApi.getDashboard(userId), 8000, defaultDashboard),
+        withTimeout(healthIntelligenceApi.getState(userId), 8000, defaultHealthState),
       ]);
+
       setInsights(insightsData);
-      setWorkout(workoutData.workout);
       setDerivatives(derivativesData);
       setDerivativeCards(cardsData.cards);
-      setMonthLogs(monthData.logs);
+      setHealthState(healthStateData);
+      setCausalChains(healthStateData.causal_chains ?? []);
       setWeeklySummaries(weeklyData.weekly_summaries?.reverse() ?? []);
       setTodaySummary(dashboardData.today as WeeklySummary | null);
-      setMenstrualSettings(menstrualSettingsData);
 
       // Set personalized targets from dashboard
-      if (dashboardData.targets) {
-        // Use workout day targets if it's a workout day
-        const isWorkoutDay = dashboardData.is_workout_day === true;
-        const workoutDayTargets = dashboardData.workout_day_targets as WorkoutDayTargets | null;
+      const isWorkoutDay = dashboardData.is_workout_day === true;
+      const workoutDayTargets = dashboardData.workout_day_targets as WorkoutDayTargets | null;
 
-        setTargets({
-          calories: isWorkoutDay && workoutDayTargets
-            ? workoutDayTargets.calories
-            : (dashboardData.targets.calories ?? DEFAULT_TARGETS.calories),
-          protein: isWorkoutDay && workoutDayTargets
-            ? workoutDayTargets.protein_g
-            : (dashboardData.targets.protein_g ?? DEFAULT_TARGETS.protein),
-          water_oz: isWorkoutDay && workoutDayTargets
-            ? workoutDayTargets.water_oz
-            : (dashboardData.targets.water_oz ?? DEFAULT_TARGETS.water_oz),
-          sleep_hours: dashboardData.targets.sleep_hours ?? DEFAULT_TARGETS.sleep_hours,
-          workouts: 1, // Daily workout target
-        });
-        setTargetsPersonalized(dashboardData.targets_calculated ?? false);
-        setTargetsInfo({
-          isWorkoutDay,
-          workoutDayTargets,
-          activityLevel: dashboardData.activity_level as string | null ?? null,
-          phase: dashboardData.phase as string | null ?? null,
-          bmr: dashboardData.bmr as number | null ?? null,
-          tdee: dashboardData.tdee as number | null ?? null,
-        });
+      const newTargets: DisplayTargets = {
+        calories: isWorkoutDay && workoutDayTargets
+          ? workoutDayTargets.calories
+          : (dashboardData.targets?.calories ?? DEFAULT_TARGETS.calories),
+        protein: isWorkoutDay && workoutDayTargets
+          ? workoutDayTargets.protein_g
+          : (dashboardData.targets?.protein_g ?? DEFAULT_TARGETS.protein),
+        water_oz: isWorkoutDay && workoutDayTargets
+          ? workoutDayTargets.water_oz
+          : (dashboardData.targets?.water_oz ?? DEFAULT_TARGETS.water_oz),
+        sleep_hours: dashboardData.targets?.sleep_hours ?? DEFAULT_TARGETS.sleep_hours,
+        workouts: 1,
+      };
+
+      const newTargetsInfo: TargetsInfo = {
+        isWorkoutDay,
+        workoutDayTargets,
+        activityLevel: dashboardData.activity_level as string | null ?? null,
+        phase: dashboardData.phase as string | null ?? null,
+        bmr: dashboardData.bmr as number | null ?? null,
+        tdee: dashboardData.tdee as number | null ?? null,
+      };
+
+      setTargets(newTargets);
+      setTargetsPersonalized(dashboardData.targets_calculated ?? false);
+      setTargetsInfo(newTargetsInfo);
+
+      // Cache the data
+      await setCache(cacheKey, {
+        insights: insightsData,
+        derivatives: derivativesData,
+        cards: cardsData.cards,
+        weekly: weeklyData.weekly_summaries?.reverse() ?? [],
+        today: dashboardData.today as WeeklySummary | null,
+        targets: newTargets,
+        targetsPersonalized: dashboardData.targets_calculated ?? false,
+        targetsInfo: newTargetsInfo,
+      });
+
+      loadedTabs.current.add('analytics');
+    } catch {
+      setError('Could not load analytics');
+      setInsights(defaultInsights);
+      setDerivatives(defaultDerivatives);
+    } finally {
+      setAnalyticsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [userId, defaultInsights, defaultDerivatives, withTimeout]);
+
+  // Fetch Workout tab data
+  const fetchWorkoutData = useCallback(async (forceRefresh: boolean = false): Promise<void> => {
+    const cacheKey = `workout_${userId}`;
+
+    if (!forceRefresh) {
+      const cached = await getCached<{ workout: WorkoutPlan | null }>(cacheKey);
+      if (cached) {
+        setWorkout(cached.workout);
+        setWorkoutLoading(false);
+        loadedTabs.current.add('workout');
+        return;
       }
+    }
 
-      // Load HealthKit data if available on iOS
-      if (healthKitService.isHealthKitAvailable()) {
-        try {
-          const authorized = await healthKitService.isAuthorized();
-          setHealthKitAuthorized(authorized);
+    setWorkoutLoading(true);
 
-          if (authorized) {
-            // Fetch today's health summary from HealthKit
-            const summary = await healthKitService.getTodayHealthSummary();
-            setHealthSummary(summary);
+    try {
+      const workoutData = await withTimeout(workoutApi.getToday(userId), 8000, { workout: null });
+      setWorkout(workoutData.workout);
+      await setCache(cacheKey, { workout: workoutData.workout });
+      loadedTabs.current.add('workout');
+    } catch {
+      setWorkout(null);
+    } finally {
+      setWorkoutLoading(false);
+    }
+  }, [userId, withTimeout]);
 
-            // Fetch today's sleep data
-            const sleepData = await healthKitService.getSleepSummary(new Date());
-            setHealthKitSleep(sleepData);
-          }
-        } catch (healthKitError) {
-          console.log('HealthKit data fetch error:', healthKitError);
-        }
+  // Fetch Calendar tab data
+  const fetchCalendarData = useCallback(async (forceRefresh: boolean = false): Promise<void> => {
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth() + 1;
+    const cacheKey = `calendar_${userId}_${year}_${month}`;
+
+    if (!forceRefresh) {
+      const cached = await getCached<{
+        logs: DailyLog[];
+        menstrualSettings: MenstrualSettings | null;
+        menstrualCalendar: MenstrualCalendarDay[];
+        cyclePhase: CyclePhase | null;
+      }>(cacheKey);
+      if (cached) {
+        setMonthLogs(cached.logs);
+        setMenstrualSettings(cached.menstrualSettings);
+        setMenstrualCalendar(cached.menstrualCalendar);
+        setCyclePhase(cached.cyclePhase);
+        setCalendarLoading(false);
+        loadedTabs.current.add('calendar');
+        return;
       }
+    }
+
+    setCalendarLoading(true);
+
+    try {
+      const [monthData, menstrualSettingsData] = await Promise.all([
+        withTimeout(calendarApi.getMonthLogs(userId, year, month), 8000, { logs: [], days_count: 0, year, month }),
+        menstrualService.getSettings(userId),
+      ]);
+
+      setMonthLogs(monthData.logs);
+      setMenstrualSettings(menstrualSettingsData);
+
+      let calendarData: MenstrualCalendarDay[] = [];
+      let phase: CyclePhase | null = null;
 
       // Load menstrual calendar data if tracking is enabled
       if (menstrualSettingsData.tracking_enabled === true) {
         const menstrualLogs = await menstrualService.getMonthLogs(userId, year, month);
-        const calendarData = menstrualService.generateCalendarData(year, month, menstrualLogs, menstrualSettingsData);
+        calendarData = menstrualService.generateCalendarData(year, month, menstrualLogs, menstrualSettingsData);
         setMenstrualCalendar(calendarData);
 
-        // Calculate current cycle phase
-        const phase = menstrualService.calculateCyclePhase(
+        phase = menstrualService.calculateCyclePhase(
           menstrualSettingsData.last_period_start,
           menstrualSettingsData.average_cycle_length,
           menstrualSettingsData.average_period_length
         );
         setCyclePhase(phase);
       }
+
+      await setCache(cacheKey, {
+        logs: monthData.logs,
+        menstrualSettings: menstrualSettingsData,
+        menstrualCalendar: calendarData,
+        cyclePhase: phase,
+      });
+
+      loadedTabs.current.add('calendar');
     } catch {
-      setError('Could not load data');
-      setInsights(defaultInsights);
-      setDerivatives(defaultDerivatives);
-      setDerivativeCards([]);
-      setWorkout(null);
       setMonthLogs([]);
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      setCalendarLoading(false);
     }
-  }, [userId, calendarDate]);
+  }, [userId, calendarDate, withTimeout]);
 
+  // Fetch HealthKit data (runs in background, doesn't block UI)
+  const fetchHealthKitData = useCallback(async (): Promise<void> => {
+    if (!healthKitService.isHealthKitAvailable()) return;
+
+    try {
+      const authorized = await healthKitService.isAuthorized();
+      setHealthKitAuthorized(authorized);
+
+      if (authorized) {
+        const [summary, sleepData] = await Promise.all([
+          healthKitService.getTodayHealthSummary(),
+          healthKitService.getSleepSummary(new Date()),
+        ]);
+        setHealthSummary(summary);
+        setHealthKitSleep(sleepData);
+      }
+    } catch (healthKitError) {
+      console.log('HealthKit data fetch error:', healthKitError);
+    }
+  }, []);
+
+  // Load data for the active tab
+  const loadTabData = useCallback(async (tab: TabType, forceRefresh: boolean = false): Promise<void> => {
+    // Skip if already loaded and not forcing refresh
+    if (!forceRefresh && loadedTabs.current.has(tab)) return;
+
+    switch (tab) {
+      case 'analytics':
+        await fetchAnalyticsData(forceRefresh);
+        // Load HealthKit in background (non-blocking)
+        fetchHealthKitData();
+        break;
+      case 'workout':
+        await fetchWorkoutData(forceRefresh);
+        break;
+      case 'calendar':
+        await fetchCalendarData(forceRefresh);
+        break;
+    }
+  }, [fetchAnalyticsData, fetchWorkoutData, fetchCalendarData, fetchHealthKitData]);
+
+  // Load initial tab on mount
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    loadTabData('analytics');
+  }, [userId]);
+
+  // Load data when tab changes
+  useEffect(() => {
+    loadTabData(activeTab);
+  }, [activeTab, loadTabData]);
+
+  // Reload calendar when month changes
+  useEffect(() => {
+    if (activeTab === 'calendar') {
+      loadedTabs.current.delete('calendar');
+      fetchCalendarData(true);
+    }
+  }, [calendarDate]);
+
+  // Load user's avatar on mount
+  useEffect(() => {
+    const loadAvatar = async () => {
+      if (userId && userId !== 'anonymous') {
+        const avatar = await avatarService.getAvatar(userId);
+        setUserAvatar(avatar);
+      }
+    };
+    loadAvatar();
+  }, [userId]);
+
+  // Generate avatar insights from derivative cards and today's progress
+  useEffect(() => {
+    if (derivativeCards.length > 0 || todaySummary) {
+      const insights: AvatarInsight[] = [];
+
+      // Map derivative cards to avatar insights
+      derivativeCards.slice(0, 3).forEach((card, index) => {
+        const mapped = avatarService.mapInsightsToAvatar([{
+          id: card.id ?? `card_${index}`,
+          text: card.subtitle ?? card.title,
+          type: card.title.toLowerCase(),
+        }]);
+        insights.push(...mapped);
+      });
+
+      // Add today's progress as insights if available
+      if (todaySummary) {
+        if (todaySummary.protein > 0) {
+          const proteinPercent = Math.round((todaySummary.protein / targets.protein) * 100);
+          insights.push({
+            id: 'today_protein',
+            text: `${todaySummary.protein}g protein today`,
+            shortLabel: proteinPercent >= 80 ? 'On track' : 'Low protein',
+            category: 'protein',
+            sentiment: proteinPercent >= 80 ? 'positive' : proteinPercent >= 50 ? 'neutral' : 'attention',
+            icon: 'nutrition',
+            region: 'stomach',
+          });
+        }
+
+        if (todaySummary.sleep_hours && todaySummary.sleep_hours > 0) {
+          insights.push({
+            id: 'today_sleep',
+            text: `${todaySummary.sleep_hours}h sleep`,
+            shortLabel: todaySummary.sleep_hours >= 7 ? 'Well rested' : 'Rest more',
+            category: 'sleep',
+            sentiment: todaySummary.sleep_hours >= 7 ? 'positive' : 'attention',
+            icon: 'moon',
+            region: 'head',
+          });
+        }
+
+        if (todaySummary.workouts > 0) {
+          insights.push({
+            id: 'today_workout',
+            text: `${todaySummary.workouts} workout${todaySummary.workouts > 1 ? 's' : ''} logged`,
+            shortLabel: 'Active',
+            category: 'cardio',
+            sentiment: 'positive',
+            icon: 'barbell',
+            region: 'chest',
+          });
+        }
+      }
+
+      setAvatarInsights(insights);
+    }
+  }, [derivativeCards, todaySummary, targets.protein]);
+
+  // Combined loading state for backwards compatibility
+  const isLoading = activeTab === 'analytics' ? analyticsLoading :
+                    activeTab === 'workout' ? workoutLoading :
+                    calendarLoading;
 
   const onRefresh = (): void => {
-    fetchData(true);
+    setIsRefreshing(true);
+    loadTabData(activeTab, true).finally(() => setIsRefreshing(false));
   };
 
   const changeMonth = (delta: number): void => {
@@ -392,7 +686,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
         const weight = weights[exercise.exercise_id];
         await workoutApi.completeExercise(exercise.exercise_id, weight);
       }
-      await fetchData();
+      await fetchWorkoutData(true);
       if (workout.status === 'pending') {
         await workoutApi.updateStatus(workout.plan_id, 'in_progress');
       }
@@ -424,7 +718,9 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
     if (workout === null) return;
     try {
       await workoutApi.updateStatus(workout.plan_id, 'completed');
-      await fetchData();
+      await fetchWorkoutData(true);
+      // Also refresh analytics since workout completion affects daily stats
+      loadedTabs.current.delete('analytics');
       Alert.alert('Workout Complete!', 'Great job! Your workout has been logged.');
     } catch {
       setError('Could not complete workout');
@@ -467,7 +763,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
         selectedSymptoms.length > 0 ? selectedSymptoms : undefined
       );
       closePeriodModal();
-      await fetchData();
+      await fetchCalendarData(true);
       Alert.alert('Logged', 'Period start logged successfully.');
     } catch {
       Alert.alert('Error', 'Could not save period log.');
@@ -493,7 +789,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
             const log = logs.find(l => l.date === date && l.event_type === 'period_start');
             if (log !== undefined) {
               await menstrualService.deleteLog(log.id);
-              await fetchData();
+              await fetchCalendarData(true);
             }
           },
         },
@@ -725,7 +1021,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
     }
 
     // Exclude today from averages - only count completed days
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     const completedDays = weeklySummaries.filter(s => s.date !== today);
 
     const daysWithCalories = completedDays.filter(s => s.calories > 0);
@@ -754,7 +1050,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
     const month = calendarDate.getMonth();
     const daysInMonth = getDaysInMonth(year, month);
     const firstDay = getFirstDayOfMonth(year, month);
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
 
     const logDates = new Set(monthLogs.map(l => l.date));
     const isCycleTrackingEnabled = menstrualSettings?.tracking_enabled === true;
@@ -1075,8 +1371,123 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
         </View>
       )}
 
+      {/* Avatar Customize Modal */}
+      <Modal
+        visible={showAvatarCustomize}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowAvatarCustomize(false)}
+      >
+        <AvatarCustomizeScreen
+          theme={theme}
+          onClose={() => setShowAvatarCustomize(false)}
+          onSave={(avatar) => setUserAvatar(avatar)}
+        />
+      </Modal>
+
       {activeTab === 'analytics' ? (
         <>
+          {/* Avatar Canvas Section */}
+          <FadeInView style={styles.avatarSection} delay={0}>
+            <AvatarCanvas
+              avatar={userAvatar}
+              insights={avatarInsights}
+              theme={theme}
+              size={260}
+              onInsightPress={(insight) => {
+                Alert.alert(
+                  insight.shortLabel,
+                  insight.text,
+                  [{ text: 'OK' }]
+                );
+              }}
+              onCustomizePress={() => setShowAvatarCustomize(true)}
+              showCustomizeButton={true}
+              maxVisibleTags={4}
+            />
+          </FadeInView>
+
+          {/* Health State Section */}
+          {healthState?.has_data === true && (
+            <FadeInView style={styles.section} delay={25}>
+              <Text style={styles.sectionTitle}>Health State</Text>
+              {healthState.recovery !== undefined && (
+                <StateCard
+                  theme={theme}
+                  type="recovery"
+                  state={healthState.recovery.state}
+                  confidence={healthState.recovery.confidence}
+                  factors={healthState.recovery.factors}
+                  index={0}
+                />
+              )}
+              {healthState.load !== undefined && (
+                <StateCard
+                  theme={theme}
+                  type="load"
+                  state={healthState.load.state}
+                  confidence={healthState.load.confidence}
+                  cumulative={healthState.load.cumulative}
+                  index={1}
+                />
+              )}
+              {healthState.energy !== undefined && (
+                <StateCard
+                  theme={theme}
+                  type="energy"
+                  state={healthState.energy.state}
+                  confidence={healthState.energy.confidence}
+                  index={2}
+                />
+              )}
+              {healthState.alignment !== undefined && (
+                <AlignmentRing
+                  theme={theme}
+                  score={healthState.alignment.score}
+                  confidence={healthState.alignment.confidence}
+                  chronotype={healthState.alignment.chronotype}
+                  optimalWindows={undefined}
+                />
+              )}
+              <Text style={styles.healthDisclaimer}>
+                {healthState.disclaimer ?? 'Reflects logged patterns only. Not a medical assessment.'}
+              </Text>
+            </FadeInView>
+          )}
+
+          {/* Causal Chains Section */}
+          {causalChains.length > 0 && (
+            <FadeInView style={styles.section} delay={35}>
+              <TouchableOpacity
+                style={styles.sectionTitleRow}
+                onPress={() => setShowCausalChains(!showCausalChains)}
+              >
+                <Text style={styles.sectionTitle}>Detected Patterns</Text>
+                <View style={styles.chainCount}>
+                  <Text style={styles.chainCountText}>{causalChains.length}</Text>
+                </View>
+                <Ionicons
+                  name={showCausalChains ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={theme.textSecondary}
+                />
+              </TouchableOpacity>
+              {showCausalChains && causalChains.map((chain, index) => (
+                <ChainCard
+                  key={chain.chain_type}
+                  theme={theme}
+                  chain={chain}
+                  index={index}
+                />
+              ))}
+              {!showCausalChains && causalChains.length > 0 && (
+                <Text style={styles.chainPreview}>
+                  {causalChains[0].narrative}
+                </Text>
+              )}
+            </FadeInView>
+          )}
+
           {/* Weekly Chart Section */}
           <FadeInView style={styles.section} delay={50}>
             <Text style={styles.sectionTitle}>Weekly Trends</Text>
@@ -1432,7 +1843,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
                     const authorized = await healthKitService.requestAuthorization();
                     setHealthKitAuthorized(authorized);
                     if (authorized) {
-                      fetchData();
+                      fetchHealthKitData();
                     }
                   }}
                 >
@@ -1691,6 +2102,7 @@ function createStyles(theme: Theme, topInset: number) {
     cardValue: { fontSize: 24, fontWeight: '700', color: theme.textPrimary },
     cardSubtitle: { fontSize: 11, color: theme.textSecondary, marginTop: 2 },
     section: { padding: 16 },
+    avatarSection: { alignItems: 'center', paddingVertical: 8, marginBottom: 8 },
     sectionTitle: { fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginBottom: 12 },
     progressTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
     badgeRow: { flexDirection: 'row', alignItems: 'center' },
@@ -1861,5 +2273,11 @@ function createStyles(theme: Theme, topInset: number) {
     healthKitPromptSubtitle: { fontSize: 13, color: theme.textSecondary, marginTop: 4 },
     healthKitConnectButton: { backgroundColor: '#FF2D55', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
     healthKitConnectButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+    // Health Intelligence styles
+    healthDisclaimer: { fontSize: 11, color: theme.textSecondary, textAlign: 'center', marginTop: 12, fontStyle: 'italic' },
+    sectionTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+    chainCount: { backgroundColor: theme.accent, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 8 },
+    chainCountText: { fontSize: 12, color: '#fff', fontWeight: '600' },
+    chainPreview: { fontSize: 13, color: theme.textSecondary, fontStyle: 'italic', marginTop: 8 },
   });
 }
