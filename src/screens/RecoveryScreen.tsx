@@ -26,12 +26,15 @@ import { useInsightsData } from '../hooks/useInsightsData';
 import { StateCard, AlignmentRing } from '../components/HealthState';
 import { ChainCard } from '../components/CausalChain';
 import healthKitService, { SleepSummary, HealthSummary } from '../services/healthKit';
+import healthSyncService from '../services/healthSync';
+import { useAuth } from '../context/AuthContext';
 
 interface RecoveryScreenProps {
   theme: Theme;
 }
 
 export default function RecoveryScreen({ theme }: RecoveryScreenProps): React.ReactElement {
+  const { user } = useAuth();
   const {
     healthState,
     causalChains,
@@ -45,11 +48,33 @@ export default function RecoveryScreen({ theme }: RecoveryScreenProps): React.Re
   const [sleepSummary, setSleepSummary] = useState<SleepSummary | null>(null);
   const [healthSummary, setHealthSummary] = useState<HealthSummary | null>(null);
   const [showCausalChains, setShowCausalChains] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
 
   useEffect(() => {
     fetchAnalyticsData();
     loadHealthKitData();
   }, [fetchAnalyticsData]);
+
+  // Sync HealthKit data to backend for cross-domain reasoning
+  useEffect(() => {
+    const syncHealthData = async () => {
+      if (!user?.id || !healthKitAuthorized) return;
+
+      const shouldSync = await healthSyncService.shouldSync();
+      if (!shouldSync) return;
+
+      setSyncStatus('syncing');
+      const result = await healthSyncService.syncHealthData(user.id);
+      setSyncStatus(result.synced ? 'synced' : 'error');
+
+      // Refresh analytics to get updated cross-domain insights
+      if (result.synced) {
+        fetchAnalyticsData();
+      }
+    };
+
+    syncHealthData();
+  }, [user?.id, healthKitAuthorized, fetchAnalyticsData]);
 
   const loadHealthKitData = async () => {
     if (Platform.OS !== 'ios') return;
