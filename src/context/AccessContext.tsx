@@ -29,9 +29,7 @@ import { useAuth } from './AuthContext';
 import { supabase } from '../services/supabase';
 import * as RevenueCat from '../services/revenuecat';
 import { syncToSupabase, SupabaseSubscription } from '../services/subscriptionSync';
-
-// Developer emails that bypass all feature restrictions
-const DEVELOPER_EMAILS = ['egeng@umich.edu', 'eric@egeng.co'];
+import { isDeveloperEmail } from '../config/constants';
 
 // Supabase types
 interface Profile {
@@ -120,10 +118,7 @@ interface AccessProviderProps {
 /**
  * Check if an email has developer access.
  */
-function isDeveloperEmail(email: string | null | undefined): boolean {
-  if (!email) return false;
-  return DEVELOPER_EMAILS.includes(email.toLowerCase());
-}
+// isDeveloperEmail imported from config/constants
 
 /**
  * Access provider component.

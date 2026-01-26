@@ -29,14 +29,12 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface TodayScreenProps {
   theme: Theme;
-  onNavigateToActivity?: () => void;
   onNavigateToRecovery?: () => void;
   onNavigateToHistory?: () => void;
 }
 
 export default function TodayScreen({
   theme,
-  onNavigateToActivity,
   onNavigateToRecovery,
   onNavigateToHistory,
 }: TodayScreenProps): React.ReactElement {
@@ -120,20 +118,22 @@ export default function TodayScreen({
 
       {/* Main Progress Ring */}
       <Animated.View entering={FadeIn.delay(100).duration(600)} style={styles.mainRingContainer}>
-        <StackedRings
-          size={SCREEN_WIDTH * 0.55}
-          strokeWidth={14}
-          gap={6}
-          theme={theme}
-          rings={[
-            { progress: progress.calories.percent, color: theme.warning, label: 'Calories' },
-            { progress: progress.protein.percent, color: theme.success, label: 'Protein' },
-            { progress: progress.water.percent, color: theme.accent, label: 'Water' },
-          ]}
-        />
-        <View style={styles.ringCenter}>
-          <Text style={styles.ringPercent}>{overallProgress}</Text>
-          <Text style={styles.ringPercentSign}>%</Text>
+        <View style={styles.ringWrapper}>
+          <StackedRings
+            size={SCREEN_WIDTH * 0.55}
+            strokeWidth={14}
+            gap={6}
+            theme={theme}
+            rings={[
+              { progress: progress.calories.percent, color: theme.warning, label: 'Calories' },
+              { progress: progress.protein.percent, color: theme.success, label: 'Protein' },
+              { progress: progress.water.percent, color: theme.accent, label: 'Water' },
+            ]}
+          />
+          <View style={styles.ringCenter}>
+            <Text style={styles.ringPercent}>{overallProgress}</Text>
+            <Text style={styles.ringPercentSign}>%</Text>
+          </View>
         </View>
         <Text style={styles.ringLabel}>Daily Progress</Text>
       </Animated.View>
@@ -360,13 +360,17 @@ function createStyles(theme: Theme) {
       alignItems: 'center',
       marginBottom: spacing.xxl,
     },
+    ringWrapper: {
+      width: SCREEN_WIDTH * 0.55,
+      height: SCREEN_WIDTH * 0.55,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     ringCenter: {
       position: 'absolute',
-      top: '50%',
-      left: '50%',
-      transform: [{ translateX: -40 }, { translateY: -30 }],
       flexDirection: 'row',
       alignItems: 'baseline',
+      justifyContent: 'center',
     },
     ringPercent: {
       fontSize: 48,

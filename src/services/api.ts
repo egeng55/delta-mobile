@@ -7,12 +7,16 @@
  * - No implicit type coercion
  */
 
-const API_BASE_URL = 'https://delta-80ht.onrender.com';
+import {
+  API_BASE_URL,
+  TIMEOUTS,
+  RETRY_CONFIG,
+} from '../config/constants';
 
 // Timeouts for Render free tier cold starts
-const COLD_START_TIMEOUT = 45000; // 45 seconds for first request (cold start)
-const NORMAL_TIMEOUT = 15000; // 15 seconds for subsequent requests
-const MAX_RETRIES = 2; // Number of retry attempts
+const COLD_START_TIMEOUT = TIMEOUTS.COLD_START;
+const NORMAL_TIMEOUT = TIMEOUTS.NORMAL;
+const MAX_RETRIES = RETRY_CONFIG.MAX_RETRIES;
 
 // Track if we've successfully connected (server is warm)
 let serverIsWarm = false;

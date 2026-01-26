@@ -25,6 +25,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Theme } from '../theme/colors';
@@ -36,8 +37,18 @@ import * as menstrualService from '../services/menstrualTracking';
 import * as notificationService from '../services/notifications';
 import { formatPeriod, formatExpirationDate, formatSubscriptionStatus } from '../services/subscriptionSync';
 import SupportScreen from './SupportScreen';
+import { API_BASE_URL, LEGAL_URLS } from '../config/constants';
 
-const API_BASE_URL = 'https://delta-80ht.onrender.com';
+// Lazy load AvatarScanScreen to avoid expo-camera issues
+const AvatarScanScreen = React.lazy(() => import('./AvatarScanScreen'));
+
+// Get local date string in YYYY-MM-DD format (phone's timezone, not UTC)
+const getLocalDateString = (date: Date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 interface SettingsScreenProps {
   theme: Theme;
@@ -61,6 +72,9 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportFormat, setExportFormat] = useState<'pdf' | 'csv' | 'json'>('pdf');
   const [showSupport, setShowSupport] = useState<boolean>(false);
+  const [showBodyScan, setShowBodyScan] = useState<boolean>(false);
+  const [bodyScanEnabled, setBodyScanEnabled] = useState<boolean>(false);
+  const [isLoadingBodyScan, setIsLoadingBodyScan] = useState<boolean>(true);
 
   // Load notification settings on mount
   useEffect(() => {
@@ -94,6 +108,21 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
     };
     loadMenstrualSettings();
   }, [user?.id]);
+
+  // Load body scan setting on mount
+  useEffect(() => {
+    const loadBodyScanSetting = async (): Promise<void> => {
+      try {
+        const saved = await AsyncStorage.getItem('@delta:bodyScanEnabled');
+        setBodyScanEnabled(saved === 'true');
+      } catch {
+        // Silent fail - use defaults
+      } finally {
+        setIsLoadingBodyScan(false);
+      }
+    };
+    loadBodyScanSetting();
+  }, []);
 
   // Handle notifications toggle
   const handleNotificationsToggle = useCallback(async (value: boolean): Promise<void> => {
@@ -144,6 +173,17 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
       Alert.alert('Error', 'Could not update setting. Please try again.');
     }
   }, [user?.id]);
+
+  // Handle body scan toggle
+  const handleBodyScanToggle = useCallback(async (value: boolean): Promise<void> => {
+    setBodyScanEnabled(value);
+    try {
+      await AsyncStorage.setItem('@delta:bodyScanEnabled', value.toString());
+    } catch {
+      setBodyScanEnabled(!value);
+      Alert.alert('Error', 'Could not update setting.');
+    }
+  }, []);
 
   const openLink = async (url: string): Promise<void> => {
     try {
@@ -239,8 +279,8 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
     try {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const startDate = thirtyDaysAgo.toISOString().split('T')[0];
-      const endDate = new Date().toISOString().split('T')[0];
+      const startDate = getLocalDateString(thirtyDaysAgo);
+      const endDate = getLocalDateString();
 
       if (exportFormat === 'pdf') {
         const blob = await exportApi.exportPdf(user.id, { start_date: startDate, end_date: endDate });
@@ -518,6 +558,34 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
             />
           )}
         </View>
+        <View style={styles.settingRow}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="body-outline" size={20} color={theme.accent} />
+          </View>
+          <View style={styles.settingContent}>
+            <Text style={styles.settingLabel}>Body Scan Feature</Text>
+            <Text style={styles.settingDescription}>Enable camera-based body proportions</Text>
+          </View>
+          {isLoadingBodyScan === true ? (
+            <ActivityIndicator size="small" color={theme.accent} />
+          ) : (
+            <Switch
+              value={bodyScanEnabled === true}
+              onValueChange={handleBodyScanToggle}
+              trackColor={{ false: theme.border, true: theme.accent }}
+              thumbColor="#ffffff"
+            />
+          )}
+        </View>
+        {bodyScanEnabled === true && (
+          <TouchableOpacity style={styles.linkRow} onPress={() => setShowBodyScan(true)}>
+            <View style={styles.settingIconContainer}>
+              <Ionicons name="scan-outline" size={20} color={theme.accent} />
+            </View>
+            <Text style={styles.linkText}>Scan Now</Text>
+            <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Export Insights */}
@@ -672,6 +740,28 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
         onRequestClose={() => setShowSupport(false)}
       >
         <SupportScreen theme={theme} onClose={() => setShowSupport(false)} />
+      </Modal>
+
+      {/* Body Scan Modal */}
+      <Modal
+        visible={showBodyScan === true}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowBodyScan(false)}
+      >
+        <React.Suspense
+          fallback={
+            <View style={{ flex: 1, backgroundColor: theme.background, justifyContent: 'center', alignItems: 'center' }}>
+              <ActivityIndicator size="large" color={theme.accent} />
+            </View>
+          }
+        >
+          <AvatarScanScreen
+            theme={theme}
+            onClose={() => setShowBodyScan(false)}
+            onComplete={() => setShowBodyScan(false)}
+          />
+        </React.Suspense>
       </Modal>
     </ScrollView>
   );
