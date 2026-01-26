@@ -304,6 +304,7 @@ export interface DashboardResponse {
   phase?: string | null;
   bmr?: number | null;
   tdee?: number | null;
+  date?: string; // The date used for the dashboard data (client's local date)
 }
 
 export interface TargetsResponse {
@@ -326,7 +327,16 @@ export interface TargetsResponse {
 // Dashboard API
 export const dashboardApi = {
   getDashboard: async (userId: string): Promise<DashboardResponse> => {
-    return request<DashboardResponse>(`/dashboard/${userId}`);
+    // Get the phone's local date (not UTC)
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const localDate = `${year}-${month}-${day}`; // YYYY-MM-DD in phone's timezone
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return request<DashboardResponse>(
+      `/dashboard/${userId}?date=${localDate}&timezone=${encodeURIComponent(timezone)}`
+    );
   },
 
   getWeekly: async (userId: string): Promise<unknown> => {
@@ -1100,3 +1110,291 @@ export interface MenstrualCalendarDay {
   symptoms: MenstrualSymptom[];
   has_log: boolean;
 }
+
+// =============================================================================
+// HEALTH INTELLIGENCE TYPES
+// =============================================================================
+
+export type RecoveryState = 'recovered' | 'neutral' | 'under_recovered';
+export type LoadState = 'low' | 'moderate' | 'high';
+export type EnergyState = 'depleted' | 'low' | 'moderate' | 'high' | 'peak';
+export type Chronotype = 'early_bird' | 'intermediate' | 'night_owl';
+
+export interface HealthStateFactors {
+  [key: string]: string | boolean | number;
+}
+
+export interface CausalChain {
+  chain_type: string;
+  cause_event: string;
+  effect_event: string;
+  occurrences: number;
+  co_occurrences: number;
+  confidence: number;
+  lag_days: number;
+  narrative: string;
+}
+
+export interface HealthStateResponse {
+  has_data: boolean;
+  computed_at?: string;
+  days_analyzed?: number;
+  recovery?: {
+    state: RecoveryState;
+    confidence: number;
+    factors: HealthStateFactors;
+  };
+  load?: {
+    state: LoadState;
+    cumulative: number;
+    confidence: number;
+  };
+  energy?: {
+    state: EnergyState;
+    confidence: number;
+  };
+  alignment?: {
+    score: number;
+    confidence: number;
+    chronotype: Chronotype;
+    chronotype_confidence: number;
+  };
+  causal_chains?: CausalChain[];
+  narrative?: {
+    narrative: string;
+    patterns: Array<{ type: string; note?: string; confidence?: number }>;
+    metrics_summary: Record<string, number | null>;
+  };
+  disclaimer?: string;
+  message?: string;
+}
+
+export interface UserBaseline {
+  value: number;
+  variance: number | null;
+  data_points: number;
+  confidence: number;
+}
+
+export interface BaselinesResponse {
+  user_id: string;
+  baselines: Record<string, UserBaseline>;
+}
+
+export interface AlignmentResponse {
+  user_id: string;
+  chronotype: {
+    chronotype: Chronotype;
+    confidence: number;
+    avg_wake_hour?: number;
+    avg_bed_hour?: number;
+    optimal_windows?: {
+      optimal_wake: string;
+      optimal_sleep: string;
+      workout_window: { start: string; end: string };
+      focus_window: { start: string; end: string };
+    };
+  };
+  alignment: {
+    score: number;
+    confidence: number;
+    factors: HealthStateFactors;
+  };
+  optimal_windows?: {
+    optimal_wake: string;
+    optimal_sleep: string;
+    workout_window: { start: string; end: string };
+    focus_window: { start: string; end: string };
+  };
+}
+
+export interface NarrativeResponse {
+  user_id: string;
+  period: string;
+  narrative: string;
+  patterns: Array<{ type: string; note?: string; confidence?: number }>;
+  metrics_summary: Record<string, number | null>;
+}
+
+// Health Intelligence API
+export const healthIntelligenceApi = {
+  getState: async (userId: string): Promise<HealthStateResponse> => {
+    return request<HealthStateResponse>(`/health-intelligence/${userId}/state`);
+  },
+
+  getBaselines: async (userId: string): Promise<BaselinesResponse> => {
+    return request<BaselinesResponse>(`/health-intelligence/${userId}/baselines`);
+  },
+
+  getCausalChains: async (
+    userId: string,
+    days: number = 30
+  ): Promise<{ user_id: string; chains: CausalChain[]; days_analyzed: number }> => {
+    return request<{ user_id: string; chains: CausalChain[]; days_analyzed: number }>(
+      `/health-intelligence/${userId}/causal-chains?days=${days}`
+    );
+  },
+
+  getAlignment: async (userId: string): Promise<AlignmentResponse> => {
+    return request<AlignmentResponse>(`/health-intelligence/${userId}/alignment`);
+  },
+
+  getNarrative: async (
+    userId: string,
+    period: 'weekly' | 'monthly'
+  ): Promise<NarrativeResponse> => {
+    return request<NarrativeResponse>(`/health-intelligence/${userId}/narrative/${period}`);
+  },
+};
+
+// =============================================================================
+// PROFILE STAT CARDS TYPES
+// =============================================================================
+
+export interface StatCard {
+  id: string;
+  user_id: string;
+  card_type: string;
+  display_name: string;
+  value: string;
+  unit: string | null;
+  display_order: number;
+  is_visible: boolean;
+  recorded_at: string | null;
+  created_at: string;
+}
+
+export interface StatCardInput {
+  card_type: string;
+  display_name: string;
+  value: string;
+  unit?: string;
+  is_visible?: boolean;
+  recorded_at?: string;
+}
+
+// Profile Cards API
+export const profileCardsApi = {
+  getCards: async (
+    userId: string
+  ): Promise<{ user_id: string; cards: StatCard[]; count: number }> => {
+    return request<{ user_id: string; cards: StatCard[]; count: number }>(
+      `/profile/${userId}/cards`
+    );
+  },
+
+  createCard: async (
+    userId: string,
+    data: StatCardInput
+  ): Promise<{ status: string; card: StatCard }> => {
+    return request<{ status: string; card: StatCard }>(`/profile/${userId}/cards`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  updateCard: async (
+    userId: string,
+    cardId: string,
+    data: StatCardInput
+  ): Promise<{ status: string; card: StatCard }> => {
+    return request<{ status: string; card: StatCard }>(
+      `/profile/${userId}/cards/${cardId}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }
+    );
+  },
+
+  deleteCard: async (
+    userId: string,
+    cardId: string
+  ): Promise<{ status: string; message: string }> => {
+    return request<{ status: string; message: string }>(
+      `/profile/${userId}/cards/${cardId}`,
+      { method: 'DELETE' }
+    );
+  },
+
+  reorderCards: async (
+    userId: string,
+    order: string[]
+  ): Promise<{ status: string; message: string }> => {
+    return request<{ status: string; message: string }>(
+      `/profile/${userId}/cards/reorder`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ order }),
+      }
+    );
+  },
+};
+
+// Conversation types
+export interface Conversation {
+  id: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+}
+
+// Conversation API
+export const conversationsApi = {
+  getAll: async (userId: string): Promise<{ conversations: Conversation[] }> => {
+    return request<{ conversations: Conversation[] }>(`/conversations/${userId}`);
+  },
+
+  create: async (
+    userId: string,
+    id: string,
+    title: string
+  ): Promise<Conversation> => {
+    return request<Conversation>(`/conversations/${userId}`, {
+      method: 'POST',
+      body: JSON.stringify({ id, title }),
+    });
+  },
+
+  updateTitle: async (
+    userId: string,
+    conversationId: string,
+    title: string
+  ): Promise<{ id: string; title: string; updated_at: number }> => {
+    return request<{ id: string; title: string; updated_at: number }>(
+      `/conversations/${userId}/${conversationId}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ title }),
+      }
+    );
+  },
+
+  delete: async (
+    userId: string,
+    conversationId: string
+  ): Promise<{ status: string }> => {
+    return request<{ status: string }>(
+      `/conversations/${userId}/${conversationId}`,
+      { method: 'DELETE' }
+    );
+  },
+
+  sync: async (
+    userId: string,
+    conversations: Array<{
+      id: string;
+      title: string;
+      created_at?: number;
+      updated_at?: number;
+    }>
+  ): Promise<{ conversations: Conversation[] }> => {
+    return request<{ conversations: Conversation[] }>(
+      `/conversations/${userId}/sync`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ conversations }),
+      }
+    );
+  },
+};

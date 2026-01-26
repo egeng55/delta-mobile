@@ -47,10 +47,11 @@ import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useAccess } from '../context/AccessContext';
-import { chatApi } from '../services/api';
+import { chatApi, conversationsApi } from '../services/api';
 import { DeltaLogoSimple } from '../components/DeltaLogo';
 import { MainTabParamList } from '../navigation/AppNavigator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../services/supabase';
 
 const PROFILE_STORAGE_KEY = '@delta_user_profile';
 
@@ -120,10 +121,25 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
   const logoRotation = useSharedValue(0);
   const [profileImage, setProfileImage] = React.useState<string | null>(null);
 
-  // Load profile image
+  // Load profile image from Supabase (cloud) or fallback to AsyncStorage (local)
   React.useEffect(() => {
     const loadProfileImage = async (): Promise<void> => {
+      if (!user?.id) return;
+
       try {
+        // First try to get avatar from Supabase profiles table
+        const { data: profileData, error } = await supabase
+          .from('profiles')
+          .select('avatar_url')
+          .eq('id', user.id)
+          .single();
+
+        if (!error && profileData?.avatar_url) {
+          setProfileImage(profileData.avatar_url);
+          return;
+        }
+
+        // Fallback to local AsyncStorage
         const saved = await AsyncStorage.getItem(`${PROFILE_STORAGE_KEY}_${user?.id}`);
         if (saved !== null) {
           const parsed = JSON.parse(saved);
@@ -188,7 +204,6 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
   const [showSidebar, setShowSidebar] = useState<boolean>(false);
   const [conversations, setConversations] = useState<SavedConversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
-  const [isListening, setIsListening] = useState<boolean>(false);
   const flatListRef = useRef<FlatList<Message>>(null);
   const inputRef = useRef<TextInput>(null);
 
@@ -265,6 +280,14 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         `${CONVERSATIONS_STORAGE_KEY}_${user?.id}`,
         JSON.stringify(updatedConversations)
       );
+      // Sync conversation metadata to backend
+      if (user?.id && convId) {
+        try {
+          await conversationsApi.create(user.id, convId, title);
+        } catch {
+          // Silently fail - local storage is primary
+        }
+      }
     } catch (error) {
       console.error('Failed to save conversation:', error);
     }
@@ -291,7 +314,62 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
     setShowSidebar(false);
   };
 
-  const deleteConversation = async (convId: string): Promise<void> => {
+  const showConversationOptions = (conv: SavedConversation): void => {
+    Alert.alert(
+      conv.title,
+      'What would you like to do?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Rename',
+          onPress: () => renameConversation(conv),
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => confirmDeleteConversation(conv.id),
+        },
+      ]
+    );
+  };
+
+  const renameConversation = (conv: SavedConversation): void => {
+    Alert.prompt(
+      'Rename Conversation',
+      'Enter a new name for this conversation:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Save',
+          onPress: async (newTitle: string | undefined) => {
+            if (newTitle && newTitle.trim()) {
+              const trimmedTitle = newTitle.trim();
+              const updated = conversations.map(c =>
+                c.id === conv.id ? { ...c, title: trimmedTitle } : c
+              );
+              setConversations(updated);
+              await AsyncStorage.setItem(
+                `${CONVERSATIONS_STORAGE_KEY}_${user?.id}`,
+                JSON.stringify(updated)
+              );
+              // Sync to backend
+              if (user?.id) {
+                try {
+                  await conversationsApi.updateTitle(user.id, conv.id, trimmedTitle);
+                } catch {
+                  // Silently fail - local storage is primary
+                }
+              }
+            }
+          },
+        },
+      ],
+      'plain-text',
+      conv.title
+    );
+  };
+
+  const confirmDeleteConversation = async (convId: string): Promise<void> => {
     Alert.alert(
       'Delete Conversation',
       'Are you sure you want to delete this conversation?',
@@ -307,6 +385,14 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
               `${CONVERSATIONS_STORAGE_KEY}_${user?.id}`,
               JSON.stringify(updated)
             );
+            // Sync deletion to backend
+            if (user?.id) {
+              try {
+                await conversationsApi.delete(user.id, convId);
+              } catch {
+                // Silently fail - local storage is primary
+              }
+            }
             if (convId === currentConversationId) {
               startNewConversation();
             }
@@ -314,21 +400,6 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         },
       ]
     );
-  };
-
-  const toggleVoiceInput = (): void => {
-    if (isListening) {
-      setIsListening(false);
-      // Voice recognition would stop here
-    } else {
-      setIsListening(true);
-      // For iOS, we'll show an alert about using the keyboard's dictation
-      Alert.alert(
-        'Voice Input',
-        'Tap the microphone icon on your keyboard to use voice dictation.\n\nTip: Hold the space bar on iOS to activate dictation.',
-        [{ text: 'OK', onPress: () => setIsListening(false) }]
-      );
-    }
   };
 
   const pickImage = async (useCamera: boolean): Promise<void> => {
@@ -636,16 +707,21 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
-      {/* Sidebar Modal */}
+      {/* Sidebar Modal - slides from left */}
       <Modal
         visible={showSidebar}
-        animationType="slide"
+        animationType="none"
         transparent={true}
         onRequestClose={() => setShowSidebar(false)}
       >
-        <View style={styles.sidebarOverlay}>
-          <Pressable style={styles.sidebarDismiss} onPress={() => setShowSidebar(false)} />
-          <View style={styles.sidebar}>
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          style={styles.sidebarOverlay}
+        >
+          <Animated.View
+            entering={FadeInLeft.duration(250)}
+            style={styles.sidebar}
+          >
             <View style={styles.sidebarHeader}>
               <Text style={styles.sidebarTitle}>Conversations</Text>
               <TouchableOpacity onPress={() => setShowSidebar(false)}>
@@ -670,7 +746,8 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
                       conv.id === currentConversationId && styles.conversationItemActive,
                     ]}
                     onPress={() => loadConversation(conv)}
-                    onLongPress={() => deleteConversation(conv.id)}
+                    onLongPress={() => showConversationOptions(conv)}
+                    delayLongPress={300}
                   >
                     <View style={styles.conversationContent}>
                       <Text
@@ -688,9 +765,9 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
                     </View>
                     <TouchableOpacity
                       style={styles.deleteButton}
-                      onPress={() => deleteConversation(conv.id)}
+                      onPress={() => showConversationOptions(conv)}
                     >
-                      <Ionicons name="trash-outline" size={16} color={theme.textSecondary} />
+                      <Ionicons name="ellipsis-horizontal" size={16} color={theme.textSecondary} />
                     </TouchableOpacity>
                   </TouchableOpacity>
                 ))
@@ -698,17 +775,22 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
             </ScrollView>
 
             <Text style={styles.sidebarHint}>Long press to delete</Text>
-          </View>
-        </View>
+          </Animated.View>
+          <Pressable style={styles.sidebarDismiss} onPress={() => setShowSidebar(false)} />
+        </Animated.View>
       </Modal>
 
+      {/* Swipe area for opening sidebar */}
+      <View
+        style={styles.swipeArea}
+        onTouchStart={(e) => {
+          if (e.nativeEvent.locationX < 20) {
+            setShowSidebar(true);
+          }
+        }}
+      />
+
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => setShowSidebar(true)}
-        >
-          <Ionicons name="menu" size={24} color={theme.textPrimary} />
-        </TouchableOpacity>
         <Pressable
           onPressIn={handleLogoPressIn}
           onPressOut={handleLogoPressOut}
@@ -790,19 +872,6 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
             <Ionicons name="camera-outline" size={22} color={theme.accent} />
           </Animated.View>
         </Pressable>
-
-        {/* Voice Button */}
-        <TouchableOpacity
-          onPress={toggleVoiceInput}
-          disabled={isLoading === true}
-          style={[styles.voiceButton, isListening && styles.voiceButtonActive]}
-        >
-          <Ionicons
-            name={isListening ? 'mic' : 'mic-outline'}
-            size={22}
-            color={isListening ? '#fff' : theme.accent}
-          />
-        </TouchableOpacity>
 
         <TextInput
           ref={inputRef}
@@ -1010,23 +1079,15 @@ function createStyles(theme: Theme, topInset: number) {
     buttonDisabled: {
       opacity: 0.4,
     },
-    voiceButton: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: theme.surface,
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginRight: 8,
+    swipeArea: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: 20,
+      zIndex: 10,
     },
-    voiceButtonActive: {
-      backgroundColor: theme.accent,
-    },
-    menuButton: {
-      marginRight: 8,
-      padding: 4,
-    },
-    // Sidebar styles
+    // Sidebar styles - slides from left
     sidebarOverlay: {
       flex: 1,
       flexDirection: 'row',
@@ -1042,6 +1103,12 @@ function createStyles(theme: Theme, topInset: number) {
       paddingTop: topInset + 16,
       paddingHorizontal: 16,
       paddingBottom: 32,
+      // Shadow for depth
+      shadowColor: '#000',
+      shadowOffset: { width: 2, height: 0 },
+      shadowOpacity: 0.25,
+      shadowRadius: 10,
+      elevation: 10,
     },
     sidebarHeader: {
       flexDirection: 'row',
