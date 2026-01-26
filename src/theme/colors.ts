@@ -5,36 +5,46 @@
  * No boolean-like strings ("true"/"false").
  */
 
-// Light theme - slightly darker, higher contrast
+// Light theme - clean and modern
 export const lightTheme = {
   mode: 'light' as const,
-  background: '#f1f5f9',      // Darker background
+  background: '#f8fafc',       // Clean light gray
   surface: '#ffffff',
-  surfaceSecondary: '#e2e8f0', // Darker secondary
-  textPrimary: '#020617',      // Near black for max contrast
-  textSecondary: '#475569',    // Darker secondary text
+  surfaceSecondary: '#f1f5f9', // Subtle secondary
+  textPrimary: '#0f172a',      // Dark slate for contrast
+  textSecondary: '#64748b',    // Balanced secondary text
   accent: '#6366f1',           // Indigo - more vibrant
   accentLight: '#e0e7ff',
-  border: '#cbd5e1',           // More visible borders
-  error: '#dc2626',            // Deeper red
-  success: '#16a34a',          // Deeper green
-  warning: '#d97706',          // Deeper orange
+  border: '#e2e8f0',           // Subtle borders
+  error: '#ef4444',            // Clean red
+  success: '#22c55e',          // Vibrant green
+  warning: '#f59e0b',          // Warm orange
+  // WHOOP-inspired semantic colors
+  recovery: '#22c55e',         // Green for recovery
+  strain: '#f59e0b',           // Orange for strain/load
+  sleep: '#6366f1',            // Indigo for sleep
+  heart: '#ef4444',            // Red for heart rate
 };
 
-// Dark theme - true dark, high contrast
+// Dark theme - WHOOP-inspired true black
 export const darkTheme = {
   mode: 'dark' as const,
-  background: '#030712',       // Near black
-  surface: '#0f172a',          // Very dark blue
-  surfaceSecondary: '#1e293b', // Dark slate
-  textPrimary: '#f8fafc',      // Bright white
-  textSecondary: '#94a3b8',    // Visible gray
-  accent: '#818cf8',           // Brighter indigo
+  background: '#000000',       // True black (WHOOP style)
+  surface: '#111111',          // Near black cards
+  surfaceSecondary: '#1a1a1a', // Slightly lighter
+  textPrimary: '#ffffff',      // Pure white
+  textSecondary: '#8b8b8b',    // Muted gray
+  accent: '#6366f1',           // Keep indigo consistent
   accentLight: '#1e1b4b',      // Dark indigo
-  border: '#1e293b',           // Subtle borders
+  border: '#2a2a2a',           // Subtle dark borders
   error: '#f87171',            // Bright red
-  success: '#4ade80',          // Bright green
-  warning: '#fbbf24',          // Bright yellow
+  success: '#4ade80',          // Bright green (recovery)
+  warning: '#fbbf24',          // Bright yellow/orange (strain)
+  // WHOOP-inspired semantic colors
+  recovery: '#4ade80',         // Bright green for recovery
+  strain: '#fbbf24',           // Yellow for strain/load
+  sleep: '#818cf8',            // Light indigo for sleep
+  heart: '#f87171',            // Red for heart rate
 };
 
 // Theme type that works for both light and dark
@@ -51,6 +61,11 @@ export interface Theme {
   error: string;
   success: string;
   warning: string;
+  // WHOOP-inspired semantic colors
+  recovery: string;
+  strain: string;
+  sleep: string;
+  heart: string;
 }
 
 /**

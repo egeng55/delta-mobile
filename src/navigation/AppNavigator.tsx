@@ -21,11 +21,14 @@ import { useTheme } from '../context/ThemeContext';
 // Screens
 import AuthScreen from '../screens/AuthScreen';
 import ChatScreen from '../screens/ChatScreen';
-import InsightsScreen from '../screens/InsightsScreen';
+import ActivityScreen from '../screens/ActivityScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import WelcomeAnimationScreen from '../screens/WelcomeAnimationScreen';
 import OnboardingScreen, { hasCompletedOnboarding } from '../screens/OnboardingScreen';
+
+// Navigators
+import InsightsNavigator from './InsightsNavigator';
 // Note: Using RevenueCat's built-in Paywall UI instead of custom PaywallScreen
 // Access showPaywall() from useAccess() to present the paywall
 
@@ -37,6 +40,7 @@ export type RootStackParamList = {
 
 export type MainTabParamList = {
   Chat: undefined;
+  Activity: undefined;
   Insights: undefined;
   Profile: undefined;
 };
@@ -65,15 +69,15 @@ function MainTabs(): React.ReactNode {
       <Tab.Navigator
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: theme.accent,
+          tabBarActiveTintColor: theme.textPrimary,
           tabBarInactiveTintColor: theme.textSecondary,
           tabBarStyle: {
-            backgroundColor: theme.surface,
-            borderTopColor: theme.border,
+            backgroundColor: theme.mode === 'dark' ? '#000000' : theme.surface,
+            borderTopColor: theme.mode === 'dark' ? '#1a1a1a' : theme.border,
             borderTopWidth: 1,
-            paddingTop: 10,
-            paddingBottom: 28,
-            height: 85,
+            paddingTop: 12,
+            paddingBottom: 30,
+            height: 90,
           },
         }}
       >
@@ -82,7 +86,7 @@ function MainTabs(): React.ReactNode {
           options={{
             tabBarShowLabel: false,
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="triangle-outline" size={size} color={color} />
+              <Ionicons name="chatbubble-outline" size={size} color={color} />
             ),
           }}
         >
@@ -90,15 +94,27 @@ function MainTabs(): React.ReactNode {
         </Tab.Screen>
 
         <Tab.Screen
+          name="Activity"
+          options={{
+            tabBarShowLabel: false,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="barbell-outline" size={size} color={color} />
+            ),
+          }}
+        >
+          {() => <ActivityScreen theme={theme} />}
+        </Tab.Screen>
+
+        <Tab.Screen
           name="Insights"
           options={{
             tabBarShowLabel: false,
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="analytics-outline" size={size} color={color} />
+              <Ionicons name="stats-chart-outline" size={size} color={color} />
             ),
           }}
         >
-          {() => <InsightsScreen theme={theme} />}
+          {() => <InsightsNavigator theme={theme} />}
         </Tab.Screen>
 
         <Tab.Screen
