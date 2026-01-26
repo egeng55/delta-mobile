@@ -178,8 +178,8 @@ export function useDesignSystem(): UseDesignSystemReturn {
     // Adjusted tokens
     fontWeight: adjustedFontWeight as typeof fontWeight,
     typography, // Would need deeper adjustment for font family
-    duration: adjustedDuration,
-    springs: adjustedSprings,
+    duration: adjustedDuration as typeof duration,
+    springs: adjustedSprings as typeof springs,
     animations,
 
     // Preferences management

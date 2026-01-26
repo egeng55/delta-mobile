@@ -1236,6 +1236,7 @@ export default function AvatarScanScreen({
   currentAvatar = DEFAULT_AVATAR,
 }: AvatarScanScreenProps): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [selectedMethod, setSelectedMethod] = useState<ScanMethodOption | null>(null);
   const [rpmResult, setRpmResult] = useState<RPMAvatarResult | null>(null);
 
@@ -1252,8 +1253,8 @@ export default function AvatarScanScreen({
     setRpmResult(result);
   };
 
-  const handleRPMSave = () => {
-    if (!rpmResult) return;
+  const handleRPMSave = async () => {
+    if (!rpmResult || !user?.id) return;
 
     const updatedAvatar: UserAvatar = {
       ...currentAvatar,
@@ -1265,6 +1266,9 @@ export default function AvatarScanScreen({
       updatedAt: new Date().toISOString(),
     };
 
+    // Save to local storage AND sync to cloud
+    await avatarService.saveAvatar(user.id, updatedAvatar);
+    console.log('[RPM] Avatar saved:', updatedAvatar.rpmAvatarUrl);
     onComplete(updatedAvatar);
   };
 

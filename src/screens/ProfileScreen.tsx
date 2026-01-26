@@ -28,7 +28,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
@@ -234,7 +234,7 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
             age: ageNum,
             gender: editData.gender,
             avatar_url: avatarUrl,
-            bio: editData.bio.length > 0 ? editData.bio : null,
+            // Note: bio saved locally via AsyncStorage until Supabase migration is added
           })
           .eq('id', user.id);
 

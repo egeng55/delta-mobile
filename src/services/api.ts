@@ -181,10 +181,20 @@ export const authApi = {
 
 // Chat API
 export const chatApi = {
-  sendMessage: async (userId: string, message: string): Promise<string> => {
+  sendMessage: async (
+    userId: string,
+    message: string,
+    unitSystem?: 'metric' | 'imperial',
+    weatherContext?: string
+  ): Promise<string> => {
     const response = await request<ChatResponse>('/chat', {
       method: 'POST',
-      body: JSON.stringify({ user_id: userId, message }),
+      body: JSON.stringify({
+        user_id: userId,
+        message,
+        unit_system: unitSystem,
+        weather_context: weatherContext,
+      }),
     });
     return response.response;
   },
@@ -194,7 +204,9 @@ export const chatApi = {
     message: string | null,
     imageBase64: string | null,
     clientTimezone?: string,
-    clientLocalTime?: string
+    clientLocalTime?: string,
+    unitSystem?: 'metric' | 'imperial',
+    weatherContext?: string
   ): Promise<ChatWithImageResponse> => {
     const response = await request<ChatWithImageResponse>('/chat/with-image', {
       method: 'POST',
@@ -204,6 +216,8 @@ export const chatApi = {
         image_data: imageBase64,
         client_timezone: clientTimezone,
         client_local_time: clientLocalTime,
+        unit_system: unitSystem,
+        weather_context: weatherContext,
       }),
     });
     return response;
@@ -253,6 +267,48 @@ export const insightsApi = {
       return response.timeline || [];
     } catch {
       return [];
+    }
+  },
+};
+
+// Dashboard Insight - generated contextual message from Delta
+export interface DashboardInsightResponse {
+  message: string;
+  context_used: string[];
+}
+
+export const dashboardInsightApi = {
+  /**
+   * Generate a personalized insight message for the dashboard.
+   * Uses the user's logged data, weather, time of day, etc. to create
+   * a relevant, helpful message from Delta.
+   */
+  generateInsight: async (
+    userId: string,
+    weatherContext?: string,
+    unitSystem?: 'metric' | 'imperial'
+  ): Promise<DashboardInsightResponse> => {
+    try {
+      const clientTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const clientLocalTime = new Date().toISOString();
+
+      const response = await request<DashboardInsightResponse>('/dashboard/insight', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: userId,
+          client_timezone: clientTimezone,
+          client_local_time: clientLocalTime,
+          weather_context: weatherContext,
+          unit_system: unitSystem,
+        }),
+      });
+      return response;
+    } catch {
+      // Return a default message if API fails
+      return {
+        message: "Ready to help you reach your health goals today.",
+        context_used: [],
+      };
     }
   },
 };

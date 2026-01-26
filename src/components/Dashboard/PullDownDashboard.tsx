@@ -11,6 +11,8 @@ import {
   StyleSheet,
   Pressable,
   Dimensions,
+  Keyboard,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,12 +38,24 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const TAB_BAR_HEIGHT = 85; // Bottom tab bar height including safe area
 const DRAG_THRESHOLD = 120; // Less sensitive swipe
 
+// Get time-based greeting
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 17) return 'Good afternoon';
+  if (hour >= 17 && hour < 21) return 'Good evening';
+  return 'Good night';
+}
+
 interface PullDownDashboardProps {
   theme: Theme;
   weatherData: WeatherData | null;
   isVisible: boolean;
   onClose: () => void;
   onVoiceChat?: () => void;
+  userName?: string;
+  deltaMessage?: string;
+  isLoadingMessage?: boolean;
 }
 
 // Generate contextual health insight based on weather and time
@@ -211,31 +225,56 @@ function WeatherCompact({
   );
 }
 
-// Smart insight row: Delta icon | Message | Voice button
+// Smart insight: Delta logo with thought bubbles trickling UP to message
 function InsightRow({
   weather,
   theme,
   onVoiceChat,
+  message,
+  isLoading,
 }: {
   weather: WeatherData | null;
   theme: Theme;
   onVoiceChat?: () => void;
+  message?: string;
+  isLoading?: boolean;
 }): React.ReactElement {
-  const insight = generateSmartInsight(weather);
+  // Use provided message or fall back to weather-based insight
+  const fallbackInsight = generateSmartInsight(weather);
+  const displayMessage = message || fallbackInsight.message;
 
   return (
-    <View style={staticStyles.insightRow}>
-      {/* Delta logo - plain triangle, no background */}
-      <DeltaLogo size={36} strokeColor={theme.textPrimary} />
+    <View style={staticStyles.insightContainer}>
+      {/* Left side: Delta logo with thought bubbles going UP to message */}
+      <View style={staticStyles.leftColumn}>
+        {/* Message bubble at top */}
+        <View style={[staticStyles.insightBubble, { backgroundColor: theme.surface + '90' }]}>
+          {isLoading ? (
+            <View style={staticStyles.loadingRow}>
+              <ActivityIndicator size="small" color={theme.accent} />
+              <Text style={[staticStyles.insightMessage, { color: theme.textSecondary, marginLeft: 8 }]}>
+                Thinking...
+              </Text>
+            </View>
+          ) : (
+            <Text style={[staticStyles.insightMessage, { color: theme.textPrimary }]}>
+              {displayMessage}
+            </Text>
+          )}
+        </View>
 
-      {/* Message in the middle */}
-      <View style={[staticStyles.insightBubble, { backgroundColor: theme.surface }]}>
-        <Text style={[staticStyles.insightMessage, { color: theme.textPrimary }]}>
-          {insight.message}
-        </Text>
+        {/* Thought bubbles trickling down to logo */}
+        <View style={staticStyles.thoughtColumn}>
+          <View style={[staticStyles.thoughtDot3, { backgroundColor: theme.surface + '90' }]} />
+          <View style={[staticStyles.thoughtDot2, { backgroundColor: theme.surface + '90' }]} />
+          <View style={[staticStyles.thoughtDot1, { backgroundColor: theme.surface + '90' }]} />
+        </View>
+
+        {/* Delta logo at bottom - same size as voice button (44px) */}
+        <DeltaLogo size={44} strokeColor={theme.textPrimary} />
       </View>
 
-      {/* Voice button on the right */}
+      {/* Voice button on the right, vertically centered */}
       <Pressable
         onPress={onVoiceChat}
         style={({ pressed }) => [
@@ -256,6 +295,9 @@ export default function PullDownDashboard({
   isVisible,
   onClose,
   onVoiceChat,
+  userName,
+  deltaMessage,
+  isLoadingMessage,
 }: PullDownDashboardProps): React.ReactElement | null {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -263,21 +305,30 @@ export default function PullDownDashboard({
   const dashboardHeight = SCREEN_HEIGHT - TAB_BAR_HEIGHT;
   const translateY = useSharedValue(-dashboardHeight);
 
-  // Reload avatar when dashboard becomes visible or user changes
+  // Dismiss keyboard and reload avatar when dashboard becomes visible
   useEffect(() => {
+    if (isVisible) {
+      // Dismiss keyboard when dashboard opens
+      Keyboard.dismiss();
+    }
+
     const loadAvatar = async (): Promise<void> => {
       try {
-        const saved = await AsyncStorage.getItem(`@delta_avatar_${user?.id}`);
+        // Use the same key as avatarService: @delta_user_avatar_${userId}
+        const saved = await AsyncStorage.getItem(`@delta_user_avatar_${user?.id}`);
         if (saved) {
           const parsed = JSON.parse(saved);
           console.log('[Dashboard] Loaded avatar:', {
             hasRpmUrl: !!parsed.rpmAvatarUrl,
             hasMeshUri: !!parsed.meshFileUri,
             scanMethod: parsed.scanMethod,
+            rpmUrl: parsed.rpmAvatarUrl,
           });
           setAvatar(parsed);
         }
-      } catch { /* Use default */ }
+      } catch (e) {
+        console.log('[Dashboard] Error loading avatar:', e);
+      }
     };
     if (isVisible && user?.id) {
       loadAvatar();
@@ -332,13 +383,16 @@ export default function PullDownDashboard({
         {/* Solid background */}
         <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.background }]} />
 
-        {/* Drag handle */}
-        <View style={staticStyles.handleContainer}>
-          <View style={[staticStyles.handle, { backgroundColor: theme.border }]} />
-        </View>
 
         {/* Content - no scroll */}
         <View style={staticStyles.content}>
+          {/* Greeting with user's name */}
+          {userName && (
+            <Text style={[staticStyles.greeting, { color: theme.textPrimary }]}>
+              {getGreeting()}, {userName.split(' ')[0]}
+            </Text>
+          )}
+
           {/* Top row: Clock left, Weather right */}
           <View style={staticStyles.topRow}>
             <LiveClock theme={theme} />
@@ -358,17 +412,15 @@ export default function PullDownDashboard({
               <Avatar3DViewer
                 modelUrl={avatar.rpmAvatarUrl}
                 theme={theme}
-                size={280}
+                size={360}
                 autoRotate={true}
-                backgroundColor="transparent"
               />
             ) : avatar.meshFileUri ? (
               <Avatar3DViewer
                 modelUrl={avatar.meshFileUri}
                 theme={theme}
-                size={280}
+                size={420}
                 autoRotate={true}
-                backgroundColor="transparent"
               />
             ) : (
               <AnimatedAvatar
@@ -386,12 +438,13 @@ export default function PullDownDashboard({
 
         {/* Bottom section - Delta icon, message, voice button in one row */}
         <View style={[staticStyles.bottomSection, { paddingBottom: 16 }]}>
-          <InsightRow weather={weatherData} theme={theme} onVoiceChat={onVoiceChat} />
-
-          {/* Swipe hint */}
-          <View style={staticStyles.hintContainer}>
-            <Ionicons name="chevron-up" size={18} color={theme.textSecondary + '40'} />
-          </View>
+          <InsightRow
+            weather={weatherData}
+            theme={theme}
+            onVoiceChat={onVoiceChat}
+            message={deltaMessage}
+            isLoading={isLoadingMessage}
+          />
         </View>
       </Animated.View>
     </GestureDetector>
@@ -413,18 +466,14 @@ function createStyles(theme: Theme, insets: { top: number; bottom: number }, das
 }
 
 const staticStyles = StyleSheet.create({
-  handleContainer: {
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-  },
   content: {
     flex: 1,
     paddingHorizontal: 24,
+  },
+  greeting: {
+    fontSize: 28,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   topRow: {
     flexDirection: 'row',
@@ -477,36 +526,50 @@ const staticStyles = StyleSheet.create({
     flex: 1,
     borderRadius: 170,
   },
-  insightRow: {
+  insightContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
   },
-  insightIconWrapper: {
-    width: 48,
-    height: 48,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  insightGlow: {
-    position: 'absolute',
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    overflow: 'hidden',
-  },
-  insightGlowGradient: {
+  leftColumn: {
     flex: 1,
+    alignItems: 'flex-start',
+  },
+  thoughtColumn: {
+    alignItems: 'flex-start',
+    paddingLeft: 14,
+    gap: 5,
+    marginVertical: 8,
+  },
+  thoughtDot1: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  thoughtDot2: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  thoughtDot3: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
   },
   insightBubble: {
-    flex: 1,
     borderRadius: 16,
-    padding: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    maxWidth: '95%',
   },
   insightMessage: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '400',
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   bottomSection: {
     paddingHorizontal: 24,
@@ -516,13 +579,6 @@ const staticStyles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     justifyContent: 'center',
-    alignItems: 'center',
-  },
-  hintContainer: {
-    position: 'absolute',
-    bottom: 8,
-    left: 0,
-    right: 0,
     alignItems: 'center',
   },
 });

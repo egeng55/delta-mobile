@@ -15,7 +15,6 @@
  */
 
 import { NativeModules } from 'react-native';
-import Constants from 'expo-constants';
 
 // Early check for native modules - prevents crashes when not linked
 const NATIVE_MODULES_AVAILABLE = Boolean(NativeModules.RNPurchases);
@@ -61,9 +60,8 @@ export interface PurchasesError {
   message: string;
 }
 
-// RevenueCat API key from app.json extra config
-// For production, update the key in app.json with your iOS public key (starts with appl_)
-const REVENUECAT_API_KEY = Constants.expoConfig?.extra?.revenueCatApiKey ?? '';
+// RevenueCat API key - production iOS public key
+const REVENUECAT_API_KEY = 'appl_iWiJYqhMXWRafzSqHZCdsuCdagJ';
 
 // Product identifiers matching RevenueCat dashboard
 export const PRODUCT_IDS = {
@@ -311,12 +309,12 @@ export async function presentPaywall(): Promise<{
       case PAYWALL_RESULT.PURCHASED:
         const customerInfo = await getCustomerInfo();
         console.log('RevenueCat: Paywall purchase completed');
-        return { result: 'purchased', customerInfo };
+        return { result: 'purchased', customerInfo: customerInfo ?? undefined };
 
       case PAYWALL_RESULT.RESTORED:
         const restoredInfo = await getCustomerInfo();
         console.log('RevenueCat: Paywall restore completed');
-        return { result: 'restored', customerInfo: restoredInfo };
+        return { result: 'restored', customerInfo: restoredInfo ?? undefined };
 
       case PAYWALL_RESULT.CANCELLED:
         console.log('RevenueCat: Paywall cancelled');
@@ -357,11 +355,11 @@ export async function presentPaywallIfNeeded(
     switch (paywallResult) {
       case PAYWALL_RESULT.PURCHASED:
         const customerInfo = await getCustomerInfo();
-        return { result: 'purchased', customerInfo };
+        return { result: 'purchased', customerInfo: customerInfo ?? undefined };
 
       case PAYWALL_RESULT.RESTORED:
         const restoredInfo = await getCustomerInfo();
-        return { result: 'restored', customerInfo: restoredInfo };
+        return { result: 'restored', customerInfo: restoredInfo ?? undefined };
 
       case PAYWALL_RESULT.CANCELLED:
         return { result: 'cancelled' };
@@ -500,7 +498,7 @@ export function isNativeAvailable(): boolean {
 export async function getManagementURL(): Promise<string | null> {
   try {
     const customerInfo = await getCustomerInfo();
-    return customerInfo.managementURL;
+    return customerInfo?.managementURL ?? null;
   } catch (error) {
     console.error('RevenueCat: Failed to get management URL', error);
     return null;

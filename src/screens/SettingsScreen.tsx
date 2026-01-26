@@ -33,6 +33,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useAccess } from '../context/AccessContext';
 import { useUnits } from '../context/UnitsContext';
+import { useHealthKit } from '../context/HealthKitContext';
 import { exportApi, MenstrualSettings } from '../services/api';
 import * as menstrualService from '../services/menstrualTracking';
 import * as notificationService from '../services/notifications';
@@ -62,6 +63,16 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
   const { isDark, toggleTheme, useSystemTheme, isUsingSystem } = useTheme();
   const { subscription, hasAccess, isDeveloper, showPaywall, showCustomerCenter, subscriptionStatus } = useAccess();
   const { unitSystem, setUnitSystem, isMetric } = useUnits();
+  const {
+    isAvailable: healthKitAvailable,
+    isAuthorized: healthKitAuthorized,
+    isEnabled: healthKitEnabled,
+    isLoading: healthKitLoading,
+    lastSyncTime,
+    hasWatchData,
+    setEnabled: setHealthKitEnabled,
+    syncNow: syncHealthKit,
+  } = useHealthKit();
 
   const [notifications, setNotifications] = useState<boolean>(true);
   const [dailyReminder, setDailyReminder] = useState<boolean>(false);
@@ -523,6 +534,88 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Apple Watch / HealthKit */}
+      {Platform.OS === 'ios' && healthKitAvailable && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Apple Watch</Text>
+          <View style={styles.settingRow}>
+            <View style={[styles.settingIconContainer, { backgroundColor: '#FF3B30' + '20' }]}>
+              <Ionicons name="watch-outline" size={20} color="#FF3B30" />
+            </View>
+            <View style={styles.settingContent}>
+              <Text style={styles.settingLabel}>Apple Watch Sync</Text>
+              <Text style={styles.settingDescription}>
+                {healthKitEnabled && healthKitAuthorized
+                  ? hasWatchData
+                    ? 'Syncing sleep, HRV, heart rate, steps'
+                    : 'Connected - waiting for data'
+                  : 'Auto-import health data from your watch'}
+              </Text>
+            </View>
+            {healthKitLoading ? (
+              <ActivityIndicator size="small" color={theme.accent} />
+            ) : (
+              <Switch
+                value={healthKitEnabled}
+                onValueChange={setHealthKitEnabled}
+                trackColor={{ false: theme.border, true: '#FF3B30' }}
+                thumbColor="#ffffff"
+              />
+            )}
+          </View>
+          {healthKitEnabled && healthKitAuthorized && (
+            <>
+              <View style={styles.settingRow}>
+                <View style={styles.settingIconContainer}>
+                  <Ionicons name="sync-outline" size={20} color={theme.accent} />
+                </View>
+                <View style={styles.settingContent}>
+                  <Text style={styles.settingLabel}>Last Sync</Text>
+                  <Text style={styles.settingDescription}>
+                    {lastSyncTime
+                      ? lastSyncTime.toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })
+                      : 'Never'}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.linkRow}
+                onPress={syncHealthKit}
+                disabled={healthKitLoading}
+              >
+                <View style={styles.settingIconContainer}>
+                  <Ionicons name="refresh-outline" size={20} color={theme.accent} />
+                </View>
+                <Text style={styles.linkText}>Sync Now</Text>
+                {healthKitLoading ? (
+                  <ActivityIndicator size="small" color={theme.accent} />
+                ) : (
+                  <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+          {healthKitEnabled && !healthKitAuthorized && (
+            <View style={[styles.settingRow, { backgroundColor: theme.warning + '10' }]}>
+              <View style={styles.settingIconContainer}>
+                <Ionicons name="alert-circle-outline" size={20} color={theme.warning} />
+              </View>
+              <View style={styles.settingContent}>
+                <Text style={[styles.settingLabel, { color: theme.warning }]}>Permission Required</Text>
+                <Text style={styles.settingDescription}>
+                  Open Settings → Privacy → Health to grant access
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
+      )}
 
       {/* Notifications */}
       <View style={styles.section}>

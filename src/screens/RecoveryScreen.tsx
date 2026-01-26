@@ -29,9 +29,7 @@ import { ChainCard } from '../components/CausalChain';
 import { RecoveryGauge } from '../components/Gauges';
 import { SleepPerformanceCard } from '../components/Sleep';
 import { MetricComparisonCard } from '../components/Metrics';
-import healthKitService, { SleepSummary, HealthSummary } from '../services/healthKit';
-import healthSyncService from '../services/healthSync';
-import { useAuth } from '../context/AuthContext';
+import { useHealthKit } from '../context/HealthKitContext';
 
 interface RecoveryScreenProps {
   theme: Theme;
@@ -39,7 +37,6 @@ interface RecoveryScreenProps {
 }
 
 export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScreenProps): React.ReactElement {
-  const { user } = useAuth();
   const {
     healthState,
     causalChains,
@@ -48,81 +45,40 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
     fetchAnalyticsData,
   } = useInsightsData();
 
-  // HealthKit state
-  const [healthKitAuthorized, setHealthKitAuthorized] = useState(false);
-  const [sleepSummary, setSleepSummary] = useState<SleepSummary | null>(null);
-  const [healthSummary, setHealthSummary] = useState<HealthSummary | null>(null);
+  // Use centralized HealthKit context
+  const {
+    isAvailable: healthKitAvailable,
+    isAuthorized: healthKitAuthorized,
+    isEnabled: healthKitEnabled,
+    hasWatchData,
+    healthData,
+    requestAuthorization,
+    setEnabled,
+    refreshHealthData,
+  } = useHealthKit();
+
   const [showCausalChains, setShowCausalChains] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
 
   const wasFocused = useRef(isFocused);
 
   useEffect(() => {
     fetchAnalyticsData();
-    loadHealthKitData();
   }, [fetchAnalyticsData]);
 
   // Refresh data when tab becomes focused
   useEffect(() => {
     if (isFocused && !wasFocused.current) {
       fetchAnalyticsData(true);
-      loadHealthKitData();
+      if (healthKitEnabled && healthKitAuthorized) {
+        refreshHealthData();
+      }
     }
     wasFocused.current = isFocused;
-  }, [isFocused, fetchAnalyticsData]);
-
-  // Sync HealthKit data to backend for cross-domain reasoning
-  useEffect(() => {
-    const syncHealthData = async () => {
-      if (!user?.id || !healthKitAuthorized) return;
-
-      const shouldSync = await healthSyncService.shouldSync();
-      if (!shouldSync) return;
-
-      setSyncStatus('syncing');
-      const result = await healthSyncService.syncHealthData(user.id);
-      setSyncStatus(result.synced ? 'synced' : 'error');
-
-      // Refresh analytics to get updated cross-domain insights
-      if (result.synced) {
-        fetchAnalyticsData();
-      }
-    };
-
-    syncHealthData();
-  }, [user?.id, healthKitAuthorized, fetchAnalyticsData]);
-
-  const loadHealthKitData = async () => {
-    if (Platform.OS !== 'ios') return;
-
-    try {
-      const authorized = await healthKitService.isAuthorized();
-      setHealthKitAuthorized(authorized);
-
-      if (authorized) {
-        // Get yesterday's sleep (last night) and today's health summary
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-
-        const [sleep, health] = await Promise.all([
-          healthKitService.getSleepSummary(yesterday),
-          healthKitService.getTodayHealthSummary(),
-        ]);
-        setSleepSummary(sleep);
-        setHealthSummary(health);
-      }
-    } catch {
-      // Silent fail
-    }
-  };
+  }, [isFocused, fetchAnalyticsData, healthKitEnabled, healthKitAuthorized, refreshHealthData]);
 
   const requestHealthKitAccess = async () => {
     try {
-      const granted = await healthKitService.requestAuthorization();
-      setHealthKitAuthorized(granted);
-      if (granted) {
-        await loadHealthKitData();
-      }
+      await setEnabled(true);
     } catch {
       // Silent fail
     }
@@ -170,13 +126,44 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
   const recoveryFactors = useMemo(() => {
     if (!healthState?.recovery?.factors) return [];
 
-    // factors is an object like { sleep_quality: 0.8, hrv_trend: -0.2 }
+    // Map string quality values to numbers
+    const qualityMap: Record<string, number> = {
+      'excellent': 0.9, 'great': 0.8, 'good': 0.7, 'fair': 0.5, 'poor': 0.3, 'bad': 0.2,
+      'high': 0.8, 'medium': 0.5, 'low': 0.3
+    };
+
     const factorsObj = healthState.recovery.factors;
     return Object.entries(factorsObj).map(([key, value]) => {
-      // Determine impact level based on value
-      const numValue = typeof value === 'number' ? value : (value === true ? 1 : value === false ? -1 : 0);
-      const impact = numValue > 0.3 ? 'positive' as const :
-                    numValue < -0.3 ? 'negative' as const : 'neutral' as const;
+      // Parse value - handle numbers, booleans, and strings
+      let numValue: number;
+      let displayValue: string;
+
+      if (typeof value === 'number') {
+        numValue = value;
+        // If value looks like a score (0-10 range), normalize to 0-1
+        if (value > 1 && value <= 10) {
+          numValue = value / 10;
+          displayValue = `${value}/10`;
+        } else if (value >= -1 && value <= 1) {
+          displayValue = value > 0 ? `+${Math.round(value * 100)}%` : `${Math.round(value * 100)}%`;
+        } else {
+          displayValue = String(Math.round(value));
+        }
+      } else if (typeof value === 'boolean') {
+        numValue = value ? 0.7 : 0.3;
+        displayValue = value ? 'Yes' : 'No';
+      } else if (typeof value === 'string') {
+        const lowerValue = value.toLowerCase();
+        numValue = qualityMap[lowerValue] ?? 0.5;
+        displayValue = value.charAt(0).toUpperCase() + value.slice(1);
+      } else {
+        numValue = 0.5;
+        displayValue = 'Unknown';
+      }
+
+      // Determine impact level based on normalized value
+      const impact = numValue >= 0.6 ? 'positive' as const :
+                    numValue <= 0.4 ? 'negative' as const : 'neutral' as const;
 
       // Format key as readable name
       const name = key
@@ -186,10 +173,8 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
       return {
         name,
         impact,
-        contribution: Math.abs(numValue * 100),
-        value: typeof value === 'boolean' ? (value ? 'Yes' : 'No') :
-               typeof value === 'number' ? (value > 0 ? `+${Math.round(value * 100)}%` : `${Math.round(value * 100)}%`) :
-               String(value),
+        contribution: Math.max(0, Math.min(100, numValue * 100)),
+        value: displayValue,
       };
     });
   }, [healthState?.recovery?.factors]);
@@ -229,7 +214,9 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
           refreshing={analyticsLoading}
           onRefresh={() => {
             fetchAnalyticsData(true);
-            loadHealthKitData();
+            if (healthKitEnabled && healthKitAuthorized) {
+              refreshHealthData();
+            }
           }}
           tintColor={theme.accent}
         />
@@ -239,46 +226,45 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Recovery</Text>
-        <Text style={styles.headerSubtitle}>Sleep & restoration</Text>
-        {healthKitAuthorized && (
+        {hasWatchData && (
           <View style={styles.healthKitBadge}>
-            <Ionicons name="heart" size={12} color="#FF2D55" />
-            <Text style={styles.healthKitBadgeText}>HealthKit Connected</Text>
+            <Ionicons name="watch" size={12} color="#FF2D55" />
+            <Text style={styles.healthKitBadgeText}>Apple Watch Connected</Text>
           </View>
         )}
       </View>
 
       {/* Hero: Sleep Performance Card */}
       <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
-        {sleepSummary && sleepSummary.hasData ? (
+        {hasWatchData && healthData.sleep && healthData.sleep.hasData ? (
           <SleepPerformanceCard
             theme={theme}
             data={{
-              totalHours: sleepSummary.totalSleepHours,
+              totalHours: healthData.sleep.totalSleepHours,
               targetHours: 8,
-              efficiency: sleepSummary.sleepEfficiency,
-              deepHours: sleepSummary.deepSleepHours,
-              remHours: sleepSummary.remSleepHours,
-              coreHours: sleepSummary.coreSleepHours,
-              bedTime: sleepSummary.bedTime ?? undefined,
-              wakeTime: sleepSummary.wakeTime ?? undefined,
+              efficiency: healthData.sleep.sleepEfficiency,
+              deepHours: healthData.sleep.deepSleepHours,
+              remHours: healthData.sleep.remSleepHours,
+              coreHours: healthData.sleep.coreSleepHours,
+              bedTime: healthData.sleep.bedTime ?? undefined,
+              wakeTime: healthData.sleep.wakeTime ?? undefined,
             }}
           />
-        ) : healthKitAuthorized ? (
+        ) : healthKitEnabled && healthKitAuthorized ? (
           <View style={styles.emptyCard}>
             <Ionicons name="moon-outline" size={40} color={theme.textSecondary} />
             <Text style={styles.emptyTitle}>No Sleep Data</Text>
             <Text style={styles.emptyText}>Sleep data will appear here after your next night</Text>
           </View>
-        ) : Platform.OS === 'ios' ? (
+        ) : healthKitAvailable ? (
           <TouchableOpacity style={styles.healthKitPrompt} onPress={requestHealthKitAccess}>
             <View style={[styles.healthKitIcon, { backgroundColor: '#FF2D5520' }]}>
-              <Ionicons name="heart" size={28} color="#FF2D55" />
+              <Ionicons name="watch" size={28} color="#FF2D55" />
             </View>
             <View style={styles.healthKitPromptContent}>
-              <Text style={styles.healthKitPromptTitle}>Connect Apple Health</Text>
+              <Text style={styles.healthKitPromptTitle}>Connect Apple Watch</Text>
               <Text style={styles.healthKitPromptSubtitle}>
-                Sync sleep, heart rate, and HRV automatically
+                Sync sleep, heart rate, HRV, and activity automatically
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
@@ -324,18 +310,18 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
         </Animated.View>
       )}
 
-      {/* Heart Metrics with Comparisons */}
-      {healthSummary && (healthSummary.latestRestingHeartRate || healthSummary.latestHRV) && (
+      {/* Heart Metrics with Comparisons - Only show with Apple Watch data */}
+      {hasWatchData && (healthData.hrv || healthData.restingHeartRate) && (
         <Animated.View entering={FadeInDown.delay(250).duration(400)} style={styles.section}>
           <Text style={styles.sectionTitle}>Heart Metrics</Text>
           <View style={styles.metricsRow}>
-            {healthSummary.latestHRV && (
+            {healthData.hrv && (
               <View style={styles.metricCardWrapper}>
                 <MetricComparisonCard
                   theme={theme}
                   label="HRV"
-                  currentValue={Math.round(healthSummary.latestHRV.hrvMs)}
-                  comparisonValue={weeklyHRVAvg ?? healthSummary.latestHRV.hrvMs}
+                  currentValue={Math.round(healthData.hrv.hrvMs)}
+                  comparisonValue={weeklyHRVAvg ?? healthData.hrv.hrvMs}
                   comparisonBasis="7-day average"
                   unit="ms"
                   icon="pulse"
@@ -345,13 +331,13 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
                 />
               </View>
             )}
-            {healthSummary.latestRestingHeartRate && (
+            {healthData.restingHeartRate && (
               <View style={styles.metricCardWrapper}>
                 <MetricComparisonCard
                   theme={theme}
                   label="Resting HR"
-                  currentValue={healthSummary.latestRestingHeartRate.bpm}
-                  comparisonValue={weeklyRestingHRAvg ?? healthSummary.latestRestingHeartRate.bpm}
+                  currentValue={healthData.restingHeartRate.bpm}
+                  comparisonValue={weeklyRestingHRAvg ?? healthData.restingHeartRate.bpm}
                   comparisonBasis="7-day average"
                   unit="bpm"
                   icon="heart"

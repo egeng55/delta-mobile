@@ -194,7 +194,9 @@ export function AccessProvider({ children }: AccessProviderProps): React.ReactNo
         try {
           // Login to RevenueCat with Supabase user ID
           const customerInfo = await RevenueCat.login(user.id);
-          await handleCustomerInfoUpdate(customerInfo);
+          if (customerInfo) {
+            await handleCustomerInfoUpdate(customerInfo);
+          }
 
           // Set user attributes for analytics (non-blocking)
           if (user.email) {

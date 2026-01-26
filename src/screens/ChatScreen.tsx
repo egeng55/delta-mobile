@@ -40,20 +40,24 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import Markdown from 'react-native-markdown-display';
 import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useAccess } from '../context/AccessContext';
-import { chatApi, conversationsApi } from '../services/api';
+import { useUnits } from '../context/UnitsContext';
+import { chatApi, conversationsApi, dashboardInsightApi } from '../services/api';
 import { DeltaLogoSimple } from '../components/DeltaLogo';
 import { MainTabParamList } from '../navigation/AppNavigator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useInsightsData } from '../hooks/useInsightsData';
 import { supabase } from '../services/supabase';
-
-const PROFILE_STORAGE_KEY = '@delta_user_profile';
+import { getWeather, formatWeatherForContext, WeatherData } from '../services/weather';
+import { PullDownDashboard } from '../components/Dashboard';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import VoiceChatModal from '../components/Chat/VoiceChatModal';
 
 const springConfig = {
   damping: 15,
@@ -114,20 +118,38 @@ To get started, try saying something like:
 export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode {
   const { user } = useAuth();
   const { profile } = useAccess();
+  const { unitSystem } = useUnits();
+  const { invalidateCache } = useInsightsData();
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
   const insets = useSafeAreaInsets();
   const sendButtonScale = useSharedValue(1);
   const imageButtonScale = useSharedValue(1);
   const logoRotation = useSharedValue(0);
   const [profileImage, setProfileImage] = React.useState<string | null>(null);
+  const [weatherData, setWeatherData] = React.useState<WeatherData | null>(null);
+  const [showDashboard, setShowDashboard] = useState<boolean>(false);
 
-  // Load profile image from Supabase (cloud) or fallback to AsyncStorage (local)
+  // Load weather data for Delta's context
+  React.useEffect(() => {
+    const loadWeather = async (): Promise<void> => {
+      try {
+        const weather = await getWeather();
+        if (weather) {
+          setWeatherData(weather);
+        }
+      } catch {
+        // Weather is optional enhancement
+      }
+    };
+    loadWeather();
+  }, []);
+
+  // Load profile image from Supabase (cloud only - no fallback to stale cache)
   React.useEffect(() => {
     const loadProfileImage = async (): Promise<void> => {
       if (!user?.id) return;
 
       try {
-        // First try to get avatar from Supabase profiles table
         const { data: profileData, error } = await supabase
           .from('profiles')
           .select('avatar_url')
@@ -136,19 +158,11 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
 
         if (!error && profileData?.avatar_url) {
           setProfileImage(profileData.avatar_url);
-          return;
-        }
-
-        // Fallback to local AsyncStorage
-        const saved = await AsyncStorage.getItem(`${PROFILE_STORAGE_KEY}_${user?.id}`);
-        if (saved !== null) {
-          const parsed = JSON.parse(saved);
-          if (parsed.profileImage) {
-            setProfileImage(parsed.profileImage);
-          }
+        } else {
+          setProfileImage(null); // Clear any stale state
         }
       } catch {
-        // Ignore errors
+        setProfileImage(null);
       }
     };
     loadProfileImage();
@@ -204,8 +218,15 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
   const [showSidebar, setShowSidebar] = useState<boolean>(false);
   const [conversations, setConversations] = useState<SavedConversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [renameModalVisible, setRenameModalVisible] = useState<boolean>(false);
+  const [renameConvId, setRenameConvId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState<string>('');
+  const [showVoiceModal, setShowVoiceModal] = useState<boolean>(false);
+  const [dashboardMessage, setDashboardMessage] = useState<string | undefined>(undefined);
+  const [isLoadingDashboardMessage, setIsLoadingDashboardMessage] = useState<boolean>(false);
   const flatListRef = useRef<FlatList<Message>>(null);
   const inputRef = useRef<TextInput>(null);
+  const renameInputRef = useRef<TextInput>(null);
 
   // Load saved conversations on mount
   useEffect(() => {
@@ -246,12 +267,6 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
       let convId = currentConversationId;
       const now = Date.now();
 
-      // Generate title from first user message
-      const firstUserMsg = messages.find(m => m.isUser);
-      const title = firstUserMsg
-        ? firstUserMsg.text.slice(0, 40) + (firstUserMsg.text.length > 40 ? '...' : '')
-        : 'New conversation';
-
       if (!convId) {
         convId = `conv_${now}`;
         setCurrentConversationId(convId);
@@ -260,6 +275,19 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
 
       const updatedConversations = [...conversations];
       const existingIndex = updatedConversations.findIndex(c => c.id === convId);
+
+      // Preserve existing title if conversation was renamed, otherwise auto-generate
+      let title: string;
+      if (existingIndex >= 0 && updatedConversations[existingIndex].title) {
+        // Keep the existing title (may have been renamed by user)
+        title = updatedConversations[existingIndex].title;
+      } else {
+        // Generate title from first user message for new conversations
+        const firstUserMsg = messages.find(m => m.isUser);
+        title = firstUserMsg
+          ? firstUserMsg.text.slice(0, 40) + (firstUserMsg.text.length > 40 ? '...' : '')
+          : 'New conversation';
+      }
 
       const conversation: SavedConversation = {
         id: convId,
@@ -334,39 +362,36 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
   };
 
   const renameConversation = (conv: SavedConversation): void => {
-    Alert.prompt(
-      'Rename Conversation',
-      'Enter a new name for this conversation:',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Save',
-          onPress: async (newTitle: string | undefined) => {
-            if (newTitle && newTitle.trim()) {
-              const trimmedTitle = newTitle.trim();
-              const updated = conversations.map(c =>
-                c.id === conv.id ? { ...c, title: trimmedTitle } : c
-              );
-              setConversations(updated);
-              await AsyncStorage.setItem(
-                `${CONVERSATIONS_STORAGE_KEY}_${user?.id}`,
-                JSON.stringify(updated)
-              );
-              // Sync to backend
-              if (user?.id) {
-                try {
-                  await conversationsApi.updateTitle(user.id, conv.id, trimmedTitle);
-                } catch {
-                  // Silently fail - local storage is primary
-                }
-              }
-            }
-          },
-        },
-      ],
-      'plain-text',
-      conv.title
-    );
+    setRenameConvId(conv.id);
+    setRenameText(conv.title);
+    setRenameModalVisible(true);
+    // Focus the input after modal opens to trigger selection
+    setTimeout(() => renameInputRef.current?.focus(), 100);
+  };
+
+  const handleRenameSave = async (): Promise<void> => {
+    if (renameConvId && renameText.trim()) {
+      const trimmedTitle = renameText.trim();
+      const updated = conversations.map(c =>
+        c.id === renameConvId ? { ...c, title: trimmedTitle } : c
+      );
+      setConversations(updated);
+      await AsyncStorage.setItem(
+        `${CONVERSATIONS_STORAGE_KEY}_${user?.id}`,
+        JSON.stringify(updated)
+      );
+      // Sync to backend
+      if (user?.id) {
+        try {
+          await conversationsApi.updateTitle(user.id, renameConvId, trimmedTitle);
+        } catch {
+          // Silently fail - local storage is primary
+        }
+      }
+    }
+    setRenameModalVisible(false);
+    setRenameConvId(null);
+    setRenameText('');
   };
 
   const confirmDeleteConversation = async (convId: string): Promise<void> => {
@@ -472,6 +497,77 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
     setSelectedImage(null);
   };
 
+  // Fetch personalized dashboard insight from Delta
+  const fetchDashboardInsight = async (): Promise<void> => {
+    if (!user?.id) return;
+
+    setIsLoadingDashboardMessage(true);
+    try {
+      const weatherContext = weatherData ? formatWeatherForContext(weatherData) : undefined;
+      const response = await dashboardInsightApi.generateInsight(
+        user.id,
+        weatherContext,
+        unitSystem
+      );
+      setDashboardMessage(response.message);
+    } catch (e) {
+      console.log('[Dashboard] Error fetching insight:', e);
+      // Keep undefined to show fallback weather-based message
+      setDashboardMessage(undefined);
+    } finally {
+      setIsLoadingDashboardMessage(false);
+    }
+  };
+
+  // Open dashboard and fetch insight
+  const openDashboard = (): void => {
+    setShowDashboard(true);
+    fetchDashboardInsight();
+  };
+
+  // Handle voice input - send text directly
+  const handleVoiceSend = async (text: string): Promise<void> => {
+    if (!text.trim() || isLoading) return;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      text: text.trim(),
+      isUser: true,
+      timestamp: Date.now(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setIsLoading(true);
+
+    try {
+      const userId = user?.id ?? 'anonymous';
+      const weatherContext = weatherData ? formatWeatherForContext(weatherData) : undefined;
+      const responseText = await chatApi.sendMessage(userId, text.trim(), unitSystem, weatherContext);
+
+      const aiMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: responseText,
+        isUser: false,
+        timestamp: Date.now(),
+      };
+
+      setMessages(prev => [...prev, aiMessage]);
+      // Invalidate and refetch so other tabs show fresh data
+      invalidateCache('analytics', true);
+      invalidateCache('workout', true);
+    } catch {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: "I'm having trouble connecting. Please try again.",
+        isUser: false,
+        timestamp: Date.now(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const sendMessage = async (): Promise<void> => {
     // Blur input first to commit any autocorrect
     inputRef.current?.blur();
@@ -512,17 +608,21 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
 
         const clientTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const clientLocalTime = new Date().toISOString();
+        const weatherContext = weatherData ? formatWeatherForContext(weatherData) : undefined;
 
         const response = await chatApi.sendMessageWithImage(
           userId,
           hasText ? trimmedText : null,
           base64Image,
           clientTimezone,
-          clientLocalTime
+          clientLocalTime,
+          unitSystem,
+          weatherContext
         );
         responseText = response.response;
       } else {
-        responseText = await chatApi.sendMessage(userId, trimmedText);
+        const weatherContext = weatherData ? formatWeatherForContext(weatherData) : undefined;
+        responseText = await chatApi.sendMessage(userId, trimmedText, unitSystem, weatherContext);
       }
 
       const aiMessage: Message = {
@@ -533,6 +633,10 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
       };
 
       setMessages(prev => [...prev, aiMessage]);
+
+      // Invalidate caches and refetch so other tabs show fresh data after logging
+      invalidateCache('analytics', true);
+      invalidateCache('workout', true);
     } catch {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -702,6 +806,7 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
   const canSend = inputText.trim().length > 0 || selectedImage !== null;
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -780,6 +885,49 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         </Animated.View>
       </Modal>
 
+      {/* Rename Conversation Modal */}
+      <Modal
+        visible={renameModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setRenameModalVisible(false)}
+      >
+        <Pressable
+          style={styles.renameModalOverlay}
+          onPress={() => setRenameModalVisible(false)}
+        >
+          <Pressable style={styles.renameModalContent} onPress={e => e.stopPropagation()}>
+            <Text style={styles.renameModalTitle}>Rename Conversation</Text>
+            <TextInput
+              ref={renameInputRef}
+              style={styles.renameInput}
+              value={renameText}
+              onChangeText={setRenameText}
+              placeholder="Enter conversation name"
+              placeholderTextColor={theme.textSecondary}
+              selectTextOnFocus={true}
+              autoFocus={true}
+              onSubmitEditing={handleRenameSave}
+              returnKeyType="done"
+            />
+            <View style={styles.renameModalButtons}>
+              <TouchableOpacity
+                style={styles.renameModalCancel}
+                onPress={() => setRenameModalVisible(false)}
+              >
+                <Text style={styles.renameModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.renameModalSave}
+                onPress={handleRenameSave}
+              >
+                <Text style={styles.renameModalSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Swipe area for opening sidebar */}
       <View
         style={styles.swipeArea}
@@ -790,7 +938,10 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         }}
       />
 
-      <View style={styles.header}>
+      <Pressable
+        style={styles.header}
+        onPress={openDashboard}
+      >
         <Pressable
           onPressIn={handleLogoPressIn}
           onPressOut={handleLogoPressOut}
@@ -800,7 +951,10 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
             <DeltaLogoSimple size={28} color={theme.accent} />
           </Animated.View>
         </Pressable>
-        <Text style={styles.headerTitle}>DELTA</Text>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle}>DELTA</Text>
+          <Ionicons name="chevron-down" size={14} color={theme.textSecondary} style={styles.headerChevron} />
+        </View>
         <Pressable
           style={styles.profileButton}
           onPress={() => navigation.navigate('Profile')}
@@ -815,7 +969,7 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
             </View>
           )}
         </Pressable>
-      </View>
+      </Pressable>
 
       <FlatList
         ref={flatListRef}
@@ -902,7 +1056,34 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
           </Animated.View>
         </Pressable>
       </View>
+
+      {/* Pull-down Dashboard */}
+      <PullDownDashboard
+        theme={theme}
+        weatherData={weatherData}
+        isVisible={showDashboard}
+        onClose={() => setShowDashboard(false)}
+        onVoiceChat={() => {
+          // Close dashboard and open voice modal
+          setShowDashboard(false);
+          setTimeout(() => {
+            setShowVoiceModal(true);
+          }, 200);
+        }}
+        userName={profile?.name ?? user?.name}
+        deltaMessage={dashboardMessage}
+        isLoadingMessage={isLoadingDashboardMessage}
+      />
+
+      {/* Voice Chat Modal */}
+      <VoiceChatModal
+        visible={showVoiceModal}
+        theme={theme}
+        onClose={() => setShowVoiceModal(false)}
+        onSend={handleVoiceSend}
+      />
     </KeyboardAvoidingView>
+    </GestureHandlerRootView>
   );
 }
 
@@ -925,12 +1106,20 @@ function createStyles(theme: Theme, topInset: number) {
     logoButton: {
       marginRight: 10,
     },
-    headerTitle: {
+    headerCenter: {
       flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    headerTitle: {
       fontSize: 17,
       fontWeight: '600',
       color: theme.textPrimary,
       letterSpacing: 1,
+    },
+    headerChevron: {
+      marginLeft: 4,
+      marginTop: 1,
     },
     profileButton: {
       marginLeft: 10,
@@ -1181,6 +1370,66 @@ function createStyles(theme: Theme, topInset: number) {
       color: theme.textSecondary,
       textAlign: 'center',
       marginTop: 12,
+    },
+    // Rename Modal Styles
+    renameModalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+    },
+    renameModalContent: {
+      backgroundColor: theme.surface,
+      borderRadius: 16,
+      padding: 20,
+      width: '100%',
+      maxWidth: 340,
+    },
+    renameModalTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: theme.textPrimary,
+      marginBottom: 16,
+      textAlign: 'center',
+    },
+    renameInput: {
+      backgroundColor: theme.background,
+      borderRadius: 10,
+      padding: 14,
+      fontSize: 16,
+      color: theme.textPrimary,
+      borderWidth: 1,
+      borderColor: theme.border,
+      marginBottom: 20,
+    },
+    renameModalButtons: {
+      flexDirection: 'row',
+      gap: 12,
+    },
+    renameModalCancel: {
+      flex: 1,
+      paddingVertical: 12,
+      borderRadius: 10,
+      backgroundColor: theme.background,
+      alignItems: 'center',
+    },
+    renameModalCancelText: {
+      fontSize: 16,
+      color: theme.textSecondary,
+      fontWeight: '500',
+    },
+    renameModalSave: {
+      flex: 1,
+      paddingVertical: 12,
+      borderRadius: 10,
+      backgroundColor: theme.accent,
+      alignItems: 'center',
+    },
+    renameModalSaveText: {
+      fontSize: 16,
+      color: '#fff',
+      fontWeight: '600',
     },
   });
 }

@@ -9,7 +9,7 @@
  * - Action recommendations
  */
 
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -18,12 +18,16 @@ import {
   RefreshControl,
   TouchableOpacity,
   Dimensions,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { Theme } from '../theme/colors';
 import { spacing, typography, borderRadius, shadows } from '../theme/designSystem';
 import { useInsightsData } from '../hooks/useInsightsData';
+import { useUnits } from '../context/UnitsContext';
+import { useHealthKit } from '../context/HealthKitContext';
 import { StackedRings } from '../components/CircularProgress';
 import { RecoveryGauge, StrainGauge } from '../components/Gauges';
 import { FactorBreakdownCard } from '../components/HealthState';
@@ -54,7 +58,76 @@ export default function TodayScreen({
     fetchAnalyticsData,
   } = useInsightsData();
 
+  const { isMetric, volumeUnit } = useUnits();
+
+  // Use centralized HealthKit context for Apple Watch data
+  const { hasWatchData, healthData, refreshHealthData } = useHealthKit();
+
   const wasFocused = useRef(isFocused);
+
+  // Date navigation state
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Calendar helpers
+  const getDaysInMonth = (year: number, month: number): number => {
+    return new Date(year, month + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (year: number, month: number): number => {
+    return new Date(year, month, 1).getDay();
+  };
+
+  const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const handleCalendarDateSelect = (date: Date) => {
+    setSelectedDate(date);
+    setShowCalendar(false);
+  };
+
+  const isToday = useMemo(() => {
+    const selected = new Date(selectedDate);
+    selected.setHours(0, 0, 0, 0);
+    return selected.getTime() === today.getTime();
+  }, [selectedDate, today]);
+
+  const canGoForward = useMemo(() => {
+    const selected = new Date(selectedDate);
+    selected.setHours(0, 0, 0, 0);
+    return selected.getTime() < today.getTime();
+  }, [selectedDate, today]);
+
+  const canGoBack = useMemo(() => {
+    const selected = new Date(selectedDate);
+    selected.setHours(0, 0, 0, 0);
+    const minDate = new Date(today);
+    minDate.setDate(minDate.getDate() - 6);
+    minDate.setHours(0, 0, 0, 0);
+    return selected.getTime() > minDate.getTime();
+  }, [selectedDate, today]);
+
+  const goToPreviousDay = () => {
+    if (canGoBack) {
+      const newDate = new Date(selectedDate);
+      newDate.setDate(newDate.getDate() - 1);
+      setSelectedDate(newDate);
+    }
+  };
+
+  const goToNextDay = () => {
+    if (canGoForward) {
+      const newDate = new Date(selectedDate);
+      newDate.setDate(newDate.getDate() + 1);
+      setSelectedDate(newDate);
+    }
+  };
+
+  const goToToday = () => {
+    setSelectedDate(new Date());
+  };
 
   useEffect(() => {
     fetchAnalyticsData();
@@ -64,20 +137,41 @@ export default function TodayScreen({
   useEffect(() => {
     if (isFocused && !wasFocused.current) {
       fetchAnalyticsData(true);
+      if (hasWatchData) {
+        refreshHealthData();
+      }
     }
     wasFocused.current = isFocused;
-  }, [isFocused, fetchAnalyticsData]);
+  }, [isFocused, fetchAnalyticsData, hasWatchData, refreshHealthData]);
 
-  const today = useMemo(() => {
-    const date = new Date();
+  // Format selected date for display
+  const dateDisplay = useMemo(() => {
     return {
-      dayName: date.toLocaleDateString('en-US', { weekday: 'long' }),
-      dateStr: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      dayName: selectedDate.toLocaleDateString('en-US', { weekday: 'long' }),
+      dateStr: selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     };
-  }, []);
+  }, [selectedDate]);
+
+  // Get summary for selected date
+  const selectedSummary = useMemo(() => {
+    if (isToday) {
+      return todaySummary;
+    }
+    // Find summary for selected date in weeklySummaries
+    const selectedDateStr = selectedDate.toISOString().split('T')[0];
+    const historicalSummary = weeklySummaries.find(s => s.date === selectedDateStr);
+    if (historicalSummary) {
+      return {
+        calories: historicalSummary.calories ?? 0,
+        protein: historicalSummary.protein ?? 0,
+        water_oz: historicalSummary.water_oz ?? 0,
+      };
+    }
+    return null;
+  }, [isToday, todaySummary, selectedDate, weeklySummaries]);
 
   const progress = useMemo(() => {
-    const summary = todaySummary;
+    const summary = selectedSummary;
     if (!summary) {
       return {
         calories: { current: 0, target: targets.calories, percent: 0 },
@@ -103,7 +197,7 @@ export default function TodayScreen({
         percent: Math.min(1, summary.water_oz / targets.water_oz),
       },
     };
-  }, [todaySummary, targets]);
+  }, [selectedSummary, targets]);
 
   // Overall progress percentage
   const overallProgress = useMemo(() => {
@@ -128,14 +222,15 @@ export default function TodayScreen({
     return 10 + Math.random() * 25;
   }, [healthState?.load]);
 
-  // Get quick stats from weekly summaries
+  // Get quick stats for selected date
   const quickStats = useMemo(() => {
-    const lastNight = weeklySummaries[weeklySummaries.length - 1];
+    const selectedDateStr = selectedDate.toISOString().split('T')[0];
+    const daySummary = weeklySummaries.find(s => s.date === selectedDateStr);
     return {
-      sleepHours: lastNight?.sleep_hours ?? null,
-      sleepQuality: lastNight?.sleep_quality ?? null,
+      sleepHours: daySummary?.sleep_hours ?? null,
+      sleepQuality: daySummary?.sleep_quality ?? null,
     };
-  }, [weeklySummaries]);
+  }, [weeklySummaries, selectedDate]);
 
   // Build factors for factor breakdown
   const recoveryFactors = useMemo(() => {
@@ -153,11 +248,31 @@ export default function TodayScreen({
       });
     }
     if (factors.sleep_quality !== undefined) {
+      // Handle both numeric and string quality values
+      const qualityValue = factors.sleep_quality;
+      let numericQuality: number;
+      let displayValue: string;
+
+      if (typeof qualityValue === 'number') {
+        numericQuality = qualityValue;
+        displayValue = `${qualityValue}/10`;
+      } else if (typeof qualityValue === 'string') {
+        // Map string values to numbers
+        const qualityMap: Record<string, number> = {
+          'excellent': 9, 'great': 8, 'good': 7, 'fair': 5, 'poor': 3, 'bad': 2
+        };
+        numericQuality = qualityMap[qualityValue.toLowerCase()] ?? 5;
+        displayValue = qualityValue.charAt(0).toUpperCase() + qualityValue.slice(1);
+      } else {
+        numericQuality = 5;
+        displayValue = 'Unknown';
+      }
+
       result.push({
         name: 'Sleep Quality',
-        impact: Number(factors.sleep_quality) >= 6 ? 'positive' as const : 'negative' as const,
-        contribution: (Number(factors.sleep_quality) / 10) * 100,
-        value: `${factors.sleep_quality}/10`,
+        impact: numericQuality >= 6 ? 'positive' as const : 'negative' as const,
+        contribution: Math.max(0, Math.min(100, (numericQuality / 10) * 100)),
+        value: displayValue,
         description: 'Quality of sleep affects how well your body recovers.',
       });
     }
@@ -176,6 +291,7 @@ export default function TodayScreen({
   const styles = createStyles(theme);
 
   return (
+    <>
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -188,10 +304,42 @@ export default function TodayScreen({
       }
       showsVerticalScrollIndicator={false}
     >
-      {/* Header */}
+      {/* Header with Date Navigation */}
       <View style={styles.header}>
-        <Text style={styles.dayName}>{today.dayName}</Text>
-        <Text style={styles.date}>{today.dateStr}</Text>
+        <View style={styles.dateNavRow}>
+          <TouchableOpacity
+            style={[styles.dateArrow, !canGoBack && styles.dateArrowDisabled]}
+            onPress={goToPreviousDay}
+            disabled={!canGoBack}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons
+              name="chevron-back"
+              size={24}
+              color={canGoBack ? theme.textPrimary : theme.textSecondary}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => setShowCalendar(true)} style={styles.dateCenter}>
+            <Text style={styles.dayName}>{dateDisplay.dayName}</Text>
+            <View style={styles.dateRow}>
+              <Text style={styles.date}>{dateDisplay.dateStr}</Text>
+              <Ionicons name="calendar-outline" size={16} color={theme.textSecondary} style={{ marginLeft: 6 }} />
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.dateArrow, !canGoForward && styles.dateArrowDisabled]}
+            onPress={goToNextDay}
+            disabled={!canGoForward}
+          >
+            <Ionicons
+              name="chevron-forward"
+              size={24}
+              color={canGoForward ? theme.textPrimary : theme.textSecondary}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Hero: Recovery & Strain Gauges */}
@@ -216,21 +364,33 @@ export default function TodayScreen({
 
       {/* Quick Stats Row */}
       <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.quickStatsRow}>
-        {quickStats.sleepHours !== null && (
+        {(quickStats.sleepHours !== null || (hasWatchData && healthData.sleep)) && (
           <View style={styles.quickStatItem}>
             <Ionicons name="moon-outline" size={16} color={theme.accent} />
-            <Text style={styles.quickStatValue}>{quickStats.sleepHours.toFixed(1)}h</Text>
+            <Text style={styles.quickStatValue}>
+              {hasWatchData && healthData.sleep
+                ? healthData.sleep.totalSleepHours.toFixed(1)
+                : quickStats.sleepHours?.toFixed(1) ?? '--'}h
+            </Text>
             <Text style={styles.quickStatLabel}>Sleep</Text>
           </View>
         )}
         <View style={styles.quickStatItem}>
           <Ionicons name="pulse-outline" size={16} color="#8B5CF6" />
-          <Text style={styles.quickStatValue}>--</Text>
+          <Text style={styles.quickStatValue}>
+            {hasWatchData && healthData.hrv
+              ? Math.round(healthData.hrv.hrvMs)
+              : '--'}
+          </Text>
           <Text style={styles.quickStatLabel}>HRV</Text>
         </View>
         <View style={styles.quickStatItem}>
           <Ionicons name="heart-outline" size={16} color="#EF4444" />
-          <Text style={styles.quickStatValue}>--</Text>
+          <Text style={styles.quickStatValue}>
+            {hasWatchData && healthData.restingHeartRate
+              ? healthData.restingHeartRate.bpm
+              : '--'}
+          </Text>
           <Text style={styles.quickStatLabel}>Resting HR</Text>
         </View>
       </Animated.View>
@@ -282,7 +442,12 @@ export default function TodayScreen({
             <View style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: theme.accent }]} />
               <Text style={styles.legendLabel}>Water</Text>
-              <Text style={styles.legendValue}>{Math.round(progress.water.current)}/{targets.water_oz} oz</Text>
+              <Text style={styles.legendValue}>
+                {isMetric
+                  ? `${Math.round(progress.water.current * 29.57)}/${Math.round(targets.water_oz * 29.57)} ml`
+                  : `${Math.round(progress.water.current)}/${targets.water_oz} oz`
+                }
+              </Text>
             </View>
           </View>
         </View>
@@ -297,22 +462,24 @@ export default function TodayScreen({
         </Animated.View>
       )}
 
-      {/* Action Card */}
-      <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.actionCard}>
-        <View style={styles.actionIcon}>
-          <Ionicons name="bulb" size={20} color={theme.accent} />
-        </View>
-        <View style={styles.actionContent}>
-          <Text style={styles.actionTitle}>Focus for Today</Text>
-          <Text style={styles.actionText}>
-            {recoveryScore >= 67
-              ? 'Great recovery! Consider a challenging workout today.'
-              : recoveryScore >= 34
-              ? 'Moderate recovery. A light to moderate workout is recommended.'
-              : 'Low recovery. Focus on rest and gentle movement today.'}
-          </Text>
-        </View>
-      </Animated.View>
+      {/* Action Card - only show for today */}
+      {isToday && (
+        <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.actionCard}>
+          <View style={styles.actionIcon}>
+            <Ionicons name="bulb" size={20} color={theme.accent} />
+          </View>
+          <View style={styles.actionContent}>
+            <Text style={styles.actionTitle}>Focus for Today</Text>
+            <Text style={styles.actionText}>
+              {recoveryScore >= 67
+                ? 'Great recovery! Consider a challenging workout today.'
+                : recoveryScore >= 34
+                ? 'Moderate recovery. A light to moderate workout is recommended.'
+                : 'Low recovery. Focus on rest and gentle movement today.'}
+            </Text>
+          </View>
+        </Animated.View>
+      )}
 
       {/* Quick Stats */}
       {targetsInfo.tdee && (
@@ -334,6 +501,134 @@ export default function TodayScreen({
 
       <View style={{ height: 100 }} />
     </ScrollView>
+
+    {/* Calendar Modal */}
+    <Modal
+      visible={showCalendar}
+      animationType="fade"
+      transparent={true}
+      onRequestClose={() => setShowCalendar(false)}
+    >
+      <Pressable
+        style={styles.calendarModalOverlay}
+        onPress={() => setShowCalendar(false)}
+      >
+        <Pressable style={styles.calendarModalContent} onPress={e => e.stopPropagation()}>
+          {/* Month Navigation */}
+          <View style={styles.calendarNav}>
+            <TouchableOpacity
+              onPress={() => {
+                const newMonth = new Date(calendarMonth);
+                newMonth.setMonth(newMonth.getMonth() - 1);
+                setCalendarMonth(newMonth);
+              }}
+              style={styles.calendarNavButton}
+            >
+              <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
+            </TouchableOpacity>
+            <Text style={styles.calendarMonthTitle}>
+              {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                const newMonth = new Date(calendarMonth);
+                newMonth.setMonth(newMonth.getMonth() + 1);
+                // Don't go past current month
+                if (newMonth <= new Date()) {
+                  setCalendarMonth(newMonth);
+                }
+              }}
+              style={styles.calendarNavButton}
+            >
+              <Ionicons name="chevron-forward" size={24} color={theme.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Day Headers */}
+          <View style={styles.calendarWeek}>
+            {DAY_NAMES.map(day => (
+              <View key={day} style={styles.calendarDayCell}>
+                <Text style={styles.calendarDayHeader}>{day}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* Calendar Grid */}
+          {(() => {
+            const year = calendarMonth.getFullYear();
+            const month = calendarMonth.getMonth();
+            const daysInMonth = getDaysInMonth(year, month);
+            const firstDay = getFirstDayOfMonth(year, month);
+            const todayStr = today.toISOString().split('T')[0];
+
+            const weeks: React.ReactNode[] = [];
+            let days: React.ReactNode[] = [];
+
+            // Empty cells before first day
+            for (let i = 0; i < firstDay; i++) {
+              days.push(<View key={`empty-${i}`} style={styles.calendarDayCell} />);
+            }
+
+            // Days of month
+            for (let day = 1; day <= daysInMonth; day++) {
+              const date = new Date(year, month, day);
+              const dateStr = date.toISOString().split('T')[0];
+              const isTodayDate = dateStr === todayStr;
+              const isSelected = dateStr === selectedDate.toISOString().split('T')[0];
+              const isFuture = date > today;
+
+              days.push(
+                <TouchableOpacity
+                  key={day}
+                  style={[
+                    styles.calendarDayCell,
+                    isTodayDate && styles.calendarDayToday,
+                    isSelected && styles.calendarDaySelected,
+                  ]}
+                  onPress={() => !isFuture && handleCalendarDateSelect(date)}
+                  disabled={isFuture}
+                >
+                  <Text
+                    style={[
+                      styles.calendarDayText,
+                      isTodayDate && styles.calendarDayTextToday,
+                      isSelected && styles.calendarDayTextSelected,
+                      isFuture && styles.calendarDayTextFuture,
+                    ]}
+                  >
+                    {day}
+                  </Text>
+                </TouchableOpacity>
+              );
+
+              if ((firstDay + day) % 7 === 0 || day === daysInMonth) {
+                weeks.push(
+                  <View key={`week-${weeks.length}`} style={styles.calendarWeek}>
+                    {days}
+                  </View>
+                );
+                days = [];
+              }
+            }
+
+            return weeks;
+          })()}
+
+          {/* Today Button */}
+          <TouchableOpacity
+            style={styles.calendarTodayButton}
+            onPress={() => {
+              setSelectedDate(new Date());
+              setCalendarMonth(new Date());
+              setShowCalendar(false);
+            }}
+          >
+            <Text style={styles.calendarTodayButtonText}>Go to Today</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
+    </>
   );
 }
 
@@ -357,6 +652,28 @@ function createStyles(theme: Theme) {
     header: {
       alignItems: 'center',
       paddingBottom: spacing.lg,
+    },
+    dateNavRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      width: '100%',
+    },
+    dateArrow: {
+      padding: spacing.sm,
+      borderRadius: borderRadius.full,
+    },
+    dateArrowDisabled: {
+      opacity: 0.3,
+    },
+    dateCenter: {
+      alignItems: 'center',
+      flex: 1,
+    },
+    todayHint: {
+      fontSize: 11,
+      color: theme.accent,
+      marginTop: spacing.xxs,
     },
     dayName: {
       fontSize: 14,
@@ -536,6 +853,90 @@ function createStyles(theme: Theme) {
       fontSize: 16,
       fontWeight: '600',
       color: theme.textPrimary,
+    },
+    dateRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    // Calendar Modal Styles
+    calendarModalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: spacing.lg,
+    },
+    calendarModalContent: {
+      backgroundColor: theme.surface,
+      borderRadius: borderRadius.xl,
+      padding: spacing.lg,
+      width: '100%',
+      maxWidth: 360,
+    },
+    calendarNav: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.lg,
+    },
+    calendarNavButton: {
+      padding: spacing.sm,
+    },
+    calendarMonthTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: theme.textPrimary,
+    },
+    calendarWeek: {
+      flexDirection: 'row',
+    },
+    calendarDayCell: {
+      flex: 1,
+      aspectRatio: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      margin: 2,
+    },
+    calendarDayHeader: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: theme.textSecondary,
+    },
+    calendarDayText: {
+      fontSize: 14,
+      color: theme.textPrimary,
+    },
+    calendarDayToday: {
+      backgroundColor: theme.accentLight,
+      borderRadius: 20,
+    },
+    calendarDayTextToday: {
+      color: theme.accent,
+      fontWeight: '600',
+    },
+    calendarDaySelected: {
+      backgroundColor: theme.accent,
+      borderRadius: 20,
+    },
+    calendarDayTextSelected: {
+      color: '#fff',
+      fontWeight: '600',
+    },
+    calendarDayTextFuture: {
+      color: theme.textSecondary,
+      opacity: 0.4,
+    },
+    calendarTodayButton: {
+      marginTop: spacing.lg,
+      paddingVertical: spacing.md,
+      backgroundColor: theme.accent,
+      borderRadius: borderRadius.md,
+      alignItems: 'center',
+    },
+    calendarTodayButtonText: {
+      color: '#fff',
+      fontWeight: '600',
+      fontSize: 14,
     },
   });
 }

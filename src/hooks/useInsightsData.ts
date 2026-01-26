@@ -464,12 +464,27 @@ export function useInsightsData(): InsightsDataState {
     ]);
   }, [fetchAnalyticsData, fetchWorkoutData]);
 
-  // Invalidate cache for a specific tab
-  const invalidateCache = useCallback(async (tab: 'analytics' | 'workout' | 'calendar'): Promise<void> => {
+  // Invalidate cache for a specific tab and optionally refetch
+  const invalidateCache = useCallback(async (
+    tab: 'analytics' | 'workout' | 'calendar',
+    refetch: boolean = false
+  ): Promise<void> => {
     loadedTabs.current.delete(tab);
     const cacheKey = `${CACHE_PREFIX}${tab}_${userId}`;
     await AsyncStorage.removeItem(cacheKey);
-  }, [userId]);
+
+    // Optionally trigger immediate refetch
+    if (refetch) {
+      if (tab === 'analytics') {
+        fetchAnalyticsData(true);
+      } else if (tab === 'workout') {
+        fetchWorkoutData(true);
+      } else if (tab === 'calendar') {
+        const now = new Date();
+        fetchCalendarData(now.getFullYear(), now.getMonth() + 1, true);
+      }
+    }
+  }, [userId, fetchAnalyticsData, fetchWorkoutData, fetchCalendarData]);
 
   return {
     // Analytics data

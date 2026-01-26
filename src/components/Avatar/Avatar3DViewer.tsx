@@ -56,13 +56,13 @@ export default function Avatar3DViewer({
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: ${bgColor};
+      background: transparent;
     }
     model-viewer {
       width: 100%;
       height: 100%;
-      background: ${bgColor};
-      --poster-color: ${bgColor};
+      background: transparent;
+      --poster-color: transparent;
     }
     .loading {
       position: absolute;
@@ -82,13 +82,14 @@ export default function Avatar3DViewer({
     camera-controls
     ${autoRotate ? 'auto-rotate' : ''}
     auto-rotate-delay="0"
-    rotation-per-second="30deg"
-    camera-orbit="0deg 90deg 2.5m"
-    min-camera-orbit="auto auto 1.5m"
-    max-camera-orbit="auto auto 5m"
-    field-of-view="30deg"
-    shadow-intensity="0.5"
-    exposure="1"
+    rotation-per-second="12deg"
+    camera-orbit="0deg 90deg 4m"
+    camera-target="0m 0.9m 0m"
+    min-camera-orbit="auto auto 2m"
+    max-camera-orbit="auto auto 6m"
+    field-of-view="60deg"
+    shadow-intensity="0"
+    exposure="1.2"
     environment-image="neutral"
   >
     <div class="loading" slot="poster">Loading 3D model...</div>
@@ -154,13 +155,13 @@ export default function Avatar3DViewer({
         {
           width: size,
           height: size,
-          backgroundColor: bgColor,
+          backgroundColor: 'transparent',
         },
       ]}
     >
       <WebView
         source={{ html }}
-        style={styles.webView}
+        style={[styles.webView, { backgroundColor: 'transparent' }]}
         scrollEnabled={false}
         bounces={false}
         onMessage={handleMessage}
@@ -173,6 +174,7 @@ export default function Avatar3DViewer({
         originWhitelist={['*']}
         mixedContentMode="always"
         allowsInlineMediaPlayback={true}
+        allowsBackForwardNavigationGestures={false}
       />
 
       {isLoading && (

@@ -130,18 +130,22 @@ export async function syncToSupabase(
   );
 
   // Calculate period dates
-  const purchaseDate = proEntitlement.latestPurchaseDate;
   const expirationDate = proEntitlement.expirationDate;
+  // Estimate period start based on period type (monthly = 30 days, yearly = 365 days)
+  const periodDays = status.periodType === 'yearly' ? 365 : 30;
+  const periodStart = expirationDate
+    ? new Date(new Date(expirationDate).getTime() - periodDays * 24 * 60 * 60 * 1000).toISOString()
+    : new Date().toISOString();
 
   const subscriptionData: Omit<SupabaseSubscription, 'id' | 'created_at'> = {
     user_id: userId,
     plan,
     status: subscriptionStatus,
     source: 'ios',
-    current_period_start: purchaseDate ?? new Date().toISOString(),
+    current_period_start: periodStart,
     current_period_end: expirationDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     canceled_at: status.willRenew !== true && status.isActive === true ? new Date().toISOString() : null,
-    revenuecat_customer_id: customerInfo.originalAppUserId,
+    revenuecat_customer_id: userId, // Use Supabase userId as RevenueCat customer ID
     revenuecat_product_id: status.productId ?? undefined,
   };
 

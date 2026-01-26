@@ -112,14 +112,8 @@ export default function HistoryScreen({ theme, isFocused = true }: HistoryScreen
   // Domain and metric selection
   const [selectedDomain, setSelectedDomain] = useState<Domain>('nutrition');
   const [selectedMetricKey, setSelectedMetricKey] = useState<string>('calories');
-  const [showCalendar, setShowCalendar] = useState(false);
 
-  // Calendar state
-  const [calendarDate, setCalendarDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [selectedLog, setSelectedLog] = useState<DailyLog | null>(null);
-
-  // Period logging modal
+  // Period logging modal (can be triggered from cycle phase card)
   const [showPeriodModal, setShowPeriodModal] = useState(false);
   const [periodModalDate, setPeriodModalDate] = useState('');
   const [selectedFlow, setSelectedFlow] = useState<FlowIntensity>('medium');
@@ -148,57 +142,27 @@ export default function HistoryScreen({ theme, isFocused = true }: HistoryScreen
   }, [selectedDomain]);
 
   useEffect(() => {
-    const year = calendarDate.getFullYear();
-    const month = calendarDate.getMonth() + 1;
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
     fetchCalendarData(year, month);
-  }, [calendarDate, fetchCalendarData]);
+  }, [fetchCalendarData]);
 
   // Refresh data when tab becomes focused
   useEffect(() => {
     if (isFocused && !wasFocused.current) {
-      const year = calendarDate.getFullYear();
-      const month = calendarDate.getMonth() + 1;
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
       fetchCalendarData(year, month, true);
     }
     wasFocused.current = isFocused;
-  }, [isFocused, calendarDate, fetchCalendarData]);
+  }, [isFocused, fetchCalendarData]);
 
-  // Pre-indexed maps for O(1) lookup
-  const logsMap = useMemo(() => {
-    return new Map(monthLogs.map(log => [log.date, log]));
-  }, [monthLogs]);
-
-  const menstrualDayMap = useMemo(() => {
-    return new Map(menstrualCalendar.map(d => [d.date, d]));
-  }, [menstrualCalendar]);
-
-  const handlePrevMonth = () => {
-    setCalendarDate(prev => {
-      const newDate = new Date(prev);
-      newDate.setMonth(newDate.getMonth() - 1);
-      return newDate;
-    });
-    setSelectedDate(null);
-    setSelectedLog(null);
-  };
-
-  const handleNextMonth = () => {
-    setCalendarDate(prev => {
-      const newDate = new Date(prev);
-      newDate.setMonth(newDate.getMonth() + 1);
-      return newDate;
-    });
-    setSelectedDate(null);
-    setSelectedLog(null);
-  };
-
-  const handleSelectDate = (dateStr: string) => {
-    setSelectedDate(dateStr);
-    setSelectedLog(logsMap.get(dateStr) ?? null);
-  };
-
-  const openPeriodModal = (date: string) => {
-    setPeriodModalDate(date);
+  const openPeriodModal = () => {
+    // Default to today
+    const today = getLocalDateString();
+    setPeriodModalDate(today);
     setSelectedFlow('medium');
     setSelectedSymptoms([]);
     setShowPeriodModal(true);
@@ -217,9 +181,8 @@ export default function HistoryScreen({ theme, isFocused = true }: HistoryScreen
         selectedSymptoms.length > 0 ? selectedSymptoms : undefined
       );
       setShowPeriodModal(false);
-      const year = calendarDate.getFullYear();
-      const month = calendarDate.getMonth() + 1;
-      fetchCalendarData(year, month, true);
+      const now = new Date();
+      fetchCalendarData(now.getFullYear(), now.getMonth() + 1, true);
       Alert.alert('Logged', 'Period start logged successfully.');
     } catch {
       Alert.alert('Error', 'Could not save period log.');
@@ -275,15 +238,18 @@ export default function HistoryScreen({ theme, isFocused = true }: HistoryScreen
   // Get weekly averages for comparison cards
   const weeklyStats = useMemo(() => {
     const thisWeek = weeklySummaries.slice(-7);
+    const today = getLocalDateString();
 
     const getStats = (key: string) => {
       const validData = thisWeek.filter(d => (d as any)[key] != null && (d as any)[key] > 0);
       if (validData.length === 0) return { current: 0, average: 0 };
       const total = validData.reduce((sum, d) => sum + ((d as any)[key] ?? 0), 0);
       const avg = total / validData.length;
-      const latest = validData[validData.length - 1];
+      // Get TODAY's data specifically, not just the latest entry
+      const todayEntry = thisWeek.find(d => d.date === today);
+      const currentValue = todayEntry ? (todayEntry as any)[key] ?? 0 : 0;
       return {
-        current: latest ? (latest as any)[key] ?? 0 : 0,
+        current: currentValue,
         average: avg,
       };
     };
@@ -297,124 +263,6 @@ export default function HistoryScreen({ theme, isFocused = true }: HistoryScreen
   }, [weeklySummaries]);
 
   // Render calendar
-  const renderCalendar = () => {
-    const year = calendarDate.getFullYear();
-    const month = calendarDate.getMonth();
-    const daysInMonth = getDaysInMonth(year, month);
-    const firstDay = getFirstDayOfMonth(year, month);
-    const today = getLocalDateString();
-
-    const weeks: React.ReactNode[] = [];
-    let days: React.ReactNode[] = [];
-
-    // Empty cells before first day
-    for (let i = 0; i < firstDay; i++) {
-      days.push(<View key={`empty-${i}`} style={styles.calendarDay} />);
-    }
-
-    // Days of month
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const log = logsMap.get(dateStr);
-      const menstrualDay = menstrualDayMap.get(dateStr);
-      const isToday = dateStr === today;
-      const isSelected = dateStr === selectedDate;
-
-      const hasMeals = log && log.meals && log.meals.length > 0;
-      const hasWorkouts = log && log.workout_plan_id !== null;
-      const hasSleep = log && log.sleep_hours !== null && log.sleep_hours > 0;
-      const isPeriod = menstrualDay?.is_period === true;
-      const isPredictedPeriod = menstrualDay?.is_predicted_period === true;
-
-      days.push(
-        <TouchableOpacity
-          key={day}
-          style={[
-            styles.calendarDay,
-            isToday && styles.calendarDayToday,
-            isSelected && styles.calendarDaySelected,
-            isPeriod && styles.calendarDayPeriod,
-            isPredictedPeriod && !isPeriod && styles.calendarDayPredicted,
-          ]}
-          onPress={() => handleSelectDate(dateStr)}
-          onLongPress={() => {
-            if (menstrualSettings?.tracking_enabled) {
-              openPeriodModal(dateStr);
-            }
-          }}
-        >
-          <Text
-            style={[
-              styles.calendarDayText,
-              isToday && styles.calendarDayTextToday,
-              isSelected && styles.calendarDayTextSelected,
-              isPeriod && styles.calendarDayTextPeriod,
-            ]}
-          >
-            {day}
-          </Text>
-          <View style={styles.calendarDots}>
-            {hasMeals && <View style={[styles.calendarDot, { backgroundColor: theme.success }]} />}
-            {hasWorkouts && <View style={[styles.calendarDot, { backgroundColor: theme.accent }]} />}
-            {hasSleep && <View style={[styles.calendarDot, { backgroundColor: theme.warning }]} />}
-          </View>
-        </TouchableOpacity>
-      );
-
-      if ((firstDay + day) % 7 === 0 || day === daysInMonth) {
-        weeks.push(
-          <View key={`week-${weeks.length}`} style={styles.calendarWeek}>
-            {days}
-          </View>
-        );
-        days = [];
-      }
-    }
-
-    return (
-      <View style={styles.calendarContainer}>
-        {/* Month Navigation */}
-        <View style={styles.calendarNav}>
-          <TouchableOpacity onPress={handlePrevMonth} style={styles.navButton}>
-            <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
-          </TouchableOpacity>
-          <Text style={styles.calendarMonth}>{formatMonthYear(calendarDate)}</Text>
-          <TouchableOpacity onPress={handleNextMonth} style={styles.navButton}>
-            <Ionicons name="chevron-forward" size={24} color={theme.textPrimary} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Day Headers */}
-        <View style={styles.calendarWeek}>
-          {DAY_NAMES.map(day => (
-            <View key={day} style={styles.calendarDay}>
-              <Text style={styles.calendarDayHeader}>{day}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Calendar Grid */}
-        {weeks}
-
-        {/* Legend */}
-        <View style={styles.legend}>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: theme.success }]} />
-            <Text style={styles.legendText}>Meals</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: theme.accent }]} />
-            <Text style={styles.legendText}>Workout</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: theme.warning }]} />
-            <Text style={styles.legendText}>Sleep</Text>
-          </View>
-        </View>
-      </View>
-    );
-  };
-
   const styles = createStyles(theme);
 
   return (
@@ -425,8 +273,9 @@ export default function HistoryScreen({ theme, isFocused = true }: HistoryScreen
         <RefreshControl
           refreshing={calendarLoading}
           onRefresh={() => {
-            const year = calendarDate.getFullYear();
-            const month = calendarDate.getMonth() + 1;
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth() + 1;
             fetchCalendarData(year, month, true);
           }}
           tintColor={theme.accent}
@@ -437,7 +286,6 @@ export default function HistoryScreen({ theme, isFocused = true }: HistoryScreen
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Trends</Text>
-        <Text style={styles.headerSubtitle}>Track your progress over time</Text>
       </View>
 
       {/* Domain Tabs */}
@@ -612,90 +460,6 @@ export default function HistoryScreen({ theme, isFocused = true }: HistoryScreen
             <Text style={styles.cyclePhase}>{cyclePhase.phase.replace('_', ' ')}</Text>
             <Text style={styles.cycleDay}>Day {cyclePhase.day_in_cycle} of cycle</Text>
           </View>
-        </Animated.View>
-      )}
-
-      {/* Calendar Section (Collapsible) */}
-      <Animated.View entering={FadeInDown.delay(250).duration(400)} style={styles.calendarSection}>
-        <TouchableOpacity
-          style={styles.calendarToggle}
-          onPress={() => setShowCalendar(!showCalendar)}
-        >
-          <View style={styles.calendarToggleLeft}>
-            <Ionicons name="calendar-outline" size={20} color={theme.textSecondary} />
-            <Text style={styles.calendarToggleText}>Monthly Calendar</Text>
-          </View>
-          <Ionicons
-            name={showCalendar ? 'chevron-up' : 'chevron-down'}
-            size={20}
-            color={theme.textSecondary}
-          />
-        </TouchableOpacity>
-
-        {showCalendar && (
-          <Animated.View entering={FadeInDown.duration(300)}>
-            {renderCalendar()}
-          </Animated.View>
-        )}
-      </Animated.View>
-
-      {/* Selected Day Details */}
-      {selectedDate && showCalendar && (
-        <Animated.View entering={FadeInUp.duration(300)} style={styles.selectedDay}>
-          <Text style={styles.selectedDayTitle}>
-            {new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', {
-              weekday: 'long',
-              month: 'short',
-              day: 'numeric',
-            })}
-          </Text>
-
-          {selectedLog ? (
-            <View style={styles.logDetails}>
-              {selectedLog.meals && selectedLog.meals.length > 0 && (
-                <View style={styles.logSection}>
-                  <View style={styles.logSectionHeader}>
-                    <Ionicons name="restaurant" size={16} color={theme.success} />
-                    <Text style={styles.logSectionTitle}>Meals</Text>
-                  </View>
-                  {selectedLog.meals.map((meal, i) => (
-                    <Text key={i} style={styles.logItem}>
-                      {meal.meal}: {meal.description || 'No description'}
-                      {meal.calories_est && ` - ${meal.calories_est} cal`}
-                    </Text>
-                  ))}
-                </View>
-              )}
-
-              {selectedLog.workout_plan_id && (
-                <View style={styles.logSection}>
-                  <View style={styles.logSectionHeader}>
-                    <Ionicons name="barbell" size={16} color={theme.accent} />
-                    <Text style={styles.logSectionTitle}>Workout</Text>
-                  </View>
-                  <Text style={styles.logItem}>Workout completed</Text>
-                </View>
-              )}
-
-              {selectedLog.sleep_hours !== null && selectedLog.sleep_hours > 0 && (
-                <View style={styles.logSection}>
-                  <View style={styles.logSectionHeader}>
-                    <Ionicons name="moon" size={16} color={theme.warning} />
-                    <Text style={styles.logSectionTitle}>Sleep</Text>
-                  </View>
-                  <Text style={styles.logItem}>
-                    {selectedLog.sleep_hours} hours
-                    {selectedLog.sleep_quality !== null && ` - Quality: ${selectedLog.sleep_quality}/10`}
-                  </Text>
-                </View>
-              )}
-            </View>
-          ) : (
-            <View style={styles.noLogState}>
-              <Ionicons name="calendar-outline" size={32} color={theme.textSecondary} />
-              <Text style={styles.noLogText}>No logs for this day</Text>
-            </View>
-          )}
         </Animated.View>
       )}
 

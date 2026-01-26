@@ -7,6 +7,8 @@ import { View, StyleSheet, Animated, Easing, Dimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import DeltaLogo from '../components/DeltaLogo';
 import { Theme } from '../theme/colors';
+import { useAuth } from '../context/AuthContext';
+import { prefetchAppData } from '../services/prefetch';
 
 const { width, height } = Dimensions.get('window');
 
@@ -19,10 +21,18 @@ export default function WelcomeAnimationScreen({
   theme,
   onComplete,
 }: WelcomeAnimationScreenProps): React.ReactNode {
+  const { user } = useAuth();
   const spinValue = useRef(new Animated.Value(0)).current;
   const slideValue = useRef(new Animated.Value(0)).current;
   const fadeValue = useRef(new Animated.Value(1)).current;
   const logoScale = useRef(new Animated.Value(0.5)).current;
+
+  // Start prefetching data immediately while animation plays
+  useEffect(() => {
+    if (user?.id) {
+      prefetchAppData(user.id);
+    }
+  }, [user?.id]);
 
   useEffect(() => {
     // Start animations

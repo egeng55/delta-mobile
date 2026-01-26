@@ -15,6 +15,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/context/AuthContext';
 import { AccessProvider } from './src/context/AccessContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
+import { UnitsProvider } from './src/context/UnitsContext';
+import { HealthKitProvider } from './src/context/HealthKitContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { initNetworkMonitoring } from './src/services/offlineCache';
 
@@ -44,11 +46,15 @@ export default function App(): React.ReactNode {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <AuthProvider>
-          <AccessProvider>
-            <AppContent />
-          </AccessProvider>
-        </AuthProvider>
+        <UnitsProvider>
+          <AuthProvider>
+            <AccessProvider>
+              <HealthKitProvider>
+                <AppContent />
+              </HealthKitProvider>
+            </AccessProvider>
+          </AuthProvider>
+        </UnitsProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );
