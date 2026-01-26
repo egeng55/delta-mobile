@@ -75,6 +75,12 @@ export interface AvatarTemplate {
   };
 }
 
+// 3D mesh format types
+export type MeshFormat = 'usdz' | 'glb';
+
+// 3D scan method types
+export type ScanMethod3D = 'lidar' | 'photogrammetry' | 'template' | 'readyplayerme';
+
 // User's saved avatar configuration
 export interface UserAvatar {
   templateId: string;
@@ -97,6 +103,16 @@ export interface UserAvatar {
   unlockedOutfits?: string[];
   achievements?: string[];
   animationPreference?: AvatarAnimation;
+  // Phase 4: 3D Body Scan
+  meshFileUri?: string;
+  meshFormat?: MeshFormat;
+  scanMethod?: ScanMethod3D;
+  scanDate?: string;
+  meshThumbnailUri?: string;
+  // Phase 5: Ready Player Me
+  rpmAvatarUrl?: string;      // URL to .glb model
+  rpmAvatarId?: string;       // Ready Player Me avatar ID
+  rpmImageUrl?: string;       // 2D render URL for previews
 }
 
 // Insight categories that map to body regions
