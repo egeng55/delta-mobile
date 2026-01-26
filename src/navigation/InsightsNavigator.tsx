@@ -87,14 +87,15 @@ export default function InsightsNavigator({ theme }: InsightsNavigatorProps): Re
         return (
           <TodayScreen
             theme={theme}
+            isFocused={activeTab === 'today'}
             onNavigateToRecovery={navigateToRecovery}
             onNavigateToHistory={navigateToHistory}
           />
         );
       case 'recovery':
-        return <RecoveryScreen theme={theme} />;
+        return <RecoveryScreen theme={theme} isFocused={activeTab === 'recovery'} />;
       case 'history':
-        return <HistoryScreen theme={theme} />;
+        return <HistoryScreen theme={theme} isFocused={activeTab === 'history'} />;
       default:
         return null;
     }

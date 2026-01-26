@@ -81,6 +81,7 @@ export default function ActivityScreen({ theme }: ActivityScreenProps): React.Re
         );
       }
       invalidateCache('workout');
+      invalidateCache('analytics'); // Also invalidate analytics so TodayScreen updates
       await fetchWorkoutData(true);
     } catch {
       Alert.alert('Error', 'Could not update exercise');

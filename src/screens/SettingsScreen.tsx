@@ -32,6 +32,7 @@ import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useAccess } from '../context/AccessContext';
+import { useUnits } from '../context/UnitsContext';
 import { exportApi, MenstrualSettings } from '../services/api';
 import * as menstrualService from '../services/menstrualTracking';
 import * as notificationService from '../services/notifications';
@@ -60,6 +61,7 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
   const { user, logout } = useAuth();
   const { isDark, toggleTheme, useSystemTheme, isUsingSystem } = useTheme();
   const { subscription, hasAccess, isDeveloper, showPaywall, showCustomerCenter, subscriptionStatus } = useAccess();
+  const { unitSystem, setUnitSystem, isMetric } = useUnits();
 
   const [notifications, setNotifications] = useState<boolean>(true);
   const [dailyReminder, setDailyReminder] = useState<boolean>(false);
@@ -475,6 +477,51 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
             <Ionicons name="checkmark" size={20} color={theme.success} />
           )}
         </TouchableOpacity>
+      </View>
+
+      {/* Units */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Units</Text>
+        <View style={styles.unitToggleContainer}>
+          <TouchableOpacity
+            style={[
+              styles.unitButton,
+              isMetric && styles.unitButtonActive,
+            ]}
+            onPress={() => setUnitSystem('metric')}
+          >
+            <Ionicons
+              name="globe-outline"
+              size={18}
+              color={isMetric ? '#fff' : theme.textSecondary}
+            />
+            <Text style={[styles.unitButtonText, isMetric && styles.unitButtonTextActive]}>
+              Metric
+            </Text>
+            <Text style={[styles.unitButtonSubtext, isMetric && styles.unitButtonSubtextActive]}>
+              kg, cm, km
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.unitButton,
+              !isMetric && styles.unitButtonActive,
+            ]}
+            onPress={() => setUnitSystem('imperial')}
+          >
+            <Ionicons
+              name="flag-outline"
+              size={18}
+              color={!isMetric ? '#fff' : theme.textSecondary}
+            />
+            <Text style={[styles.unitButtonText, !isMetric && styles.unitButtonTextActive]}>
+              Imperial
+            </Text>
+            <Text style={[styles.unitButtonSubtext, !isMetric && styles.unitButtonSubtextActive]}>
+              lbs, ft, mi
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Notifications */}
@@ -937,6 +984,44 @@ function createStyles(theme: Theme, topInset: number) {
       fontWeight: '600',
       color: '#fff',
       marginLeft: 8,
+    },
+    // Unit toggle styles
+    unitToggleContainer: {
+      flexDirection: 'row',
+      gap: 12,
+    },
+    unitButton: {
+      flex: 1,
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 16,
+      paddingHorizontal: 12,
+      borderRadius: 12,
+      backgroundColor: theme.surface,
+      borderWidth: 1,
+      borderColor: theme.border,
+      gap: 4,
+    },
+    unitButtonActive: {
+      backgroundColor: theme.accent,
+      borderColor: theme.accent,
+    },
+    unitButtonText: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: theme.textPrimary,
+      marginTop: 4,
+    },
+    unitButtonTextActive: {
+      color: '#fff',
+    },
+    unitButtonSubtext: {
+      fontSize: 12,
+      color: theme.textSecondary,
+    },
+    unitButtonSubtextActive: {
+      color: 'rgba(255, 255, 255, 0.8)',
     },
   });
 }

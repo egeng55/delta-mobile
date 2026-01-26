@@ -140,7 +140,7 @@ export interface InsightsDataState {
   fetchWorkoutData: (forceRefresh?: boolean) => Promise<void>;
   fetchCalendarData: (year: number, month: number, forceRefresh?: boolean) => Promise<void>;
   refreshAll: () => Promise<void>;
-  invalidateCache: (tab: 'analytics' | 'workout' | 'calendar') => void;
+  invalidateCache: (tab: 'analytics' | 'workout' | 'calendar') => Promise<void>;
 }
 
 export function useInsightsData(): InsightsDataState {
@@ -465,9 +465,11 @@ export function useInsightsData(): InsightsDataState {
   }, [fetchAnalyticsData, fetchWorkoutData]);
 
   // Invalidate cache for a specific tab
-  const invalidateCache = useCallback((tab: 'analytics' | 'workout' | 'calendar'): void => {
+  const invalidateCache = useCallback(async (tab: 'analytics' | 'workout' | 'calendar'): Promise<void> => {
     loadedTabs.current.delete(tab);
-  }, []);
+    const cacheKey = `${CACHE_PREFIX}${tab}_${userId}`;
+    await AsyncStorage.removeItem(cacheKey);
+  }, [userId]);
 
   return {
     // Analytics data

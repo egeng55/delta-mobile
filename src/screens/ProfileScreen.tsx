@@ -83,46 +83,46 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
   });
   const [editData, setEditData] = useState<ProfileData>(profileData);
 
-  // Load saved profile data (from Supabase + local storage fallback)
+  // Load profile display data (syncs with profile context changes)
   useEffect(() => {
-    const loadProfile = async (): Promise<void> => {
+    setProfileData(prev => ({
+      ...prev,
+      displayName: profile?.name ?? user?.name ?? 'User',
+      username: profile?.username ?? '',
+      age: profile?.age?.toString() ?? '',
+      gender: profile?.gender ?? null,
+    }));
+    setEditData(prev => ({
+      ...prev,
+      displayName: profile?.name ?? user?.name ?? 'User',
+      username: profile?.username ?? '',
+      age: profile?.age?.toString() ?? '',
+      gender: profile?.gender ?? null,
+    }));
+  }, [user?.name, profile?.name, profile?.username, profile?.age, profile?.gender]);
+
+  // Load avatar and bio from Supabase (separate to avoid race condition)
+  useEffect(() => {
+    const loadCloudData = async (): Promise<void> => {
+      if (!user?.id) return;
+
       try {
-        // Load local data for bio (still stored locally)
-        const saved = await AsyncStorage.getItem(`${PROFILE_STORAGE_KEY}_${user?.id}`);
-        const localData = saved !== null ? JSON.parse(saved) : {};
+        const { data: profileRow } = await supabase
+          .from('profiles')
+          .select('avatar_url, bio')
+          .eq('id', user.id)
+          .single();
 
-        // Load profile image URL from Supabase
-        let cloudProfileImage: string | null = null;
-        if (user?.id) {
-          const { data: profileRow } = await supabase
-            .from('profiles')
-            .select('avatar_url')
-            .eq('id', user.id)
-            .single();
-
-          if (profileRow?.avatar_url) {
-            cloudProfileImage = profileRow.avatar_url;
-          }
-        }
-
-        // Merge Supabase profile data with local data
-        const mergedData: ProfileData = {
-          displayName: profile?.name ?? user?.name ?? 'User',
-          username: profile?.username ?? '',
-          age: profile?.age?.toString() ?? '',
-          gender: profile?.gender ?? null,
-          bio: localData.bio ?? '',
-          profileImage: cloudProfileImage ?? localData.profileImage ?? null,
-        };
-
-        setProfileData(mergedData);
-        setEditData(mergedData);
+        const avatarUrl = profileRow?.avatar_url ?? null;
+        const bio = profileRow?.bio ?? '';
+        setProfileData(prev => ({ ...prev, profileImage: avatarUrl, bio }));
+        setEditData(prev => ({ ...prev, profileImage: avatarUrl, bio }));
       } catch {
-        // Use defaults
+        // Silent fail - will use defaults
       }
     };
-    loadProfile();
-  }, [user?.id, user?.name, profile?.name, profile?.username, profile?.age, profile?.gender]);
+    loadCloudData();
+  }, [user?.id]);
 
   // Load stat cards
   useEffect(() => {
@@ -222,13 +222,7 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
         }
       }
 
-      // Save bio to AsyncStorage (still local - it's user content that doesn't need sync)
-      await AsyncStorage.setItem(
-        `${PROFILE_STORAGE_KEY}_${user?.id}`,
-        JSON.stringify({ bio: editData.bio })
-      );
-
-      // Save to Supabase (username, age, gender, name, avatar_url)
+      // Save to Supabase (username, age, gender, name, avatar_url, bio)
       if (user?.id) {
         const ageNum = editData.age.length > 0 ? parseInt(editData.age, 10) : null;
 
@@ -240,6 +234,7 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
             age: ageNum,
             gender: editData.gender,
             avatar_url: avatarUrl,
+            bio: editData.bio.length > 0 ? editData.bio : null,
           })
           .eq('id', user.id);
 

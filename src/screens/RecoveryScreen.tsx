@@ -1,14 +1,15 @@
 /**
- * RecoveryScreen - Sleep, recovery, and health metrics
+ * RecoveryScreen - Sleep, recovery, and health metrics (WHOOP-style)
  *
  * Shows:
- * - Recovery state from health intelligence
- * - Sleep data (HealthKit or logged)
- * - Heart rate metrics
- * - Weekly trends
+ * - Hero: SleepPerformanceCard
+ * - Prominent RecoveryGauge
+ * - Factor breakdown with expandable explanations
+ * - Heart metrics with vs comparisons
+ * - Weekly sleep trend mini-chart
  */
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -23,17 +24,21 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Theme } from '../theme/colors';
 import { spacing, typography, borderRadius, shadows } from '../theme/designSystem';
 import { useInsightsData } from '../hooks/useInsightsData';
-import { StateCard, AlignmentRing } from '../components/HealthState';
+import { AlignmentRing, FactorBreakdownCard } from '../components/HealthState';
 import { ChainCard } from '../components/CausalChain';
+import { RecoveryGauge } from '../components/Gauges';
+import { SleepPerformanceCard } from '../components/Sleep';
+import { MetricComparisonCard } from '../components/Metrics';
 import healthKitService, { SleepSummary, HealthSummary } from '../services/healthKit';
 import healthSyncService from '../services/healthSync';
 import { useAuth } from '../context/AuthContext';
 
 interface RecoveryScreenProps {
   theme: Theme;
+  isFocused?: boolean;
 }
 
-export default function RecoveryScreen({ theme }: RecoveryScreenProps): React.ReactElement {
+export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScreenProps): React.ReactElement {
   const { user } = useAuth();
   const {
     healthState,
@@ -50,10 +55,21 @@ export default function RecoveryScreen({ theme }: RecoveryScreenProps): React.Re
   const [showCausalChains, setShowCausalChains] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
 
+  const wasFocused = useRef(isFocused);
+
   useEffect(() => {
     fetchAnalyticsData();
     loadHealthKitData();
   }, [fetchAnalyticsData]);
+
+  // Refresh data when tab becomes focused
+  useEffect(() => {
+    if (isFocused && !wasFocused.current) {
+      fetchAnalyticsData(true);
+      loadHealthKitData();
+    }
+    wasFocused.current = isFocused;
+  }, [isFocused, fetchAnalyticsData]);
 
   // Sync HealthKit data to backend for cross-domain reasoning
   useEffect(() => {
@@ -136,6 +152,72 @@ export default function RecoveryScreen({ theme }: RecoveryScreenProps): React.Re
     return `${wholeHours}h ${mins}m`;
   };
 
+  // Calculate recovery score for gauge (0-100)
+  const recoveryScore = useMemo(() => {
+    if (!healthState?.recovery) return 50;
+    const stateScores: Record<string, number> = {
+      'well_rested': 85,
+      'rested': 75,
+      'moderate': 55,
+      'fatigued': 35,
+      'exhausted': 20,
+      'unknown': 50,
+    };
+    return stateScores[healthState.recovery.state] ?? 50;
+  }, [healthState?.recovery]);
+
+  // Build factors array for FactorBreakdownCard
+  const recoveryFactors = useMemo(() => {
+    if (!healthState?.recovery?.factors) return [];
+
+    // factors is an object like { sleep_quality: 0.8, hrv_trend: -0.2 }
+    const factorsObj = healthState.recovery.factors;
+    return Object.entries(factorsObj).map(([key, value]) => {
+      // Determine impact level based on value
+      const numValue = typeof value === 'number' ? value : (value === true ? 1 : value === false ? -1 : 0);
+      const impact = numValue > 0.3 ? 'positive' as const :
+                    numValue < -0.3 ? 'negative' as const : 'neutral' as const;
+
+      // Format key as readable name
+      const name = key
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, l => l.toUpperCase());
+
+      return {
+        name,
+        impact,
+        contribution: Math.abs(numValue * 100),
+        value: typeof value === 'boolean' ? (value ? 'Yes' : 'No') :
+               typeof value === 'number' ? (value > 0 ? `+${Math.round(value * 100)}%` : `${Math.round(value * 100)}%`) :
+               String(value),
+      };
+    });
+  }, [healthState?.recovery?.factors]);
+
+  // Calculate weekly averages for comparisons
+  const weeklyHRVAvg = useMemo(() => {
+    const withHRV = weeklySummaries.filter(s => (s as any).hrv_ms != null && (s as any).hrv_ms > 0);
+    if (withHRV.length === 0) return null;
+    return withHRV.reduce((sum, s) => sum + ((s as any).hrv_ms ?? 0), 0) / withHRV.length;
+  }, [weeklySummaries]);
+
+  const weeklyRestingHRAvg = useMemo(() => {
+    const withHR = weeklySummaries.filter(s => (s as any).resting_hr != null && (s as any).resting_hr > 0);
+    if (withHR.length === 0) return null;
+    return withHR.reduce((sum, s) => sum + ((s as any).resting_hr ?? 0), 0) / withHR.length;
+  }, [weeklySummaries]);
+
+  // Weekly sleep trend data
+  const weeklySleepTrend = useMemo(() => {
+    return weeklySummaries
+      .filter(s => s.sleep_hours !== null && s.sleep_hours > 0)
+      .slice(-7)
+      .map(s => ({
+        day: new Date(s.date).toLocaleDateString('en-US', { weekday: 'short' }).charAt(0),
+        hours: s.sleep_hours ?? 0,
+      }));
+  }, [weeklySummaries]);
+
   const styles = createStyles(theme);
 
   return (
@@ -158,149 +240,175 @@ export default function RecoveryScreen({ theme }: RecoveryScreenProps): React.Re
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Recovery</Text>
         <Text style={styles.headerSubtitle}>Sleep & restoration</Text>
+        {healthKitAuthorized && (
+          <View style={styles.healthKitBadge}>
+            <Ionicons name="heart" size={12} color="#FF2D55" />
+            <Text style={styles.healthKitBadgeText}>HealthKit Connected</Text>
+          </View>
+        )}
       </View>
 
-      {/* Recovery State */}
-      {healthState?.has_data && healthState.recovery && (
-        <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
-          <Text style={styles.sectionTitle}>Recovery Status</Text>
-          <StateCard
-            theme={theme}
-            type="recovery"
-            state={healthState.recovery.state}
-            confidence={healthState.recovery.confidence}
-            factors={healthState.recovery.factors}
-          />
-        </Animated.View>
-      )}
-
-      {/* Sleep Card */}
-      <Animated.View entering={FadeInDown.delay(150).duration(400)} style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Last Night's Sleep</Text>
-          {healthKitAuthorized && (
-            <View style={styles.healthKitBadge}>
-              <Ionicons name="heart" size={12} color="#FF2D55" />
-              <Text style={styles.healthKitBadgeText}>HealthKit</Text>
-            </View>
-          )}
-        </View>
-
+      {/* Hero: Sleep Performance Card */}
+      <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
         {sleepSummary && sleepSummary.hasData ? (
-          <View style={styles.sleepCard}>
-            <View style={styles.sleepMainRow}>
-              <View style={styles.sleepDurationContainer}>
-                <View style={[styles.sleepIcon, { backgroundColor: theme.accent + '20' }]}>
-                  <Ionicons name="moon" size={24} color={theme.accent} />
-                </View>
-                <View>
-                  <Text style={styles.sleepDuration}>
-                    {formatHours(sleepSummary.totalSleepHours)}
-                  </Text>
-                  <Text style={styles.sleepLabel}>Total sleep</Text>
-                </View>
-              </View>
-
-              {sleepSummary.sleepEfficiency > 0 && (
-                <View style={styles.sleepQualityContainer}>
-                  <Text style={styles.sleepQualityValue}>
-                    {Math.round(sleepSummary.sleepEfficiency)}%
-                  </Text>
-                  <Text style={styles.sleepQualityLabel}>Efficiency</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Sleep Stages */}
-            {(sleepSummary.deepSleepHours > 0 || sleepSummary.remSleepHours > 0) && (
-              <View style={styles.sleepStagesRow}>
-                {sleepSummary.deepSleepHours > 0 && (
-                  <View style={styles.sleepStage}>
-                    <View style={[styles.stageDot, { backgroundColor: '#6366F1' }]} />
-                    <Text style={styles.stageLabel}>Deep</Text>
-                    <Text style={styles.stageValue}>{formatHours(sleepSummary.deepSleepHours)}</Text>
-                  </View>
-                )}
-                {sleepSummary.remSleepHours > 0 && (
-                  <View style={styles.sleepStage}>
-                    <View style={[styles.stageDot, { backgroundColor: '#8B5CF6' }]} />
-                    <Text style={styles.stageLabel}>REM</Text>
-                    <Text style={styles.stageValue}>{formatHours(sleepSummary.remSleepHours)}</Text>
-                  </View>
-                )}
-                {sleepSummary.coreSleepHours > 0 && (
-                  <View style={styles.sleepStage}>
-                    <View style={[styles.stageDot, { backgroundColor: '#A78BFA' }]} />
-                    <Text style={styles.stageLabel}>Core</Text>
-                    <Text style={styles.stageValue}>{formatHours(sleepSummary.coreSleepHours)}</Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Sleep Times */}
-            <View style={styles.sleepTimesRow}>
-              <View style={styles.sleepTime}>
-                <Ionicons name="bed-outline" size={16} color={theme.textSecondary} />
-                <Text style={styles.sleepTimeLabel}>Bedtime</Text>
-                <Text style={styles.sleepTimeValue}>{formatSleepTime(sleepSummary.bedTime)}</Text>
-              </View>
-              <View style={styles.sleepTime}>
-                <Ionicons name="sunny-outline" size={16} color={theme.textSecondary} />
-                <Text style={styles.sleepTimeLabel}>Wake</Text>
-                <Text style={styles.sleepTimeValue}>{formatSleepTime(sleepSummary.wakeTime)}</Text>
-              </View>
-            </View>
-          </View>
+          <SleepPerformanceCard
+            theme={theme}
+            data={{
+              totalHours: sleepSummary.totalSleepHours,
+              targetHours: 8,
+              efficiency: sleepSummary.sleepEfficiency,
+              deepHours: sleepSummary.deepSleepHours,
+              remHours: sleepSummary.remSleepHours,
+              coreHours: sleepSummary.coreSleepHours,
+              bedTime: sleepSummary.bedTime ?? undefined,
+              wakeTime: sleepSummary.wakeTime ?? undefined,
+            }}
+          />
         ) : healthKitAuthorized ? (
           <View style={styles.emptyCard}>
-            <Ionicons name="moon-outline" size={32} color={theme.textSecondary} />
-            <Text style={styles.emptyText}>No sleep data for last night</Text>
+            <Ionicons name="moon-outline" size={40} color={theme.textSecondary} />
+            <Text style={styles.emptyTitle}>No Sleep Data</Text>
+            <Text style={styles.emptyText}>Sleep data will appear here after your next night</Text>
           </View>
         ) : Platform.OS === 'ios' ? (
           <TouchableOpacity style={styles.healthKitPrompt} onPress={requestHealthKitAccess}>
             <View style={[styles.healthKitIcon, { backgroundColor: '#FF2D5520' }]}>
-              <Ionicons name="heart" size={24} color="#FF2D55" />
+              <Ionicons name="heart" size={28} color="#FF2D55" />
             </View>
             <View style={styles.healthKitPromptContent}>
               <Text style={styles.healthKitPromptTitle}>Connect Apple Health</Text>
               <Text style={styles.healthKitPromptSubtitle}>
-                Sync sleep and heart data automatically
+                Sync sleep, heart rate, and HRV automatically
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
           </TouchableOpacity>
         ) : (
           <View style={styles.emptyCard}>
-            <Ionicons name="moon-outline" size={32} color={theme.textSecondary} />
-            <Text style={styles.emptyText}>Log your sleep via chat</Text>
+            <Ionicons name="moon-outline" size={40} color={theme.textSecondary} />
+            <Text style={styles.emptyTitle}>Track Your Sleep</Text>
+            <Text style={styles.emptyText}>Log your sleep via chat to see insights</Text>
           </View>
         )}
       </Animated.View>
 
-      {/* Heart Metrics */}
-      {healthSummary && (healthSummary.latestRestingHeartRate || healthSummary.latestHRV) && (
+      {/* Recovery Gauge Section */}
+      {healthState?.has_data && healthState.recovery && (
+        <Animated.View entering={FadeInDown.delay(150).duration(400)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Recovery Score</Text>
+          <View style={styles.gaugeCard}>
+            <RecoveryGauge
+              score={recoveryScore}
+              size={160}
+              theme={theme}
+              label="Recovery"
+              showStateLabel={true}
+            />
+            <View style={styles.gaugeInfo}>
+              <Text style={styles.gaugeInfoText}>
+                Based on {Object.keys(healthState.recovery.factors).length} factors including sleep quality, HRV, and activity balance
+              </Text>
+            </View>
+          </View>
+        </Animated.View>
+      )}
+
+      {/* Factor Breakdown */}
+      {recoveryFactors.length > 0 && (
         <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.section}>
+          <FactorBreakdownCard
+            theme={theme}
+            title="What's Affecting Recovery"
+            factors={recoveryFactors}
+          />
+        </Animated.View>
+      )}
+
+      {/* Heart Metrics with Comparisons */}
+      {healthSummary && (healthSummary.latestRestingHeartRate || healthSummary.latestHRV) && (
+        <Animated.View entering={FadeInDown.delay(250).duration(400)} style={styles.section}>
           <Text style={styles.sectionTitle}>Heart Metrics</Text>
           <View style={styles.metricsRow}>
-            {healthSummary.latestRestingHeartRate && (
-              <View style={styles.metricCard}>
-                <View style={[styles.metricIcon, { backgroundColor: '#EF444420' }]}>
-                  <Ionicons name="heart" size={20} color="#EF4444" />
-                </View>
-                <Text style={styles.metricValue}>{healthSummary.latestRestingHeartRate.bpm}</Text>
-                <Text style={styles.metricLabel}>Resting HR</Text>
-                <Text style={styles.metricUnit}>bpm</Text>
+            {healthSummary.latestHRV && (
+              <View style={styles.metricCardWrapper}>
+                <MetricComparisonCard
+                  theme={theme}
+                  label="HRV"
+                  currentValue={Math.round(healthSummary.latestHRV.hrvMs)}
+                  comparisonValue={weeklyHRVAvg ?? healthSummary.latestHRV.hrvMs}
+                  comparisonBasis="7-day average"
+                  unit="ms"
+                  icon="pulse"
+                  iconColor="#8B5CF6"
+                  higherIsBetter={true}
+                  compact={true}
+                />
               </View>
             )}
-            {healthSummary.latestHRV && (
-              <View style={styles.metricCard}>
-                <View style={[styles.metricIcon, { backgroundColor: '#8B5CF620' }]}>
-                  <Ionicons name="pulse" size={20} color="#8B5CF6" />
-                </View>
-                <Text style={styles.metricValue}>{Math.round(healthSummary.latestHRV.hrvMs)}</Text>
-                <Text style={styles.metricLabel}>HRV</Text>
-                <Text style={styles.metricUnit}>ms</Text>
+            {healthSummary.latestRestingHeartRate && (
+              <View style={styles.metricCardWrapper}>
+                <MetricComparisonCard
+                  theme={theme}
+                  label="Resting HR"
+                  currentValue={healthSummary.latestRestingHeartRate.bpm}
+                  comparisonValue={weeklyRestingHRAvg ?? healthSummary.latestRestingHeartRate.bpm}
+                  comparisonBasis="7-day average"
+                  unit="bpm"
+                  icon="heart"
+                  iconColor="#EF4444"
+                  higherIsBetter={false}
+                  compact={true}
+                />
+              </View>
+            )}
+          </View>
+        </Animated.View>
+      )}
+
+      {/* Weekly Sleep Trend */}
+      {weeklySleepTrend.length > 0 && (
+        <Animated.View entering={FadeInDown.delay(300).duration(400)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Weekly Sleep Trend</Text>
+          <View style={styles.trendCard}>
+            <View style={styles.trendBars}>
+              {weeklySleepTrend.map((day, index) => {
+                const heightPercent = Math.min((day.hours / 10) * 100, 100);
+                const isGood = day.hours >= 7;
+                const isToday = index === weeklySleepTrend.length - 1;
+                return (
+                  <View key={index} style={styles.trendBarColumn}>
+                    <View style={styles.trendBarContainer}>
+                      <View
+                        style={[
+                          styles.trendBar,
+                          {
+                            height: `${heightPercent}%`,
+                            backgroundColor: isToday ? theme.accent : isGood ? '#22C55E' : '#EAB308',
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={[styles.trendLabel, isToday && { color: theme.accent }]}>
+                      {day.day}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+            <View style={styles.trendLegend}>
+              <View style={styles.trendLegendItem}>
+                <View style={[styles.trendLegendDot, { backgroundColor: '#22C55E' }]} />
+                <Text style={styles.trendLegendText}>7+ hours</Text>
+              </View>
+              <View style={styles.trendLegendItem}>
+                <View style={[styles.trendLegendDot, { backgroundColor: '#EAB308' }]} />
+                <Text style={styles.trendLegendText}>Under 7 hours</Text>
+              </View>
+            </View>
+            {weeklySleepAvg && (
+              <View style={styles.trendAverage}>
+                <Text style={styles.trendAverageLabel}>7-day average:</Text>
+                <Text style={styles.trendAverageValue}>{weeklySleepAvg}h</Text>
               </View>
             )}
           </View>
@@ -309,7 +417,7 @@ export default function RecoveryScreen({ theme }: RecoveryScreenProps): React.Re
 
       {/* Alignment */}
       {healthState?.alignment && (
-        <Animated.View entering={FadeInDown.delay(250).duration(400)} style={styles.section}>
+        <Animated.View entering={FadeInDown.delay(350).duration(400)} style={styles.section}>
           <Text style={styles.sectionTitle}>Timing Alignment</Text>
           <AlignmentRing
             theme={theme}
@@ -320,9 +428,9 @@ export default function RecoveryScreen({ theme }: RecoveryScreenProps): React.Re
         </Animated.View>
       )}
 
-      {/* Causal Chains */}
+      {/* Causal Chains (Collapsible) */}
       {causalChains.length > 0 && (
-        <Animated.View entering={FadeInDown.delay(300).duration(400)} style={styles.section}>
+        <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.section}>
           <TouchableOpacity
             style={styles.sectionHeader}
             onPress={() => setShowCausalChains(!showCausalChains)}
@@ -354,18 +462,6 @@ export default function RecoveryScreen({ theme }: RecoveryScreenProps): React.Re
           {!showCausalChains && causalChains[0] && (
             <Text style={styles.chainPreview}>{causalChains[0].narrative}</Text>
           )}
-        </Animated.View>
-      )}
-
-      {/* Weekly Average */}
-      {weeklySleepAvg && (
-        <Animated.View entering={FadeInDown.delay(350).duration(400)} style={styles.weeklyCard}>
-          <View style={styles.weeklyHeader}>
-            <Ionicons name="calendar-outline" size={18} color={theme.textSecondary} />
-            <Text style={styles.weeklyTitle}>7-Day Average</Text>
-          </View>
-          <Text style={styles.weeklyValue}>{weeklySleepAvg} hrs</Text>
-          <Text style={styles.weeklyLabel}>sleep per night</Text>
         </Animated.View>
       )}
 
@@ -417,6 +513,7 @@ function createStyles(theme: Theme) {
       textTransform: 'uppercase',
       letterSpacing: 0.5,
       flex: 1,
+      marginBottom: spacing.md,
     },
     healthKitBadge: {
       flexDirection: 'row',
@@ -426,101 +523,13 @@ function createStyles(theme: Theme) {
       paddingVertical: spacing.xxs,
       borderRadius: borderRadius.sm,
       gap: 4,
+      marginTop: spacing.sm,
+      alignSelf: 'flex-start',
     },
     healthKitBadgeText: {
       fontSize: 10,
       color: '#FF2D55',
       fontWeight: '500',
-    },
-    sleepCard: {
-      backgroundColor: theme.surface,
-      borderRadius: borderRadius.lg,
-      padding: spacing.lg,
-      ...shadows.sm,
-    },
-    sleepMainRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: spacing.lg,
-    },
-    sleepDurationContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-    },
-    sleepIcon: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    sleepDuration: {
-      ...typography.metric,
-      color: theme.textPrimary,
-    },
-    sleepLabel: {
-      ...typography.caption,
-      color: theme.textSecondary,
-    },
-    sleepQualityContainer: {
-      alignItems: 'center',
-      backgroundColor: theme.accentLight,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
-      borderRadius: borderRadius.md,
-    },
-    sleepQualityValue: {
-      ...typography.title,
-      color: theme.accent,
-    },
-    sleepQualityLabel: {
-      ...typography.caption,
-      color: theme.textSecondary,
-    },
-    sleepStagesRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-around',
-      paddingVertical: spacing.md,
-      borderTopWidth: 1,
-      borderBottomWidth: 1,
-      borderColor: theme.border,
-    },
-    sleepStage: {
-      alignItems: 'center',
-    },
-    stageDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      marginBottom: spacing.xs,
-    },
-    stageLabel: {
-      ...typography.caption,
-      color: theme.textSecondary,
-    },
-    stageValue: {
-      ...typography.labelMedium,
-      color: theme.textPrimary,
-      marginTop: spacing.xxs,
-    },
-    sleepTimesRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-around',
-      marginTop: spacing.md,
-    },
-    sleepTime: {
-      alignItems: 'center',
-      gap: spacing.xs,
-    },
-    sleepTimeLabel: {
-      ...typography.caption,
-      color: theme.textSecondary,
-    },
-    sleepTimeValue: {
-      ...typography.labelMedium,
-      color: theme.textPrimary,
     },
     emptyCard: {
       backgroundColor: theme.surface,
@@ -529,10 +538,17 @@ function createStyles(theme: Theme) {
       alignItems: 'center',
       ...shadows.sm,
     },
+    emptyTitle: {
+      ...typography.bodyMedium,
+      color: theme.textPrimary,
+      fontWeight: '600',
+      marginTop: spacing.md,
+    },
     emptyText: {
       ...typography.bodySmall,
       color: theme.textSecondary,
-      marginTop: spacing.md,
+      marginTop: spacing.xs,
+      textAlign: 'center',
     },
     healthKitPrompt: {
       flexDirection: 'row',
@@ -543,9 +559,9 @@ function createStyles(theme: Theme) {
       ...shadows.sm,
     },
     healthKitIcon: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
+      width: 56,
+      height: 56,
+      borderRadius: 28,
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -563,38 +579,102 @@ function createStyles(theme: Theme) {
       color: theme.textSecondary,
       marginTop: spacing.xxs,
     },
+    gaugeCard: {
+      backgroundColor: theme.surface,
+      borderRadius: borderRadius.lg,
+      padding: spacing.xl,
+      alignItems: 'center',
+      ...shadows.sm,
+    },
+    gaugeInfo: {
+      marginTop: spacing.lg,
+      paddingTop: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+      width: '100%',
+    },
+    gaugeInfoText: {
+      ...typography.caption,
+      color: theme.textSecondary,
+      textAlign: 'center',
+    },
     metricsRow: {
       flexDirection: 'row',
       gap: spacing.md,
     },
-    metricCard: {
+    metricCardWrapper: {
       flex: 1,
+    },
+    trendCard: {
       backgroundColor: theme.surface,
       borderRadius: borderRadius.lg,
       padding: spacing.lg,
-      alignItems: 'center',
       ...shadows.sm,
     },
-    metricIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+    trendBars: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-end',
+      height: 100,
+      marginBottom: spacing.md,
+    },
+    trendBarColumn: {
+      flex: 1,
+      alignItems: 'center',
+    },
+    trendBarContainer: {
+      width: 20,
+      height: 80,
+      justifyContent: 'flex-end',
+      marginBottom: spacing.xs,
+    },
+    trendBar: {
+      width: '100%',
+      borderRadius: 4,
+      minHeight: 4,
+    },
+    trendLabel: {
+      ...typography.caption,
+      color: theme.textSecondary,
+      fontSize: 10,
+    },
+    trendLegend: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      gap: spacing.lg,
+      paddingTop: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+    },
+    trendLegendItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+    },
+    trendLegendDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+    trendLegendText: {
+      ...typography.caption,
+      color: theme.textSecondary,
+    },
+    trendAverage: {
+      flexDirection: 'row',
       justifyContent: 'center',
       alignItems: 'center',
-      marginBottom: spacing.sm,
+      gap: spacing.sm,
+      marginTop: spacing.md,
     },
-    metricValue: {
-      ...typography.metric,
+    trendAverageLabel: {
+      ...typography.caption,
+      color: theme.textSecondary,
+    },
+    trendAverageValue: {
+      ...typography.labelMedium,
       color: theme.textPrimary,
-    },
-    metricLabel: {
-      ...typography.caption,
-      color: theme.textSecondary,
-      marginTop: spacing.xxs,
-    },
-    metricUnit: {
-      ...typography.caption,
-      color: theme.textSecondary,
+      fontWeight: '600',
     },
     chainBadge: {
       backgroundColor: theme.accent,
@@ -615,32 +695,6 @@ function createStyles(theme: Theme) {
       ...typography.bodySmall,
       color: theme.textSecondary,
       fontStyle: 'italic',
-    },
-    weeklyCard: {
-      backgroundColor: theme.surface,
-      borderRadius: borderRadius.lg,
-      padding: spacing.lg,
-      alignItems: 'center',
-      ...shadows.sm,
-    },
-    weeklyHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      marginBottom: spacing.md,
-    },
-    weeklyTitle: {
-      ...typography.labelMedium,
-      color: theme.textSecondary,
-    },
-    weeklyValue: {
-      ...typography.displayMedium,
-      color: theme.textPrimary,
-    },
-    weeklyLabel: {
-      ...typography.caption,
-      color: theme.textSecondary,
-      marginTop: spacing.xs,
     },
     disclaimer: {
       paddingVertical: spacing.xl,

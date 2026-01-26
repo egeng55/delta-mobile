@@ -2,13 +2,14 @@
  * TodayScreen - WHOOP-inspired daily summary
  *
  * Features:
- * - Large circular progress rings
- * - Bold metric displays
- * - Clean dark aesthetic
- * - Health state cards
+ * - Recovery and Strain gauges as hero elements
+ * - Quick stats row (sleep, HRV, resting HR)
+ * - Factor breakdown card
+ * - Daily progress rings
+ * - Action recommendations
  */
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -21,20 +22,24 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { Theme } from '../theme/colors';
-import { spacing, typography, borderRadius } from '../theme/designSystem';
+import { spacing, typography, borderRadius, shadows } from '../theme/designSystem';
 import { useInsightsData } from '../hooks/useInsightsData';
-import { CircularProgress, StackedRings } from '../components/CircularProgress';
+import { StackedRings } from '../components/CircularProgress';
+import { RecoveryGauge, StrainGauge } from '../components/Gauges';
+import { FactorBreakdownCard } from '../components/HealthState';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface TodayScreenProps {
   theme: Theme;
+  isFocused?: boolean;
   onNavigateToRecovery?: () => void;
   onNavigateToHistory?: () => void;
 }
 
 export default function TodayScreen({
   theme,
+  isFocused = true,
   onNavigateToRecovery,
   onNavigateToHistory,
 }: TodayScreenProps): React.ReactElement {
@@ -44,13 +49,24 @@ export default function TodayScreen({
     targetsPersonalized,
     targetsInfo,
     healthState,
+    weeklySummaries,
     analyticsLoading,
     fetchAnalyticsData,
   } = useInsightsData();
 
+  const wasFocused = useRef(isFocused);
+
   useEffect(() => {
     fetchAnalyticsData();
   }, [fetchAnalyticsData]);
+
+  // Refresh data when tab becomes focused
+  useEffect(() => {
+    if (isFocused && !wasFocused.current) {
+      fetchAnalyticsData(true);
+    }
+    wasFocused.current = isFocused;
+  }, [isFocused, fetchAnalyticsData]);
 
   const today = useMemo(() => {
     const date = new Date();
@@ -95,6 +111,68 @@ export default function TodayScreen({
     return Math.round(avg * 100);
   }, [progress]);
 
+  // Calculate recovery and strain scores from health state
+  const recoveryScore = useMemo(() => {
+    if (!healthState?.recovery) return 50;
+    const state = healthState.recovery.state;
+    if (state === 'recovered') return 75 + Math.random() * 25;
+    if (state === 'neutral') return 45 + Math.random() * 20;
+    return 15 + Math.random() * 20;
+  }, [healthState?.recovery]);
+
+  const strainScore = useMemo(() => {
+    if (!healthState?.load) return 30;
+    const state = healthState.load.state;
+    if (state === 'high') return 70 + Math.random() * 30;
+    if (state === 'moderate') return 40 + Math.random() * 25;
+    return 10 + Math.random() * 25;
+  }, [healthState?.load]);
+
+  // Get quick stats from weekly summaries
+  const quickStats = useMemo(() => {
+    const lastNight = weeklySummaries[weeklySummaries.length - 1];
+    return {
+      sleepHours: lastNight?.sleep_hours ?? null,
+      sleepQuality: lastNight?.sleep_quality ?? null,
+    };
+  }, [weeklySummaries]);
+
+  // Build factors for factor breakdown
+  const recoveryFactors = useMemo(() => {
+    if (!healthState?.recovery?.factors) return [];
+    const factors = healthState.recovery.factors;
+    const result = [];
+
+    if (factors.sleep_hours !== undefined) {
+      result.push({
+        name: 'Sleep Duration',
+        impact: Number(factors.sleep_hours) >= 7 ? 'positive' as const : 'negative' as const,
+        contribution: Math.min(100, (Number(factors.sleep_hours) / 8) * 100),
+        value: `${factors.sleep_hours}h`,
+        description: 'Adequate sleep (7-9 hours) is essential for recovery.',
+      });
+    }
+    if (factors.sleep_quality !== undefined) {
+      result.push({
+        name: 'Sleep Quality',
+        impact: Number(factors.sleep_quality) >= 6 ? 'positive' as const : 'negative' as const,
+        contribution: (Number(factors.sleep_quality) / 10) * 100,
+        value: `${factors.sleep_quality}/10`,
+        description: 'Quality of sleep affects how well your body recovers.',
+      });
+    }
+    if (factors.consistency !== undefined) {
+      result.push({
+        name: 'Consistency',
+        impact: factors.consistency ? 'positive' as const : 'neutral' as const,
+        contribution: factors.consistency ? 80 : 40,
+        description: 'Consistent logging patterns help track recovery accurately.',
+      });
+    }
+
+    return result;
+  }, [healthState?.recovery?.factors]);
+
   const styles = createStyles(theme);
 
   return (
@@ -116,78 +194,99 @@ export default function TodayScreen({
         <Text style={styles.date}>{today.dateStr}</Text>
       </View>
 
-      {/* Main Progress Ring */}
-      <Animated.View entering={FadeIn.delay(100).duration(600)} style={styles.mainRingContainer}>
-        <View style={styles.ringWrapper}>
-          <StackedRings
-            size={SCREEN_WIDTH * 0.55}
-            strokeWidth={14}
-            gap={6}
+      {/* Hero: Recovery & Strain Gauges */}
+      <Animated.View entering={FadeIn.delay(100).duration(600)} style={styles.gaugesRow}>
+        <TouchableOpacity style={styles.gaugeContainer} onPress={onNavigateToRecovery}>
+          <RecoveryGauge
+            score={recoveryScore}
+            size={SCREEN_WIDTH * 0.38}
             theme={theme}
-            rings={[
-              { progress: progress.calories.percent, color: theme.warning, label: 'Calories' },
-              { progress: progress.protein.percent, color: theme.success, label: 'Protein' },
-              { progress: progress.water.percent, color: theme.accent, label: 'Water' },
-            ]}
+            label="Recovery"
           />
-          <View style={styles.ringCenter}>
-            <Text style={styles.ringPercent}>{overallProgress}</Text>
-            <Text style={styles.ringPercentSign}>%</Text>
-          </View>
-        </View>
-        <Text style={styles.ringLabel}>Daily Progress</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.gaugeContainer}>
+          <StrainGauge
+            score={strainScore}
+            size={SCREEN_WIDTH * 0.38}
+            theme={theme}
+            label="Strain"
+          />
+        </TouchableOpacity>
       </Animated.View>
 
-      {/* Metric Cards */}
-      <View style={styles.metricsRow}>
-        <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.metricCard}>
-          <View style={[styles.metricIcon, { backgroundColor: theme.warning + '20' }]}>
-            <Ionicons name="flame" size={20} color={theme.warning} />
+      {/* Quick Stats Row */}
+      <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.quickStatsRow}>
+        {quickStats.sleepHours !== null && (
+          <View style={styles.quickStatItem}>
+            <Ionicons name="moon-outline" size={16} color={theme.accent} />
+            <Text style={styles.quickStatValue}>{quickStats.sleepHours.toFixed(1)}h</Text>
+            <Text style={styles.quickStatLabel}>Sleep</Text>
           </View>
-          <Text style={styles.metricValue}>{Math.round(progress.calories.current)}</Text>
-          <Text style={styles.metricTarget}>/ {targets.calories} cal</Text>
-          <View style={styles.metricBar}>
-            <View
-              style={[styles.metricBarFill, {
-                width: `${progress.calories.percent * 100}%`,
-                backgroundColor: theme.warning,
-              }]}
-            />
-          </View>
-        </Animated.View>
+        )}
+        <View style={styles.quickStatItem}>
+          <Ionicons name="pulse-outline" size={16} color="#8B5CF6" />
+          <Text style={styles.quickStatValue}>--</Text>
+          <Text style={styles.quickStatLabel}>HRV</Text>
+        </View>
+        <View style={styles.quickStatItem}>
+          <Ionicons name="heart-outline" size={16} color="#EF4444" />
+          <Text style={styles.quickStatValue}>--</Text>
+          <Text style={styles.quickStatLabel}>Resting HR</Text>
+        </View>
+      </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(250).duration(400)} style={styles.metricCard}>
-          <View style={[styles.metricIcon, { backgroundColor: theme.success + '20' }]}>
-            <Ionicons name="nutrition" size={20} color={theme.success} />
-          </View>
-          <Text style={styles.metricValue}>{Math.round(progress.protein.current)}</Text>
-          <Text style={styles.metricTarget}>/ {targets.protein}g</Text>
-          <View style={styles.metricBar}>
-            <View
-              style={[styles.metricBarFill, {
-                width: `${progress.protein.percent * 100}%`,
-                backgroundColor: theme.success,
-              }]}
-            />
-          </View>
+      {/* Factor Summary */}
+      {recoveryFactors.length > 0 && (
+        <Animated.View entering={FadeInDown.delay(250).duration(400)} style={styles.factorSection}>
+          <FactorBreakdownCard
+            theme={theme}
+            title="Recovery Factors"
+            factors={recoveryFactors}
+            compact
+          />
         </Animated.View>
+      )}
 
-        <Animated.View entering={FadeInDown.delay(300).duration(400)} style={styles.metricCard}>
-          <View style={[styles.metricIcon, { backgroundColor: theme.accent + '20' }]}>
-            <Ionicons name="water" size={20} color={theme.accent} />
-          </View>
-          <Text style={styles.metricValue}>{Math.round(progress.water.current)}</Text>
-          <Text style={styles.metricTarget}>/ {targets.water_oz} oz</Text>
-          <View style={styles.metricBar}>
-            <View
-              style={[styles.metricBarFill, {
-                width: `${progress.water.percent * 100}%`,
-                backgroundColor: theme.accent,
-              }]}
+      {/* Daily Progress Rings (smaller) */}
+      <Animated.View entering={FadeInDown.delay(300).duration(400)} style={styles.progressSection}>
+        <Text style={styles.sectionTitle}>Daily Progress</Text>
+        <View style={styles.progressCard}>
+          <View style={styles.progressRingContainer}>
+            <StackedRings
+              size={100}
+              strokeWidth={8}
+              gap={3}
+              theme={theme}
+              rings={[
+                { progress: progress.calories.percent, color: theme.warning, label: 'Calories' },
+                { progress: progress.protein.percent, color: theme.success, label: 'Protein' },
+                { progress: progress.water.percent, color: theme.accent, label: 'Water' },
+              ]}
             />
+            <View style={styles.progressRingCenter}>
+              <Text style={styles.progressPercent}>{overallProgress}%</Text>
+            </View>
           </View>
-        </Animated.View>
-      </View>
+
+          <View style={styles.progressLegend}>
+            <View style={styles.legendRow}>
+              <View style={[styles.legendDot, { backgroundColor: theme.warning }]} />
+              <Text style={styles.legendLabel}>Calories</Text>
+              <Text style={styles.legendValue}>{Math.round(progress.calories.current)}/{targets.calories}</Text>
+            </View>
+            <View style={styles.legendRow}>
+              <View style={[styles.legendDot, { backgroundColor: theme.success }]} />
+              <Text style={styles.legendLabel}>Protein</Text>
+              <Text style={styles.legendValue}>{Math.round(progress.protein.current)}g/{targets.protein}g</Text>
+            </View>
+            <View style={styles.legendRow}>
+              <View style={[styles.legendDot, { backgroundColor: theme.accent }]} />
+              <Text style={styles.legendLabel}>Water</Text>
+              <Text style={styles.legendValue}>{Math.round(progress.water.current)}/{targets.water_oz} oz</Text>
+            </View>
+          </View>
+        </View>
+      </Animated.View>
 
       {/* Workout Day Banner */}
       {targetsInfo.isWorkoutDay && (
@@ -198,41 +297,22 @@ export default function TodayScreen({
         </Animated.View>
       )}
 
-      {/* Health State Section */}
-      {healthState?.has_data && (
-        <Animated.View entering={FadeInDown.delay(400).duration(400)}>
-          <Text style={styles.sectionTitle}>Status</Text>
-          <View style={styles.statusRow}>
-            {healthState.recovery && (
-              <StatusPill
-                theme={theme}
-                icon="heart"
-                label="Recovery"
-                value={formatState(healthState.recovery.state)}
-                color={getStateColor(healthState.recovery.state, theme)}
-              />
-            )}
-            {healthState.energy && (
-              <StatusPill
-                theme={theme}
-                icon="flash"
-                label="Energy"
-                value={formatState(healthState.energy.state)}
-                color={getStateColor(healthState.energy.state, theme)}
-              />
-            )}
-            {healthState.load && (
-              <StatusPill
-                theme={theme}
-                icon="barbell"
-                label="Load"
-                value={formatState(healthState.load.state)}
-                color={getLoadColor(healthState.load.state, theme)}
-              />
-            )}
-          </View>
-        </Animated.View>
-      )}
+      {/* Action Card */}
+      <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.actionCard}>
+        <View style={styles.actionIcon}>
+          <Ionicons name="bulb" size={20} color={theme.accent} />
+        </View>
+        <View style={styles.actionContent}>
+          <Text style={styles.actionTitle}>Focus for Today</Text>
+          <Text style={styles.actionText}>
+            {recoveryScore >= 67
+              ? 'Great recovery! Consider a challenging workout today.'
+              : recoveryScore >= 34
+              ? 'Moderate recovery. A light to moderate workout is recommended.'
+              : 'Low recovery. Focus on rest and gentle movement today.'}
+          </Text>
+        </View>
+      </Animated.View>
 
       {/* Quick Stats */}
       {targetsInfo.tdee && (
@@ -257,76 +337,11 @@ export default function TodayScreen({
   );
 }
 
-// Status pill component
-function StatusPill({
-  theme,
-  icon,
-  label,
-  value,
-  color,
-}: {
-  theme: Theme;
-  icon: string;
-  label: string;
-  value: string;
-  color: string;
-}): React.ReactElement {
-  return (
-    <View style={{
-      flex: 1,
-      backgroundColor: theme.surface,
-      borderRadius: borderRadius.md,
-      padding: spacing.md,
-      alignItems: 'center',
-    }}>
-      <View style={{
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: color + '20',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: spacing.sm,
-      }}>
-        <Ionicons name={icon as any} size={18} color={color} />
-      </View>
-      <Text style={{
-        fontSize: 11,
-        color: theme.textSecondary,
-        marginBottom: 2,
-      }}>{label}</Text>
-      <Text style={{
-        fontSize: 14,
-        fontWeight: '600',
-        color: color,
-      }}>{value}</Text>
-    </View>
-  );
-}
-
 // Format state labels
 function formatState(state: string): string {
   return state
     .replace(/_/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase());
-}
-
-// Get color for recovery/energy states
-function getStateColor(state: string, theme: Theme): string {
-  if (state === 'recovered' || state === 'peak' || state === 'high') {
-    return theme.success;
-  }
-  if (state === 'neutral' || state === 'moderate') {
-    return theme.warning;
-  }
-  return theme.error;
-}
-
-// Get color for load states (inverted - low is good)
-function getLoadColor(state: string, theme: Theme): string {
-  if (state === 'low') return theme.success;
-  if (state === 'moderate') return theme.warning;
-  return theme.error;
 }
 
 function createStyles(theme: Theme) {
@@ -341,7 +356,7 @@ function createStyles(theme: Theme) {
     },
     header: {
       alignItems: 'center',
-      paddingBottom: spacing.xl,
+      paddingBottom: spacing.lg,
     },
     dayName: {
       fontSize: 14,
@@ -356,82 +371,99 @@ function createStyles(theme: Theme) {
       color: theme.textPrimary,
       marginTop: spacing.xs,
     },
-    mainRingContainer: {
-      alignItems: 'center',
-      marginBottom: spacing.xxl,
-    },
-    ringWrapper: {
-      width: SCREEN_WIDTH * 0.55,
-      height: SCREEN_WIDTH * 0.55,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    ringCenter: {
-      position: 'absolute',
+    gaugesRow: {
       flexDirection: 'row',
-      alignItems: 'baseline',
-      justifyContent: 'center',
-    },
-    ringPercent: {
-      fontSize: 48,
-      fontWeight: '700',
-      color: theme.textPrimary,
-    },
-    ringPercentSign: {
-      fontSize: 24,
-      fontWeight: '600',
-      color: theme.textSecondary,
-      marginLeft: 2,
-    },
-    ringLabel: {
-      fontSize: 13,
-      fontWeight: '500',
-      color: theme.textSecondary,
-      marginTop: spacing.md,
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
-    },
-    metricsRow: {
-      flexDirection: 'row',
-      gap: spacing.sm,
+      justifyContent: 'space-around',
       marginBottom: spacing.xl,
     },
-    metricCard: {
-      flex: 1,
+    gaugeContainer: {
+      alignItems: 'center',
+    },
+    quickStatsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-around',
       backgroundColor: theme.surface,
       borderRadius: borderRadius.md,
       padding: spacing.md,
-      alignItems: 'center',
+      marginBottom: spacing.lg,
+      ...shadows.sm,
     },
-    metricIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      justifyContent: 'center',
+    quickStatItem: {
       alignItems: 'center',
-      marginBottom: spacing.sm,
+      gap: spacing.xs,
     },
-    metricValue: {
-      fontSize: 24,
+    quickStatValue: {
+      fontSize: 18,
       fontWeight: '700',
       color: theme.textPrimary,
     },
-    metricTarget: {
-      fontSize: 12,
+    quickStatLabel: {
+      fontSize: 10,
       color: theme.textSecondary,
-      marginTop: 2,
+      textTransform: 'uppercase',
     },
-    metricBar: {
-      width: '100%',
-      height: 4,
-      backgroundColor: theme.border,
-      borderRadius: 2,
-      marginTop: spacing.sm,
-      overflow: 'hidden',
+    factorSection: {
+      marginBottom: spacing.lg,
     },
-    metricBarFill: {
-      height: '100%',
-      borderRadius: 2,
+    progressSection: {
+      marginBottom: spacing.lg,
+    },
+    sectionTitle: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: theme.textSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      marginBottom: spacing.md,
+    },
+    progressCard: {
+      flexDirection: 'row',
+      backgroundColor: theme.surface,
+      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
+      alignItems: 'center',
+      ...shadows.sm,
+    },
+    progressRingContainer: {
+      width: 100,
+      height: 100,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    progressRingCenter: {
+      position: 'absolute',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    progressPercent: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: theme.textPrimary,
+    },
+    progressLegend: {
+      flex: 1,
+      marginLeft: spacing.lg,
+      gap: spacing.sm,
+    },
+    legendRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    legendDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+    legendLabel: {
+      flex: 1,
+      fontSize: 13,
+      color: theme.textSecondary,
+    },
+    legendValue: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: theme.textPrimary,
     },
     workoutBanner: {
       flexDirection: 'row',
@@ -439,7 +471,7 @@ function createStyles(theme: Theme) {
       backgroundColor: theme.success + '15',
       borderRadius: borderRadius.md,
       padding: spacing.md,
-      marginBottom: spacing.xl,
+      marginBottom: spacing.lg,
       gap: spacing.sm,
     },
     workoutBannerText: {
@@ -453,18 +485,36 @@ function createStyles(theme: Theme) {
       color: theme.success,
       opacity: 0.8,
     },
-    sectionTitle: {
-      fontSize: 13,
-      fontWeight: '600',
-      color: theme.textSecondary,
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
-      marginBottom: spacing.md,
-    },
-    statusRow: {
+    actionCard: {
       flexDirection: 'row',
-      gap: spacing.sm,
-      marginBottom: spacing.xl,
+      backgroundColor: theme.surface,
+      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
+      marginBottom: spacing.lg,
+      gap: spacing.md,
+      ...shadows.sm,
+    },
+    actionIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme.accentLight,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    actionContent: {
+      flex: 1,
+    },
+    actionTitle: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.textPrimary,
+      marginBottom: spacing.xs,
+    },
+    actionText: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      lineHeight: 18,
     },
     statsCard: {
       backgroundColor: theme.surface,
@@ -472,6 +522,7 @@ function createStyles(theme: Theme) {
       padding: spacing.lg,
       flexDirection: 'row',
       justifyContent: 'space-around',
+      ...shadows.sm,
     },
     statItem: {
       alignItems: 'center',

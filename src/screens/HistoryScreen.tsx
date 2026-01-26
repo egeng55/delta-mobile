@@ -1,14 +1,15 @@
 /**
- * HistoryScreen - Calendar and historical data
+ * HistoryScreen - Trends-focused historical data (WHOOP-style)
  *
  * Shows:
- * - Monthly calendar with activity dots
- * - Daily log details on selection
- * - Menstrual tracking (if enabled)
- * - Weekly trends chart
+ * - Weekly Trends as Hero (large interactive chart)
+ * - Domain Tabs: Nutrition / Activity / Sleep / Recovery
+ * - Expanded metric selection
+ * - Calendar as secondary navigation
+ * - Period comparisons: This week vs last week
  */
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -28,12 +29,14 @@ import { Theme } from '../theme/colors';
 import { spacing, typography, borderRadius, shadows } from '../theme/designSystem';
 import { useInsightsData } from '../hooks/useInsightsData';
 import { useAuth } from '../context/AuthContext';
-import { DailyLog, MenstrualCalendarDay, FlowIntensity, MenstrualSymptom } from '../services/api';
+import { DailyLog, FlowIntensity, MenstrualSymptom } from '../services/api';
 import * as menstrualService from '../services/menstrualTracking';
 import LineChart, { DataPoint } from '../components/LineChart';
+import { MetricComparisonCard } from '../components/Metrics';
 
 interface HistoryScreenProps {
   theme: Theme;
+  isFocused?: boolean;
 }
 
 // Calendar helpers
@@ -58,7 +61,43 @@ const getLocalDateString = (date: Date = new Date()): string => {
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-export default function HistoryScreen({ theme }: HistoryScreenProps): React.ReactElement {
+// Domain types and metrics
+type Domain = 'nutrition' | 'activity' | 'sleep' | 'recovery';
+
+interface MetricConfig {
+  key: string;
+  label: string;
+  unit: string;
+  domain: Domain;
+  icon: string;
+  iconColor: string;
+  higherIsBetter: boolean;
+  decimals: number;
+}
+
+const METRICS: MetricConfig[] = [
+  { key: 'calories', label: 'Calories', unit: 'kcal', domain: 'nutrition', icon: 'flame', iconColor: '#F97316', higherIsBetter: false, decimals: 0 },
+  { key: 'protein', label: 'Protein', unit: 'g', domain: 'nutrition', icon: 'nutrition', iconColor: '#EF4444', higherIsBetter: true, decimals: 0 },
+  { key: 'carbs', label: 'Carbs', unit: 'g', domain: 'nutrition', icon: 'leaf', iconColor: '#22C55E', higherIsBetter: false, decimals: 0 },
+  { key: 'fat', label: 'Fat', unit: 'g', domain: 'nutrition', icon: 'water', iconColor: '#EAB308', higherIsBetter: false, decimals: 0 },
+  { key: 'steps', label: 'Steps', unit: '', domain: 'activity', icon: 'footsteps', iconColor: '#3B82F6', higherIsBetter: true, decimals: 0 },
+  { key: 'workout_minutes', label: 'Workout', unit: 'min', domain: 'activity', icon: 'barbell', iconColor: '#8B5CF6', higherIsBetter: true, decimals: 0 },
+  { key: 'active_calories', label: 'Active Cal', unit: 'kcal', domain: 'activity', icon: 'flame-outline', iconColor: '#F97316', higherIsBetter: true, decimals: 0 },
+  { key: 'sleep_hours', label: 'Sleep', unit: 'h', domain: 'sleep', icon: 'moon', iconColor: '#6366F1', higherIsBetter: true, decimals: 1 },
+  { key: 'sleep_efficiency', label: 'Efficiency', unit: '%', domain: 'sleep', icon: 'analytics', iconColor: '#8B5CF6', higherIsBetter: true, decimals: 0 },
+  { key: 'deep_sleep', label: 'Deep Sleep', unit: 'h', domain: 'sleep', icon: 'bed', iconColor: '#4F46E5', higherIsBetter: true, decimals: 1 },
+  { key: 'hrv', label: 'HRV', unit: 'ms', domain: 'recovery', icon: 'pulse', iconColor: '#8B5CF6', higherIsBetter: true, decimals: 0 },
+  { key: 'resting_hr', label: 'Resting HR', unit: 'bpm', domain: 'recovery', icon: 'heart', iconColor: '#EF4444', higherIsBetter: false, decimals: 0 },
+];
+
+const DOMAIN_LABELS: Record<Domain, { label: string; icon: string; color: string }> = {
+  nutrition: { label: 'Nutrition', icon: 'restaurant', color: '#22C55E' },
+  activity: { label: 'Activity', icon: 'fitness', color: '#3B82F6' },
+  sleep: { label: 'Sleep', icon: 'moon', color: '#6366F1' },
+  recovery: { label: 'Recovery', icon: 'heart', color: '#EF4444' },
+};
+
+export default function HistoryScreen({ theme, isFocused = true }: HistoryScreenProps): React.ReactElement {
   const { user } = useAuth();
   const {
     monthLogs,
@@ -70,10 +109,15 @@ export default function HistoryScreen({ theme }: HistoryScreenProps): React.Reac
     fetchCalendarData,
   } = useInsightsData();
 
+  // Domain and metric selection
+  const [selectedDomain, setSelectedDomain] = useState<Domain>('nutrition');
+  const [selectedMetricKey, setSelectedMetricKey] = useState<string>('calories');
+  const [showCalendar, setShowCalendar] = useState(false);
+
+  // Calendar state
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<DailyLog | null>(null);
-  const [selectedChartMetric, setSelectedChartMetric] = useState<'calories' | 'protein' | 'sleep'>('calories');
 
   // Period logging modal
   const [showPeriodModal, setShowPeriodModal] = useState(false);
@@ -83,12 +127,41 @@ export default function HistoryScreen({ theme }: HistoryScreenProps): React.Reac
   const [isSavingPeriod, setIsSavingPeriod] = useState(false);
 
   const userId = user?.id ?? 'anonymous';
+  const wasFocused = useRef(isFocused);
+
+  // Get current metric config
+  const currentMetric = useMemo(() => {
+    return METRICS.find(m => m.key === selectedMetricKey) ?? METRICS[0];
+  }, [selectedMetricKey]);
+
+  // Filter metrics by domain
+  const domainMetrics = useMemo(() => {
+    return METRICS.filter(m => m.domain === selectedDomain);
+  }, [selectedDomain]);
+
+  // Update selected metric when domain changes
+  useEffect(() => {
+    const firstMetricInDomain = METRICS.find(m => m.domain === selectedDomain);
+    if (firstMetricInDomain) {
+      setSelectedMetricKey(firstMetricInDomain.key);
+    }
+  }, [selectedDomain]);
 
   useEffect(() => {
     const year = calendarDate.getFullYear();
     const month = calendarDate.getMonth() + 1;
     fetchCalendarData(year, month);
   }, [calendarDate, fetchCalendarData]);
+
+  // Refresh data when tab becomes focused
+  useEffect(() => {
+    if (isFocused && !wasFocused.current) {
+      const year = calendarDate.getFullYear();
+      const month = calendarDate.getMonth() + 1;
+      fetchCalendarData(year, month, true);
+    }
+    wasFocused.current = isFocused;
+  }, [isFocused, calendarDate, fetchCalendarData]);
 
   // Pre-indexed maps for O(1) lookup
   const logsMap = useMemo(() => {
@@ -155,30 +228,73 @@ export default function HistoryScreen({ theme }: HistoryScreenProps): React.Reac
     }
   };
 
-  // Build chart data
+  // Build chart data for selected metric
   const chartData = useMemo((): DataPoint[] => {
     if (weeklySummaries.length === 0) return [];
 
     return weeklySummaries.slice(-7).map(summary => {
       const date = new Date(summary.date);
       const label = DAY_NAMES[date.getDay()];
-      let value: number | null = null;
+      const summaryAny = summary as any;
+      let value: number | null = summaryAny[selectedMetricKey] ?? null;
 
-      switch (selectedChartMetric) {
-        case 'calories':
-          value = summary.calories > 0 ? summary.calories : null;
-          break;
-        case 'protein':
-          value = summary.protein > 0 ? summary.protein : null;
-          break;
-        case 'sleep':
-          value = summary.sleep_hours;
-          break;
-      }
+      // Handle special cases
+      if (selectedMetricKey === 'calories' && value === 0) value = null;
+      if (selectedMetricKey === 'protein' && value === 0) value = null;
+      if (selectedMetricKey === 'sleep_hours' && value === 0) value = null;
 
       return { label, value };
     });
-  }, [weeklySummaries, selectedChartMetric]);
+  }, [weeklySummaries, selectedMetricKey]);
+
+  // Calculate this week vs last week comparison
+  const weekComparison = useMemo(() => {
+    if (weeklySummaries.length < 7) return null;
+
+    const thisWeek = weeklySummaries.slice(-7);
+    const lastWeek = weeklySummaries.slice(-14, -7);
+
+    if (lastWeek.length === 0) return null;
+
+    const getAverage = (data: typeof weeklySummaries, key: string): number => {
+      const validData = data.filter(d => (d as any)[key] != null && (d as any)[key] > 0);
+      if (validData.length === 0) return 0;
+      return validData.reduce((sum, d) => sum + ((d as any)[key] ?? 0), 0) / validData.length;
+    };
+
+    const thisWeekAvg = getAverage(thisWeek, selectedMetricKey);
+    const lastWeekAvg = getAverage(lastWeek, selectedMetricKey);
+
+    return {
+      thisWeek: thisWeekAvg,
+      lastWeek: lastWeekAvg,
+      change: lastWeekAvg > 0 ? ((thisWeekAvg - lastWeekAvg) / lastWeekAvg) * 100 : 0,
+    };
+  }, [weeklySummaries, selectedMetricKey]);
+
+  // Get weekly averages for comparison cards
+  const weeklyStats = useMemo(() => {
+    const thisWeek = weeklySummaries.slice(-7);
+
+    const getStats = (key: string) => {
+      const validData = thisWeek.filter(d => (d as any)[key] != null && (d as any)[key] > 0);
+      if (validData.length === 0) return { current: 0, average: 0 };
+      const total = validData.reduce((sum, d) => sum + ((d as any)[key] ?? 0), 0);
+      const avg = total / validData.length;
+      const latest = validData[validData.length - 1];
+      return {
+        current: latest ? (latest as any)[key] ?? 0 : 0,
+        average: avg,
+      };
+    };
+
+    return {
+      calories: getStats('calories'),
+      protein: getStats('protein'),
+      sleep_hours: getStats('sleep_hours'),
+      steps: getStats('steps'),
+    };
+  }, [weeklySummaries]);
 
   // Render calendar
   const renderCalendar = () => {
@@ -320,29 +436,211 @@ export default function HistoryScreen({ theme }: HistoryScreenProps): React.Reac
     >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>History</Text>
+        <Text style={styles.headerTitle}>Trends</Text>
+        <Text style={styles.headerSubtitle}>Track your progress over time</Text>
       </View>
+
+      {/* Domain Tabs */}
+      <Animated.View entering={FadeInDown.delay(50).duration(400)} style={styles.domainTabs}>
+        {(Object.keys(DOMAIN_LABELS) as Domain[]).map(domain => {
+          const config = DOMAIN_LABELS[domain];
+          const isActive = selectedDomain === domain;
+          return (
+            <TouchableOpacity
+              key={domain}
+              style={[
+                styles.domainTab,
+                isActive && { backgroundColor: config.color + '20', borderColor: config.color },
+              ]}
+              onPress={() => setSelectedDomain(domain)}
+            >
+              <Ionicons
+                name={config.icon as any}
+                size={16}
+                color={isActive ? config.color : theme.textSecondary}
+              />
+              <Text style={[styles.domainTabText, isActive && { color: config.color }]}>
+                {config.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </Animated.View>
+
+      {/* Hero: Weekly Trends Chart */}
+      <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.heroSection}>
+        <View style={styles.heroCard}>
+          {/* Metric Selection */}
+          <View style={styles.metricTabs}>
+            {domainMetrics.map(metric => (
+              <TouchableOpacity
+                key={metric.key}
+                style={[
+                  styles.metricTab,
+                  selectedMetricKey === metric.key && styles.metricTabActive,
+                ]}
+                onPress={() => setSelectedMetricKey(metric.key)}
+              >
+                <Text
+                  style={[
+                    styles.metricTabText,
+                    selectedMetricKey === metric.key && styles.metricTabTextActive,
+                  ]}
+                >
+                  {metric.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Chart */}
+          <View style={styles.chartWrapper}>
+            {chartData.some(d => d.value !== null) ? (
+              <LineChart
+                data={chartData}
+                width={SCREEN_WIDTH - spacing.lg * 4}
+                height={180}
+                color={currentMetric.iconColor}
+                backgroundColor={theme.surface}
+                textColor={theme.textPrimary}
+                secondaryTextColor={theme.textSecondary}
+              />
+            ) : (
+              <View style={styles.chartEmpty}>
+                <Ionicons name={currentMetric.icon as any} size={40} color={theme.textSecondary} />
+                <Text style={styles.chartEmptyText}>No {currentMetric.label.toLowerCase()} data yet</Text>
+                <Text style={styles.chartEmptyHint}>Log via chat or connect Apple Health</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Week-over-Week Comparison */}
+          {weekComparison && weekComparison.thisWeek > 0 && (
+            <View style={styles.weekComparison}>
+              <View style={styles.weekCompareRow}>
+                <Text style={styles.weekCompareLabel}>This Week Avg</Text>
+                <Text style={styles.weekCompareValue}>
+                  {currentMetric.decimals > 0
+                    ? weekComparison.thisWeek.toFixed(currentMetric.decimals)
+                    : Math.round(weekComparison.thisWeek).toLocaleString()}
+                  {currentMetric.unit && ` ${currentMetric.unit}`}
+                </Text>
+              </View>
+              {weekComparison.lastWeek > 0 && (
+                <View style={styles.weekCompareRow}>
+                  <Text style={styles.weekCompareLabel}>vs Last Week</Text>
+                  <View style={styles.weekChangeContainer}>
+                    <Ionicons
+                      name={weekComparison.change >= 0 ? 'arrow-up' : 'arrow-down'}
+                      size={14}
+                      color={
+                        (currentMetric.higherIsBetter && weekComparison.change >= 0) ||
+                        (!currentMetric.higherIsBetter && weekComparison.change < 0)
+                          ? '#22C55E'
+                          : '#EF4444'
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.weekChangeText,
+                        {
+                          color:
+                            (currentMetric.higherIsBetter && weekComparison.change >= 0) ||
+                            (!currentMetric.higherIsBetter && weekComparison.change < 0)
+                              ? '#22C55E'
+                              : '#EF4444',
+                        },
+                      ]}
+                    >
+                      {Math.abs(weekComparison.change).toFixed(1)}%
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
+        </View>
+      </Animated.View>
+
+      {/* Quick Stats Row */}
+      <Animated.View entering={FadeInDown.delay(150).duration(400)} style={styles.quickStatsSection}>
+        <Text style={styles.sectionTitle}>Today's Snapshot</Text>
+        <View style={styles.quickStatsRow}>
+          {weeklyStats.calories.current > 0 && (
+            <View style={styles.quickStatCard}>
+              <MetricComparisonCard
+                theme={theme}
+                label="Calories"
+                currentValue={weeklyStats.calories.current}
+                comparisonValue={weeklyStats.calories.average}
+                comparisonBasis="7-day avg"
+                unit="kcal"
+                icon="flame"
+                iconColor="#F97316"
+                higherIsBetter={false}
+                compact={true}
+              />
+            </View>
+          )}
+          {weeklyStats.sleep_hours.current > 0 && (
+            <View style={styles.quickStatCard}>
+              <MetricComparisonCard
+                theme={theme}
+                label="Sleep"
+                currentValue={weeklyStats.sleep_hours.current}
+                comparisonValue={weeklyStats.sleep_hours.average}
+                comparisonBasis="7-day avg"
+                unit="h"
+                icon="moon"
+                iconColor="#6366F1"
+                higherIsBetter={true}
+                decimals={1}
+                compact={true}
+              />
+            </View>
+          )}
+        </View>
+      </Animated.View>
 
       {/* Cycle Phase (if menstrual tracking enabled) */}
       {menstrualSettings?.tracking_enabled && cyclePhase && (
-        <Animated.View entering={FadeInDown.delay(50).duration(400)} style={styles.cycleCard}>
+        <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.cycleCard}>
           <View style={[styles.cycleIcon, { backgroundColor: '#E5737320' }]}>
-            <Ionicons name="flower-outline" size={20} color="#E57373" />
+            <Ionicons name="flower-outline" size={24} color="#E57373" />
           </View>
           <View style={styles.cycleInfo}>
             <Text style={styles.cyclePhase}>{cyclePhase.phase.replace('_', ' ')}</Text>
-            <Text style={styles.cycleDay}>Day {cyclePhase.day_in_cycle}</Text>
+            <Text style={styles.cycleDay}>Day {cyclePhase.day_in_cycle} of cycle</Text>
           </View>
         </Animated.View>
       )}
 
-      {/* Calendar */}
-      <Animated.View entering={FadeInDown.delay(100).duration(400)}>
-        {renderCalendar()}
+      {/* Calendar Section (Collapsible) */}
+      <Animated.View entering={FadeInDown.delay(250).duration(400)} style={styles.calendarSection}>
+        <TouchableOpacity
+          style={styles.calendarToggle}
+          onPress={() => setShowCalendar(!showCalendar)}
+        >
+          <View style={styles.calendarToggleLeft}>
+            <Ionicons name="calendar-outline" size={20} color={theme.textSecondary} />
+            <Text style={styles.calendarToggleText}>Monthly Calendar</Text>
+          </View>
+          <Ionicons
+            name={showCalendar ? 'chevron-up' : 'chevron-down'}
+            size={20}
+            color={theme.textSecondary}
+          />
+        </TouchableOpacity>
+
+        {showCalendar && (
+          <Animated.View entering={FadeInDown.duration(300)}>
+            {renderCalendar()}
+          </Animated.View>
+        )}
       </Animated.View>
 
       {/* Selected Day Details */}
-      {selectedDate && (
+      {selectedDate && showCalendar && (
         <Animated.View entering={FadeInUp.duration(300)} style={styles.selectedDay}>
           <Text style={styles.selectedDayTitle}>
             {new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', {
@@ -400,49 +698,6 @@ export default function HistoryScreen({ theme }: HistoryScreenProps): React.Reac
           )}
         </Animated.View>
       )}
-
-      {/* Weekly Trends Chart */}
-      <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.chartSection}>
-        <Text style={styles.sectionTitle}>Weekly Trends</Text>
-
-        <View style={styles.chartMetrics}>
-          {(['calories', 'protein', 'sleep'] as const).map(metric => (
-            <TouchableOpacity
-              key={metric}
-              style={[
-                styles.metricChip,
-                selectedChartMetric === metric && styles.metricChipActive,
-              ]}
-              onPress={() => setSelectedChartMetric(metric)}
-            >
-              <Text
-                style={[
-                  styles.metricChipText,
-                  selectedChartMetric === metric && styles.metricChipTextActive,
-                ]}
-              >
-                {metric.charAt(0).toUpperCase() + metric.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {chartData.some(d => d.value !== null) ? (
-          <LineChart
-            data={chartData}
-            width={SCREEN_WIDTH - spacing.lg * 4}
-            height={160}
-            color={theme.accent}
-            backgroundColor={theme.surface}
-            textColor={theme.textPrimary}
-            secondaryTextColor={theme.textSecondary}
-          />
-        ) : (
-          <View style={styles.chartEmpty}>
-            <Text style={styles.chartEmptyText}>No data for this period</Text>
-          </View>
-        )}
-      </Animated.View>
 
       {/* Period Modal */}
       <Modal
@@ -515,7 +770,7 @@ function createStyles(theme: Theme) {
       paddingTop: spacing.md,
     },
     header: {
-      paddingBottom: spacing.lg,
+      paddingBottom: spacing.md,
     },
     headerTitle: {
       ...typography.headline,
@@ -526,19 +781,139 @@ function createStyles(theme: Theme) {
       color: theme.textSecondary,
       marginTop: spacing.xs,
     },
+    // Domain Tabs
+    domainTabs: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+    domainTab: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xs,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm,
+      borderRadius: borderRadius.md,
+      backgroundColor: theme.surface,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    domainTabText: {
+      ...typography.labelSmall,
+      color: theme.textSecondary,
+    },
+    // Hero Section
+    heroSection: {
+      marginBottom: spacing.lg,
+    },
+    heroCard: {
+      backgroundColor: theme.surface,
+      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
+      ...shadows.sm,
+    },
+    metricTabs: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      marginBottom: spacing.md,
+      flexWrap: 'wrap',
+    },
+    metricTab: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      borderRadius: borderRadius.sm,
+      backgroundColor: theme.surfaceSecondary,
+    },
+    metricTabActive: {
+      backgroundColor: theme.accent,
+    },
+    metricTabText: {
+      ...typography.labelSmall,
+      color: theme.textSecondary,
+    },
+    metricTabTextActive: {
+      color: '#fff',
+    },
+    chartWrapper: {
+      marginVertical: spacing.sm,
+    },
+    chartEmpty: {
+      height: 180,
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    chartEmptyText: {
+      ...typography.bodyMedium,
+      color: theme.textSecondary,
+    },
+    chartEmptyHint: {
+      ...typography.caption,
+      color: theme.textSecondary,
+    },
+    weekComparison: {
+      paddingTop: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+      gap: spacing.sm,
+    },
+    weekCompareRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    weekCompareLabel: {
+      ...typography.caption,
+      color: theme.textSecondary,
+    },
+    weekCompareValue: {
+      ...typography.labelMedium,
+      color: theme.textPrimary,
+      fontWeight: '600',
+    },
+    weekChangeContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 2,
+    },
+    weekChangeText: {
+      ...typography.labelSmall,
+      fontWeight: '600',
+    },
+    // Quick Stats
+    quickStatsSection: {
+      marginBottom: spacing.lg,
+    },
+    sectionTitle: {
+      ...typography.labelLarge,
+      color: theme.textSecondary,
+      marginBottom: spacing.md,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    quickStatsRow: {
+      flexDirection: 'row',
+      gap: spacing.md,
+    },
+    quickStatCard: {
+      flex: 1,
+    },
+    // Cycle Card
     cycleCard: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: theme.surface,
-      borderRadius: borderRadius.md,
-      padding: spacing.md,
+      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
       marginBottom: spacing.lg,
       ...shadows.sm,
     },
     cycleIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 48,
+      height: 48,
+      borderRadius: 24,
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -554,11 +929,33 @@ function createStyles(theme: Theme) {
       ...typography.caption,
       color: theme.textSecondary,
     },
+    // Calendar Section
+    calendarSection: {
+      marginBottom: spacing.lg,
+    },
+    calendarToggle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: theme.surface,
+      borderRadius: borderRadius.md,
+      padding: spacing.md,
+      ...shadows.sm,
+    },
+    calendarToggleLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    calendarToggleText: {
+      ...typography.labelMedium,
+      color: theme.textSecondary,
+    },
     calendarContainer: {
       backgroundColor: theme.surface,
       borderRadius: borderRadius.lg,
       padding: spacing.lg,
-      marginBottom: spacing.xl,
+      marginTop: spacing.md,
       ...shadows.sm,
     },
     calendarNav: {
@@ -659,11 +1056,12 @@ function createStyles(theme: Theme) {
       ...typography.caption,
       color: theme.textSecondary,
     },
+    // Selected Day
     selectedDay: {
       backgroundColor: theme.surface,
       borderRadius: borderRadius.lg,
       padding: spacing.lg,
-      marginBottom: spacing.xl,
+      marginBottom: spacing.lg,
       ...shadows.sm,
     },
     selectedDayTitle: {
@@ -700,48 +1098,7 @@ function createStyles(theme: Theme) {
       color: theme.textSecondary,
       marginTop: spacing.md,
     },
-    chartSection: {
-      marginBottom: spacing.xl,
-    },
-    sectionTitle: {
-      ...typography.labelLarge,
-      color: theme.textSecondary,
-      marginBottom: spacing.md,
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
-    },
-    chartMetrics: {
-      flexDirection: 'row',
-      gap: spacing.sm,
-      marginBottom: spacing.md,
-    },
-    metricChip: {
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.sm,
-      borderRadius: borderRadius.lg,
-      backgroundColor: theme.surface,
-    },
-    metricChipActive: {
-      backgroundColor: theme.accent,
-    },
-    metricChipText: {
-      ...typography.labelSmall,
-      color: theme.textSecondary,
-    },
-    metricChipTextActive: {
-      color: '#fff',
-    },
-    chartEmpty: {
-      height: 160,
-      backgroundColor: theme.surface,
-      borderRadius: borderRadius.md,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    chartEmptyText: {
-      ...typography.bodySmall,
-      color: theme.textSecondary,
-    },
+    // Modal
     modalContainer: {
       flex: 1,
     },
