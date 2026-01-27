@@ -469,18 +469,20 @@ const staticStyles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 32,
+    paddingTop: 16,
+    paddingBottom: 24,
   },
   greeting: {
     fontSize: 28,
     fontWeight: '600',
-    marginBottom: 12,
-    marginTop: 8,
+    marginBottom: 16,
+    marginTop: 12,
   },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   clockContainer: {
     alignItems: 'flex-start',
@@ -576,7 +578,8 @@ const staticStyles = StyleSheet.create({
   },
   bottomSection: {
     paddingHorizontal: 32,
-    paddingBottom: 8,
+    paddingTop: 16,
+    paddingBottom: 24,
   },
   voiceButton: {
     width: 44,

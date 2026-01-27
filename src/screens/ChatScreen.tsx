@@ -233,6 +233,13 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
     loadConversations();
   }, [user?.id]);
 
+  // Fetch dashboard insight on app load (once weather is ready)
+  useEffect(() => {
+    if (user?.id && weatherData) {
+      fetchDashboardInsight();
+    }
+  }, [user?.id, weatherData]);
+
   // Auto-save current conversation when messages change
   useEffect(() => {
     if (messages.length > 1) { // Don't save just the welcome message
@@ -1035,7 +1042,7 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
           value={inputText}
           onChangeText={setInputText}
           multiline={true}
-          maxLength={500}
+          maxLength={10000}
           editable={isLoading !== true}
         />
 
