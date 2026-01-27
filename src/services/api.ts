@@ -185,8 +185,11 @@ export const chatApi = {
     userId: string,
     message: string,
     unitSystem?: 'metric' | 'imperial',
-    weatherContext?: string
+    weatherContext?: string,
+    clientTimezone?: string
   ): Promise<string> => {
+    // Auto-detect timezone if not provided
+    const timezone = clientTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
     const response = await request<ChatResponse>('/chat', {
       method: 'POST',
       body: JSON.stringify({
@@ -194,6 +197,7 @@ export const chatApi = {
         message,
         unit_system: unitSystem,
         weather_context: weatherContext,
+        client_timezone: timezone,
       }),
     });
     return response.response;

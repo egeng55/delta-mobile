@@ -468,46 +468,49 @@ function createStyles(theme: Theme, insets: { top: number; bottom: number }, das
 const staticStyles = StyleSheet.create({
   content: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 32,
   },
   greeting: {
     fontSize: 28,
     fontWeight: '600',
-    marginBottom: 4,
+    marginBottom: 12,
+    marginTop: 8,
   },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: 16,
   },
   clockContainer: {
     alignItems: 'flex-start',
+    paddingVertical: 4,
   },
   timeCompact: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '300',
   },
   dateCompact: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '400',
-    marginTop: 2,
+    marginTop: 4,
   },
   weatherCompact: {
     alignItems: 'flex-end',
+    paddingVertical: 4,
   },
   weatherRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
   weatherTempCompact: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '300',
   },
   weatherDetailCompact: {
-    fontSize: 11,
-    marginTop: 2,
+    fontSize: 12,
+    marginTop: 4,
   },
   avatarContainer: {
     alignItems: 'center',
@@ -558,13 +561,13 @@ const staticStyles = StyleSheet.create({
   },
   insightBubble: {
     borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
     maxWidth: '95%',
   },
   insightMessage: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: '400',
   },
   loadingRow: {
@@ -572,7 +575,8 @@ const staticStyles = StyleSheet.create({
     alignItems: 'center',
   },
   bottomSection: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 32,
+    paddingBottom: 8,
   },
   voiceButton: {
     width: 44,
