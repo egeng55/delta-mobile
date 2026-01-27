@@ -148,17 +148,15 @@ export async function configure(): Promise<void> {
       return;
     }
 
-    // Enable debug logs in development
-    if (__DEV__ === true) {
-      Purchases.setLogLevel(LOG_LEVEL.DEBUG);
-    }
+    // Silence SDK logs
+    Purchases.setLogLevel(LOG_LEVEL.ERROR);
 
     await Purchases.configure({
       apiKey: REVENUECAT_API_KEY,
     });
 
     isConfigured = true;
-    console.log('RevenueCat: Configured successfully');
+    // RevenueCat: Configured successfully');
   } catch {
     // Configuration failed - silently mark as configured to prevent retry loops
     isConfigured = true;
@@ -176,7 +174,7 @@ export async function login(userId: string): Promise<CustomerInfo | null> {
       return null;
     }
     const { customerInfo } = await Purchases.logIn(userId);
-    console.log('RevenueCat: User logged in', userId);
+    // RevenueCat: User logged in', userId);
     return customerInfo;
   } catch (error) {
     // Silently fail - IAP not available
@@ -195,7 +193,7 @@ export async function logout(): Promise<CustomerInfo | null> {
       return null;
     }
     const customerInfo = await Purchases.logOut();
-    console.log('RevenueCat: User logged out');
+    // RevenueCat: User logged out');
     return customerInfo;
   } catch (error) {
     // Silently fail - IAP not available
@@ -215,9 +213,9 @@ export async function getCustomerInfo(): Promise<CustomerInfo | null> {
     }
     const customerInfo = await Purchases.getCustomerInfo();
     return customerInfo;
-  } catch (error) {
-    console.error('RevenueCat: Failed to get customer info', error);
-    throw error;
+  } catch {
+    // Silently fail - IAP may not be configured
+    return null;
   }
 }
 
@@ -233,9 +231,9 @@ export async function getOfferings(): Promise<PurchasesOffering | null> {
     }
     const offerings = await Purchases.getOfferings();
     return offerings.current ?? null;
-  } catch (error) {
-    console.error('RevenueCat: Failed to get offerings', error);
-    throw error;
+  } catch {
+    // Silently fail - offerings may not be configured
+    return null;
   }
 }
 
@@ -250,7 +248,7 @@ export async function purchasePackage(pkg: PurchasesPackage): Promise<{
   try {
     await loadModules();
     const result = await Purchases.purchasePackage(pkg);
-    console.log('RevenueCat: Purchase successful', result.productIdentifier);
+    // RevenueCat: Purchase successful', result.productIdentifier);
     return {
       customerInfo: result.customerInfo,
       productIdentifier: result.productIdentifier,
@@ -260,17 +258,17 @@ export async function purchasePackage(pkg: PurchasesPackage): Promise<{
 
     // Handle user cancellation
     if (purchaseError.code === PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR) {
-      console.log('RevenueCat: Purchase cancelled by user');
+      // RevenueCat: Purchase cancelled by user');
       throw new Error('PURCHASE_CANCELLED');
     }
 
     // Handle payment pending
     if (purchaseError.code === PURCHASES_ERROR_CODE.PAYMENT_PENDING_ERROR) {
-      console.log('RevenueCat: Payment pending');
+      // RevenueCat: Payment pending');
       throw new Error('PAYMENT_PENDING');
     }
 
-    console.error('RevenueCat: Purchase failed', error);
+    // Purchase failed - rethrow for UI handling
     throw error;
   }
 }
@@ -279,15 +277,17 @@ export async function purchasePackage(pkg: PurchasesPackage): Promise<{
  * Restore previous purchases.
  * Used when user reinstalls or logs in on new device.
  */
-export async function restorePurchases(): Promise<CustomerInfo> {
+export async function restorePurchases(): Promise<CustomerInfo | null> {
   try {
-    await loadModules();
+    const modulesLoaded = await loadModules();
+    if (modulesLoaded === false) {
+      return null;
+    }
     const customerInfo = await Purchases.restorePurchases();
-    console.log('RevenueCat: Purchases restored');
     return customerInfo;
-  } catch (error) {
-    console.error('RevenueCat: Failed to restore purchases', error);
-    throw error;
+  } catch {
+    // Silently fail - restore may not be available
+    return null;
   }
 }
 
@@ -308,27 +308,27 @@ export async function presentPaywall(): Promise<{
     switch (paywallResult) {
       case PAYWALL_RESULT.PURCHASED:
         const customerInfo = await getCustomerInfo();
-        console.log('RevenueCat: Paywall purchase completed');
+        // RevenueCat: Paywall purchase completed');
         return { result: 'purchased', customerInfo: customerInfo ?? undefined };
 
       case PAYWALL_RESULT.RESTORED:
         const restoredInfo = await getCustomerInfo();
-        console.log('RevenueCat: Paywall restore completed');
+        // RevenueCat: Paywall restore completed');
         return { result: 'restored', customerInfo: restoredInfo ?? undefined };
 
       case PAYWALL_RESULT.CANCELLED:
-        console.log('RevenueCat: Paywall cancelled');
+        // RevenueCat: Paywall cancelled');
         return { result: 'cancelled' };
 
       case PAYWALL_RESULT.ERROR:
-        console.log('RevenueCat: Paywall error');
+        // RevenueCat: Paywall error');
         return { result: 'error' };
 
       default:
         return { result: 'cancelled' };
     }
-  } catch (error) {
-    console.error('RevenueCat: Failed to present paywall', error);
+  } catch {
+    // Silently fail - paywall may not be configured
     return { result: 'error' };
   }
 }
@@ -370,8 +370,8 @@ export async function presentPaywallIfNeeded(
       default:
         return { result: 'cancelled' };
     }
-  } catch (error) {
-    console.error('RevenueCat: Failed to present paywall', error);
+  } catch {
+    // Silently fail - paywall may not be configured
     return { result: 'error' };
   }
 }
@@ -383,12 +383,13 @@ export async function presentPaywallIfNeeded(
  */
 export async function presentCustomerCenter(): Promise<void> {
   try {
-    await loadModules();
+    const modulesLoaded = await loadModules();
+    if (modulesLoaded === false) {
+      return;
+    }
     await RevenueCatUI.presentCustomerCenter();
-    console.log('RevenueCat: Customer Center presented');
-  } catch (error) {
-    console.error('RevenueCat: Failed to present Customer Center', error);
-    throw error;
+  } catch {
+    // Silently fail - Customer Center may not be configured
   }
 }
 
@@ -465,7 +466,7 @@ export function addCustomerInfoUpdateListener(
   listener: (customerInfo: CustomerInfo) => void
 ): () => void {
   if (Purchases === undefined) {
-    console.warn('RevenueCat: Purchases not loaded, listener not added');
+    // Native module not available - return no-op
     return () => {};
   }
 
@@ -499,8 +500,7 @@ export async function getManagementURL(): Promise<string | null> {
   try {
     const customerInfo = await getCustomerInfo();
     return customerInfo?.managementURL ?? null;
-  } catch (error) {
-    console.error('RevenueCat: Failed to get management URL', error);
+  } catch {
     return null;
   }
 }
@@ -509,17 +509,18 @@ export async function getManagementURL(): Promise<string | null> {
  * Sync purchases with RevenueCat.
  * Useful after app updates or to ensure latest state.
  */
-export async function syncPurchases(): Promise<CustomerInfo> {
+export async function syncPurchases(): Promise<CustomerInfo | null> {
   try {
-    await loadModules();
+    const modulesLoaded = await loadModules();
+    if (modulesLoaded === false) {
+      return null;
+    }
     await Purchases.syncPurchases();
-    console.log('RevenueCat: Purchases synced');
-    // Get customer info after sync
     const customerInfo = await Purchases.getCustomerInfo();
     return customerInfo;
-  } catch (error) {
-    console.error('RevenueCat: Failed to sync purchases', error);
-    throw error;
+  } catch {
+    // Silently fail
+    return null;
   }
 }
 
@@ -532,7 +533,10 @@ export async function setUserAttributes(attributes: {
   [key: string]: string | undefined;
 }): Promise<void> {
   try {
-    await loadModules();
+    const modulesLoaded = await loadModules();
+    if (modulesLoaded === false) {
+      return;
+    }
     if (attributes.email) {
       await Purchases.setEmail(attributes.email);
     }
@@ -546,9 +550,7 @@ export async function setUserAttributes(attributes: {
         await Purchases.setAttributes({ [key]: value });
       }
     }
-
-    console.log('RevenueCat: User attributes set');
-  } catch (error) {
-    console.error('RevenueCat: Failed to set user attributes', error);
+  } catch {
+    // Silently fail
   }
 }
