@@ -6,6 +6,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -35,9 +36,9 @@ import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useAccess } from '../context/AccessContext';
 
-// Cache configuration
+// Cache configuration - short duration for real-time feel
 const CACHE_PREFIX = '@delta_insights_';
-const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION_MS = 30 * 1000; // 30 seconds - keeps data fresh
 
 interface CachedData<T> {
   data: T;
@@ -556,6 +557,14 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   useEffect(() => {
     loadTabData('analytics');
   }, [userId]);
+
+  // Refresh data when screen comes into focus (e.g., after logging food in chat)
+  useFocusEffect(
+    useCallback(() => {
+      // Force refresh analytics to show latest logged data
+      loadTabData(activeTab, true);
+    }, [activeTab, loadTabData])
+  );
 
   // Load data when tab changes
   useEffect(() => {
