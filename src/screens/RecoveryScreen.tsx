@@ -109,18 +109,26 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
   };
 
   // Calculate recovery score for gauge (0-100)
+  // Use actual backend readiness score when available
   const recoveryScore = useMemo(() => {
+    // Prefer actual readiness score from backend
+    if (healthState?.readiness?.score !== undefined) {
+      return Math.round(healthState.readiness.score);
+    }
+    // Fall back to state-based mapping
     if (!healthState?.recovery) return 50;
     const stateScores: Record<string, number> = {
-      'well_rested': 85,
+      'well_rested': 90,
       'rested': 75,
+      'recovered': 70,
       'moderate': 55,
+      'neutral': 50,
       'fatigued': 35,
       'exhausted': 20,
       'unknown': 50,
     };
     return stateScores[healthState.recovery.state] ?? 50;
-  }, [healthState?.recovery]);
+  }, [healthState?.recovery, healthState?.readiness]);
 
   // Build factors array for FactorBreakdownCard
   const recoveryFactors = useMemo(() => {

@@ -206,20 +206,39 @@ export default function TodayScreen({
   }, [progress]);
 
   // Calculate recovery and strain scores from health state
+  // Use actual backend scores when available, fall back to state-based estimates
   const recoveryScore = useMemo(() => {
+    // Use readiness score from backend if available (0-100)
+    if (healthState?.readiness?.score !== undefined) {
+      return Math.round(healthState.readiness.score);
+    }
+    // Fall back to state-based mapping (no random variance)
     if (!healthState?.recovery) return 50;
     const state = healthState.recovery.state;
-    if (state === 'recovered') return 75 + Math.random() * 25;
-    if (state === 'neutral') return 45 + Math.random() * 20;
-    return 15 + Math.random() * 20;
-  }, [healthState?.recovery]);
+    if (state === 'well_rested') return 90;
+    if (state === 'rested') return 75;
+    if (state === 'recovered') return 70;
+    if (state === 'moderate') return 55;
+    if (state === 'neutral') return 50;
+    if (state === 'fatigued') return 35;
+    if (state === 'exhausted') return 20;
+    return 50;
+  }, [healthState?.recovery, healthState?.readiness]);
 
   const strainScore = useMemo(() => {
+    // Use cumulative load from backend if available
+    if (healthState?.load?.cumulative !== undefined) {
+      // Normalize cumulative load to 0-100 scale (assuming max ~200)
+      return Math.min(100, Math.round(healthState.load.cumulative / 2));
+    }
+    // Fall back to state-based mapping (no random variance)
     if (!healthState?.load) return 30;
     const state = healthState.load.state;
-    if (state === 'high') return 70 + Math.random() * 30;
-    if (state === 'moderate') return 40 + Math.random() * 25;
-    return 10 + Math.random() * 25;
+    if (state === 'high') return 80;
+    if (state === 'moderate') return 50;
+    if (state === 'low') return 25;
+    if (state === 'recovering') return 15;
+    return 30;
   }, [healthState?.load]);
 
   // Get quick stats for selected date
