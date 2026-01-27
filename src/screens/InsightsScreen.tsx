@@ -25,7 +25,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeInRight, FadeInUp } from 'react-native-reanimated';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AnimatedCard, AnimatedListItem, AnimatedProgress, AnimatedButton, FadeInView } from '../components/Animated';
 import LineChart, { DataPoint } from '../components/LineChart';
 import { AvatarCanvas } from '../components/Avatar';
@@ -36,38 +35,7 @@ import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useAccess } from '../context/AccessContext';
 
-// Cache configuration - short duration for real-time feel
-const CACHE_PREFIX = '@delta_insights_';
-const CACHE_DURATION_MS = 30 * 1000; // 30 seconds - keeps data fresh
-
-interface CachedData<T> {
-  data: T;
-  timestamp: number;
-}
-
-const getCached = async <T,>(key: string): Promise<T | null> => {
-  try {
-    const cached = await AsyncStorage.getItem(`${CACHE_PREFIX}${key}`);
-    if (cached) {
-      const parsed: CachedData<T> = JSON.parse(cached);
-      if (Date.now() - parsed.timestamp < CACHE_DURATION_MS) {
-        return parsed.data;
-      }
-    }
-  } catch {
-    // Ignore cache errors
-  }
-  return null;
-};
-
-const setCache = async <T,>(key: string, data: T): Promise<void> => {
-  try {
-    const cached: CachedData<T> = { data, timestamp: Date.now() };
-    await AsyncStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(cached));
-  } catch {
-    // Ignore cache errors
-  }
-};
+// No cache - always fetch fresh data
 import {
   insightsApi,
   InsightsData,
@@ -299,37 +267,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   }, []);
 
   // Fetch Analytics tab data (dashboard, derivatives, weekly summaries)
-  const fetchAnalyticsData = useCallback(async (forceRefresh: boolean = false): Promise<void> => {
-    const cacheKey = `analytics_${userId}`;
-
-    // Try cache first (unless forcing refresh)
-    if (!forceRefresh) {
-      const cached = await getCached<{
-        insights: InsightsData;
-        derivatives: DerivativesData;
-        cards: DerivativeCard[];
-        weekly: WeeklySummary[];
-        today: WeeklySummary | null;
-        targets: DisplayTargets;
-        targetsPersonalized: boolean;
-        targetsInfo: TargetsInfo;
-      }>(cacheKey);
-
-      if (cached) {
-        setInsights(cached.insights);
-        setDerivatives(cached.derivatives);
-        setDerivativeCards(cached.cards);
-        setWeeklySummaries(cached.weekly);
-        setTodaySummary(cached.today);
-        setTargets(cached.targets);
-        setTargetsPersonalized(cached.targetsPersonalized);
-        setTargetsInfo(cached.targetsInfo);
-        setAnalyticsLoading(false);
-        loadedTabs.current.add('analytics');
-        return;
-      }
-    }
-
+  const fetchAnalyticsData = useCallback(async (): Promise<void> => {
     setAnalyticsLoading(true);
     setError('');
 
@@ -394,18 +332,6 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
       setTargetsPersonalized(dashboardData.targets_calculated ?? false);
       setTargetsInfo(newTargetsInfo);
 
-      // Cache the data
-      await setCache(cacheKey, {
-        insights: insightsData,
-        derivatives: derivativesData,
-        cards: cardsData.cards,
-        weekly: weeklyData.weekly_summaries?.reverse() ?? [],
-        today: dashboardData.today as WeeklySummary | null,
-        targets: newTargets,
-        targetsPersonalized: dashboardData.targets_calculated ?? false,
-        targetsInfo: newTargetsInfo,
-      });
-
       loadedTabs.current.add('analytics');
     } catch {
       setError('Could not load analytics');
@@ -418,25 +344,11 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   }, [userId, defaultInsights, defaultDerivatives, withTimeout]);
 
   // Fetch Workout tab data
-  const fetchWorkoutData = useCallback(async (forceRefresh: boolean = false): Promise<void> => {
-    const cacheKey = `workout_${userId}`;
-
-    if (!forceRefresh) {
-      const cached = await getCached<{ workout: WorkoutPlan | null }>(cacheKey);
-      if (cached) {
-        setWorkout(cached.workout);
-        setWorkoutLoading(false);
-        loadedTabs.current.add('workout');
-        return;
-      }
-    }
-
+  const fetchWorkoutData = useCallback(async (): Promise<void> => {
     setWorkoutLoading(true);
-
     try {
       const workoutData = await withTimeout(workoutApi.getToday(userId), 8000, { workout: null });
       setWorkout(workoutData.workout);
-      await setCache(cacheKey, { workout: workoutData.workout });
       loadedTabs.current.add('workout');
     } catch {
       setWorkout(null);
@@ -446,28 +358,9 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   }, [userId, withTimeout]);
 
   // Fetch Calendar tab data
-  const fetchCalendarData = useCallback(async (forceRefresh: boolean = false): Promise<void> => {
+  const fetchCalendarData = useCallback(async (): Promise<void> => {
     const year = calendarDate.getFullYear();
     const month = calendarDate.getMonth() + 1;
-    const cacheKey = `calendar_${userId}_${year}_${month}`;
-
-    if (!forceRefresh) {
-      const cached = await getCached<{
-        logs: DailyLog[];
-        menstrualSettings: MenstrualSettings | null;
-        menstrualCalendar: MenstrualCalendarDay[];
-        cyclePhase: CyclePhase | null;
-      }>(cacheKey);
-      if (cached) {
-        setMonthLogs(cached.logs);
-        setMenstrualSettings(cached.menstrualSettings);
-        setMenstrualCalendar(cached.menstrualCalendar);
-        setCyclePhase(cached.cyclePhase);
-        setCalendarLoading(false);
-        loadedTabs.current.add('calendar');
-        return;
-      }
-    }
 
     setCalendarLoading(true);
 
@@ -480,29 +373,19 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
       setMonthLogs(monthData.logs);
       setMenstrualSettings(menstrualSettingsData);
 
-      let calendarData: MenstrualCalendarDay[] = [];
-      let phase: CyclePhase | null = null;
-
       // Load menstrual calendar data if tracking is enabled
       if (menstrualSettingsData.tracking_enabled === true) {
         const menstrualLogs = await menstrualService.getMonthLogs(userId, year, month);
-        calendarData = menstrualService.generateCalendarData(year, month, menstrualLogs, menstrualSettingsData);
+        const calendarData = menstrualService.generateCalendarData(year, month, menstrualLogs, menstrualSettingsData);
         setMenstrualCalendar(calendarData);
 
-        phase = menstrualService.calculateCyclePhase(
+        const phase = menstrualService.calculateCyclePhase(
           menstrualSettingsData.last_period_start,
           menstrualSettingsData.average_cycle_length,
           menstrualSettingsData.average_period_length
         );
         setCyclePhase(phase);
       }
-
-      await setCache(cacheKey, {
-        logs: monthData.logs,
-        menstrualSettings: menstrualSettingsData,
-        menstrualCalendar: calendarData,
-        cyclePhase: phase,
-      });
 
       loadedTabs.current.add('calendar');
     } catch {
@@ -533,22 +416,18 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
     }
   }, []);
 
-  // Load data for the active tab
-  const loadTabData = useCallback(async (tab: TabType, forceRefresh: boolean = false): Promise<void> => {
-    // Skip if already loaded and not forcing refresh
-    if (!forceRefresh && loadedTabs.current.has(tab)) return;
-
+  // Load data for the active tab - always fetches fresh data
+  const loadTabData = useCallback(async (tab: TabType): Promise<void> => {
     switch (tab) {
       case 'analytics':
-        await fetchAnalyticsData(forceRefresh);
-        // Load HealthKit in background (non-blocking)
+        await fetchAnalyticsData();
         fetchHealthKitData();
         break;
       case 'workout':
-        await fetchWorkoutData(forceRefresh);
+        await fetchWorkoutData();
         break;
       case 'calendar':
-        await fetchCalendarData(forceRefresh);
+        await fetchCalendarData();
         break;
     }
   }, [fetchAnalyticsData, fetchWorkoutData, fetchCalendarData, fetchHealthKitData]);
@@ -561,8 +440,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   // Refresh data when screen comes into focus (e.g., after logging food in chat)
   useFocusEffect(
     useCallback(() => {
-      // Force refresh analytics to show latest logged data
-      loadTabData(activeTab, true);
+      loadTabData(activeTab);
     }, [activeTab, loadTabData])
   );
 
@@ -574,8 +452,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
   // Reload calendar when month changes
   useEffect(() => {
     if (activeTab === 'calendar') {
-      loadedTabs.current.delete('calendar');
-      fetchCalendarData(true);
+      fetchCalendarData();
     }
   }, [calendarDate]);
 
@@ -656,7 +533,7 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
 
   const onRefresh = (): void => {
     setIsRefreshing(true);
-    loadTabData(activeTab, true).finally(() => setIsRefreshing(false));
+    loadTabData(activeTab).finally(() => setIsRefreshing(false));
   };
 
   const changeMonth = (delta: number): void => {
