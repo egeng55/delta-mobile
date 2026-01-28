@@ -64,6 +64,7 @@ import { StateCard, AlignmentRing } from '../components/HealthState';
 import { ChainCard } from '../components/CausalChain';
 import * as menstrualService from '../services/menstrualTracking';
 import healthKitService, { SleepSummary, HealthSummary } from '../services/healthKit';
+import { useDayChange } from '../hooks/useDayChange';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -284,22 +285,27 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
 
       const defaultHealthState: HealthStateResponse = { has_data: false };
 
-      const [insightsData, derivativesData, cardsData, weeklyData, dashboardData, healthStateData] = await Promise.all([
-        withTimeout(insightsApi.getInsights(userId), 8000, defaultInsights),
-        withTimeout(derivativesApi.getDerivatives(userId, 30), 8000, defaultDerivatives),
-        withTimeout(derivativesApi.getCards(userId, 14), 8000, { cards: [], count: 0 }),
-        withTimeout(dashboardApi.getWeekly(userId) as Promise<{ weekly_summaries: WeeklySummary[] }>, 8000, defaultWeekly),
-        withTimeout(dashboardApi.getDashboard(userId), 8000, defaultDashboard),
-        withTimeout(healthIntelligenceApi.getState(userId), 8000, defaultHealthState),
-      ]);
+      // Progressive loading: fire all requests, update UI as each resolves
+      const insightsP = withTimeout(insightsApi.getInsights(userId), 8000, defaultInsights);
+      const derivativesP = withTimeout(derivativesApi.getDerivatives(userId, 30), 8000, defaultDerivatives);
+      const cardsP = withTimeout(derivativesApi.getCards(userId, 14), 8000, { cards: [], count: 0 });
+      const weeklyP = withTimeout(dashboardApi.getWeekly(userId) as Promise<{ weekly_summaries: WeeklySummary[] }>, 8000, defaultWeekly);
+      const dashboardP = withTimeout(dashboardApi.getDashboard(userId), 8000, defaultDashboard);
+      const healthStateP = withTimeout(healthIntelligenceApi.getState(userId), 8000, defaultHealthState);
 
-      setInsights(insightsData);
-      setDerivatives(derivativesData);
-      setDerivativeCards(cardsData.cards);
-      setHealthState(healthStateData);
-      setCausalChains(healthStateData.causal_chains ?? []);
-      setWeeklySummaries(weeklyData.weekly_summaries?.reverse() ?? []);
+      // Update UI as each promise resolves (don't block on slowest)
+      insightsP.then(d => setInsights(d));
+      derivativesP.then(d => { setDerivatives(d); });
+      cardsP.then(d => setDerivativeCards(d.cards));
+      weeklyP.then(d => setWeeklySummaries(d.weekly_summaries?.reverse() ?? []));
+      healthStateP.then(d => { setHealthState(d); setCausalChains(d.causal_chains ?? []); });
+
+      // Dashboard has complex processing, await it
+      const dashboardData = await dashboardP;
       setTodaySummary(dashboardData.today as WeeklySummary | null);
+
+      // Wait for remaining to finish (they already started, just ensuring no unhandled rejections)
+      await Promise.allSettled([insightsP, derivativesP, cardsP, weeklyP, healthStateP]);
 
       // Set personalized targets from dashboard
       const isWorkoutDay = dashboardData.is_workout_day === true;
@@ -443,6 +449,11 @@ export default function InsightsScreen({ theme }: InsightsScreenProps): React.Re
       loadTabData(activeTab);
     }, [activeTab, loadTabData])
   );
+
+  // Refresh data when day changes (midnight or app foregrounded on new day)
+  useDayChange(() => {
+    loadTabData(activeTab);
+  });
 
   // Load data when tab changes
   useEffect(() => {

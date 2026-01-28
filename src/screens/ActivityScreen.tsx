@@ -30,7 +30,7 @@ import { spacing, typography, borderRadius, shadows } from '../theme/designSyste
 import { useInsightsData } from '../hooks/useInsightsData';
 import { useAuth } from '../context/AuthContext';
 import { useHealthKit } from '../context/HealthKitContext';
-import { workoutApi, Exercise } from '../services/api';
+import { workoutApi, Exercise, healthIntelligenceApi, WorkoutGuidanceResponse } from '../services/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -161,17 +161,34 @@ export default function ActivityScreen({ theme }: ActivityScreenProps): React.Re
   } = useInsightsData();
 
   // Use centralized HealthKit context for Apple Watch data
-  const { hasWatchData, healthData } = useHealthKit();
+  const { isEnabled: healthKitEnabled, hasWatchData, healthData } = useHealthKit();
 
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [isCompleting, setIsCompleting] = useState(false);
   const [expandedWorkout, setExpandedWorkout] = useState(true);
+  const [workoutGuidance, setWorkoutGuidance] = useState<WorkoutGuidanceResponse | null>(null);
+  const [guidanceLoading, setGuidanceLoading] = useState(false);
 
   useEffect(() => {
     // Fetch both workout data and analytics (for weeklySummaries metrics)
     fetchWorkoutData();
     fetchAnalyticsData();
-  }, [fetchWorkoutData, fetchAnalyticsData]);
+
+    // Fetch workout guidance from Delta
+    const fetchGuidance = async () => {
+      if (!user?.id) return;
+      setGuidanceLoading(true);
+      try {
+        const guidance = await healthIntelligenceApi.getWorkoutGuidance(user.id);
+        setWorkoutGuidance(guidance);
+      } catch (error) {
+        console.error('Failed to fetch workout guidance:', error);
+      } finally {
+        setGuidanceLoading(false);
+      }
+    };
+    fetchGuidance();
+  }, [fetchWorkoutData, fetchAnalyticsData, user?.id]);
 
   // Calculate workout progress
   const progressPercentage = useMemo((): number => {
@@ -182,17 +199,22 @@ export default function ActivityScreen({ theme }: ActivityScreenProps): React.Re
     return Math.round((completed / exercises.length) * 100);
   }, [workout]);
 
-  // Calculate activity score (composite of workout, calories)
+  // Use readiness score from healthState instead of calculated activity score
   const activityScore = useMemo(() => {
+    // Prefer guidance readiness score, fallback to healthState readiness score
+    if (workoutGuidance?.readiness_score !== null && workoutGuidance?.readiness_score !== undefined) {
+      return workoutGuidance.readiness_score;
+    }
+    if (healthState?.readiness?.score !== null && healthState?.readiness?.score !== undefined) {
+      return healthState.readiness.score;
+    }
+    // Fallback to calculated score if no readiness data available
     const today = weeklySummaries[weeklySummaries.length - 1];
     if (!today) return 0;
-
-    // Score components based on available data
     const workoutScore = today.workouts > 0 ? 50 : Math.min(50, (today.workout_minutes / 30) * 50);
     const nutritionScore = Math.min(50, (today.calories / 2000) * 50);
-
     return Math.round(workoutScore + nutritionScore);
-  }, [weeklySummaries]);
+  }, [healthState?.readiness?.score, workoutGuidance?.readiness_score, weeklySummaries]);
 
   // Today's metrics (using available WeeklySummary fields)
   const todayMetrics = useMemo(() => {
@@ -324,7 +346,7 @@ export default function ActivityScreen({ theme }: ActivityScreenProps): React.Re
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Activity</Text>
-        {hasWatchData && (
+        {healthKitEnabled && hasWatchData && (
           <View style={styles.watchBadge}>
             <Ionicons name="watch" size={12} color="#FF2D55" />
             <Text style={styles.watchBadgeText}>Apple Watch</Text>
@@ -343,9 +365,9 @@ export default function ActivityScreen({ theme }: ActivityScreenProps): React.Re
 
         {/* Quick Metrics Row */}
         <View style={styles.metricsRow}>
-          {hasWatchData ? (
+          {healthKitEnabled && hasWatchData ? (
             <>
-              {/* Apple Watch metrics */}
+              {/* Apple Watch metrics - only when enabled */}
               <View style={styles.metricItem}>
                 <View style={[styles.metricIcon, { backgroundColor: '#22C55E20' }]}>
                   <Ionicons name="footsteps" size={18} color="#22C55E" />
@@ -409,6 +431,85 @@ export default function ActivityScreen({ theme }: ActivityScreenProps): React.Re
         </View>
       </Animated.View>
 
+      {/* Workout Guidance Card - Delta's recommendation */}
+      {workoutGuidance && (
+        <Animated.View entering={FadeInDown.delay(75).duration(400)} style={styles.guidanceCard}>
+          <View style={styles.guidanceHeader}>
+            <View style={[
+              styles.guidanceBadge,
+              {
+                backgroundColor:
+                  workoutGuidance.recommendation === 'go' ? '#22C55E20' :
+                  workoutGuidance.recommendation === 'caution' ? '#F59E0B20' :
+                  '#EF444420'
+              }
+            ]}>
+              <Ionicons
+                name={
+                  workoutGuidance.recommendation === 'go' ? 'checkmark-circle' :
+                  workoutGuidance.recommendation === 'caution' ? 'alert-circle' :
+                  'close-circle'
+                }
+                size={24}
+                color={
+                  workoutGuidance.recommendation === 'go' ? '#22C55E' :
+                  workoutGuidance.recommendation === 'caution' ? '#F59E0B' :
+                  '#EF4444'
+                }
+              />
+            </View>
+            <View style={styles.guidanceHeaderText}>
+              <Text style={[
+                styles.guidanceRecommendation,
+                {
+                  color:
+                    workoutGuidance.recommendation === 'go' ? '#22C55E' :
+                    workoutGuidance.recommendation === 'caution' ? '#F59E0B' :
+                    '#EF4444'
+                }
+              ]}>
+                {workoutGuidance.recommendation === 'go' ? 'Good to Go' :
+                 workoutGuidance.recommendation === 'caution' ? 'Proceed with Caution' :
+                 'Rest Day Recommended'}
+              </Text>
+              <Text style={styles.guidanceLabel}>Delta's Workout Guidance</Text>
+            </View>
+          </View>
+
+          <Text style={styles.guidanceRationale}>{workoutGuidance.rationale}</Text>
+
+          {workoutGuidance.recommendation === 'caution' && workoutGuidance.modifications && (
+            <View style={styles.guidanceModifications}>
+              <View style={styles.guidanceModificationsHeader}>
+                <Ionicons name="fitness" size={16} color="#F59E0B" />
+                <Text style={styles.guidanceModificationsTitle}>Modifications</Text>
+              </View>
+              <Text style={styles.guidanceModificationsText}>{workoutGuidance.modifications}</Text>
+            </View>
+          )}
+
+          {workoutGuidance.recommendation === 'skip' && workoutGuidance.alternatives && (
+            <View style={styles.guidanceAlternatives}>
+              <View style={styles.guidanceModificationsHeader}>
+                <Ionicons name="leaf" size={16} color="#EF4444" />
+                <Text style={[styles.guidanceModificationsTitle, { color: '#EF4444' }]}>Recovery Alternatives</Text>
+              </View>
+              <Text style={styles.guidanceModificationsText}>{workoutGuidance.alternatives}</Text>
+            </View>
+          )}
+
+          {workoutGuidance.recommendation === 'go' && workoutGuidance.modifications && (
+            <View style={styles.guidanceOptimizations}>
+              <View style={styles.guidanceModificationsHeader}>
+                <Ionicons name="trending-up" size={16} color="#22C55E" />
+                <Text style={[styles.guidanceModificationsTitle, { color: '#22C55E' }]}>Optimization Tips</Text>
+              </View>
+              <Text style={styles.guidanceModificationsText}>{workoutGuidance.modifications}</Text>
+            </View>
+          )}
+        </Animated.View>
+      )}
+
       {/* Weekly Overview */}
       <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.weeklyCard}>
         <View style={styles.weeklyHeader}>
@@ -422,6 +523,12 @@ export default function ActivityScreen({ theme }: ActivityScreenProps): React.Re
               <Text style={styles.weeklyBadgeValue}>{weeklyStats.totalMinutes}</Text>
               <Text style={styles.weeklyBadgeLabel}>Minutes</Text>
             </View>
+            {weeklyStats.avgCalories > 0 && (
+              <View style={styles.weeklyBadge}>
+                <Text style={styles.weeklyBadgeValue}>{weeklyStats.avgCalories}</Text>
+                <Text style={styles.weeklyBadgeLabel}>Avg Cal</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -433,29 +540,31 @@ export default function ActivityScreen({ theme }: ActivityScreenProps): React.Re
         />
       </Animated.View>
 
-      {/* Load State Card */}
-      {healthState?.load && (
+      {/* Load State Card - only show if recent workouts exist */}
+      {healthState?.load && weeklyStats.totalWorkouts > 0 && (
         <Animated.View entering={FadeInDown.delay(150).duration(400)} style={styles.loadStateCard}>
           <View style={styles.loadStateHeader}>
             <View style={styles.loadStateInfo}>
               <Text style={styles.loadStateTitle}>Training Load</Text>
               <Text style={[styles.loadStateValue, {
                 color:
-                  healthState.load.state === 'low' ? '#22C55E' :
+                  (weeklyStats.totalWorkouts <= 1 ? 'low' : healthState.load.state) === 'low' ? '#22C55E' :
                   healthState.load.state === 'moderate' ? '#F59E0B' :
                   '#EF4444'
               }]}>
-                {healthState.load.state.charAt(0).toUpperCase() + healthState.load.state.slice(1)}
+                {weeklyStats.totalWorkouts <= 1
+                  ? 'Low'
+                  : healthState.load.state.charAt(0).toUpperCase() + healthState.load.state.slice(1)}
               </Text>
             </View>
           </View>
-          {healthState.load.cumulative && (
+          {healthState.load.cumulative != null && (
             <View style={styles.loadStateBar}>
               <View
                 style={[styles.loadStateBarFill, {
-                  width: `${Math.min(100, healthState.load.cumulative)}%`,
+                  width: `${Math.min(100, weeklyStats.totalWorkouts <= 1 ? Math.min(healthState.load.cumulative, 25) : healthState.load.cumulative)}%`,
                   backgroundColor:
-                    healthState.load.state === 'low' ? '#22C55E' :
+                    (weeklyStats.totalWorkouts <= 1 ? 'low' : healthState.load.state) === 'low' ? '#22C55E' :
                     healthState.load.state === 'moderate' ? '#F59E0B' :
                     '#EF4444'
                 }]}
@@ -709,6 +818,84 @@ function createStyles(theme: Theme) {
       width: 1,
       height: 50,
       backgroundColor: theme.border,
+    },
+    // Workout Guidance Card
+    guidanceCard: {
+      backgroundColor: theme.surface,
+      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
+      marginBottom: spacing.lg,
+      ...shadows.sm,
+    },
+    guidanceHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.md,
+    },
+    guidanceBadge: {
+      width: 48,
+      height: 48,
+      borderRadius: borderRadius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    guidanceHeaderText: {
+      marginLeft: spacing.md,
+      flex: 1,
+    },
+    guidanceRecommendation: {
+      ...typography.subtitle,
+      fontWeight: '700',
+    },
+    guidanceLabel: {
+      ...typography.caption,
+      color: theme.textSecondary,
+      marginTop: 2,
+    },
+    guidanceRationale: {
+      ...typography.bodyMedium,
+      color: theme.textPrimary,
+      lineHeight: 22,
+    },
+    guidanceModifications: {
+      marginTop: spacing.md,
+      padding: spacing.md,
+      backgroundColor: '#F59E0B10',
+      borderRadius: borderRadius.md,
+      borderLeftWidth: 3,
+      borderLeftColor: '#F59E0B',
+    },
+    guidanceAlternatives: {
+      marginTop: spacing.md,
+      padding: spacing.md,
+      backgroundColor: '#EF444410',
+      borderRadius: borderRadius.md,
+      borderLeftWidth: 3,
+      borderLeftColor: '#EF4444',
+    },
+    guidanceOptimizations: {
+      marginTop: spacing.md,
+      padding: spacing.md,
+      backgroundColor: '#22C55E10',
+      borderRadius: borderRadius.md,
+      borderLeftWidth: 3,
+      borderLeftColor: '#22C55E',
+    },
+    guidanceModificationsHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+      gap: spacing.xs,
+    },
+    guidanceModificationsTitle: {
+      ...typography.labelMedium,
+      color: '#F59E0B',
+      fontWeight: '600',
+    },
+    guidanceModificationsText: {
+      ...typography.bodySmall,
+      color: theme.textPrimary,
+      lineHeight: 20,
     },
     // Weekly Card
     weeklyCard: {

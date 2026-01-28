@@ -26,25 +26,25 @@ export const lightTheme = {
   heart: '#ef4444',            // Red for heart rate
 };
 
-// Dark theme - WHOOP-inspired true black
+// Dark theme - Sleek, high contrast
 export const darkTheme = {
   mode: 'dark' as const,
-  background: '#000000',       // True black (WHOOP style)
-  surface: '#111111',          // Near black cards
-  surfaceSecondary: '#1a1a1a', // Slightly lighter
-  textPrimary: '#ffffff',      // Pure white
-  textSecondary: '#8b8b8b',    // Muted gray
-  accent: '#6366f1',           // Keep indigo consistent
+  background: '#000000',       // True black
+  surface: '#0a0a0a',          // Near black cards
+  surfaceSecondary: '#141414', // Slightly lighter
+  textPrimary: '#fafafa',      // Off-white (easier on eyes than pure white)
+  textSecondary: '#737373',    // Muted gray
+  accent: '#818cf8',           // Soft indigo (more visible on dark)
   accentLight: '#1e1b4b',      // Dark indigo
-  border: '#2a2a2a',           // Subtle dark borders
+  border: '#262626',           // Subtle dark borders
   error: '#f87171',            // Bright red
   success: '#4ade80',          // Bright green (recovery)
   warning: '#fbbf24',          // Bright yellow/orange (strain)
-  // WHOOP-inspired semantic colors
-  recovery: '#4ade80',         // Bright green for recovery
-  strain: '#fbbf24',           // Yellow for strain/load
-  sleep: '#818cf8',            // Light indigo for sleep
-  heart: '#f87171',            // Red for heart rate
+  // Semantic colors - vibrant for contrast
+  recovery: '#34d399',         // Emerald green
+  strain: '#fb923c',           // Orange
+  sleep: '#a78bfa',            // Purple
+  heart: '#fb7185',            // Rose
 };
 
 // Theme type that works for both light and dark
@@ -78,4 +78,97 @@ export function getTheme(colorScheme: string | null | undefined): Theme {
     return darkTheme;
   }
   return lightTheme;
+}
+
+/**
+ * Goal-based color tints.
+ * Provides subtle gradient colors based on user's fitness goal.
+ *
+ * - 'cut' (losing weight): Lighter, cooler tones - airy, light feeling
+ * - 'maintain': Balanced, neutral tones
+ * - 'bulk' (gaining weight): Darker, warmer tones - grounded, powerful feeling
+ */
+export type FitnessGoal = 'cut' | 'maintain' | 'bulk';
+
+export interface GoalTints {
+  primary: string;      // Main tint color
+  secondary: string;    // Secondary tint
+  gradient: string[];   // Gradient colors for backgrounds
+  glow: string;         // Subtle glow/highlight color
+  intensity: number;    // 0-1, how strong the tint effect is
+}
+
+// Light theme goal tints
+const lightGoalTints: Record<FitnessGoal, GoalTints> = {
+  cut: {
+    primary: '#e0f2fe',      // Light sky blue - airy, light
+    secondary: '#f0f9ff',    // Even lighter blue
+    gradient: ['#f0f9ff', '#e0f2fe', '#bae6fd'],
+    glow: 'rgba(56, 189, 248, 0.15)',
+    intensity: 0.3,
+  },
+  maintain: {
+    primary: '#f3e8ff',      // Light purple - balanced
+    secondary: '#faf5ff',    // Very light purple
+    gradient: ['#faf5ff', '#f3e8ff', '#e9d5ff'],
+    glow: 'rgba(168, 85, 247, 0.12)',
+    intensity: 0.25,
+  },
+  bulk: {
+    primary: '#fef3c7',      // Warm amber - grounded, powerful
+    secondary: '#fffbeb',    // Light amber
+    gradient: ['#fffbeb', '#fef3c7', '#fde68a'],
+    glow: 'rgba(245, 158, 11, 0.18)',
+    intensity: 0.35,
+  },
+};
+
+// Dark theme goal tints
+const darkGoalTints: Record<FitnessGoal, GoalTints> = {
+  cut: {
+    primary: '#0c4a6e',      // Deep blue - lean, sharp
+    secondary: '#082f49',    // Darker blue
+    gradient: ['#000000', '#082f49', '#0c4a6e'],
+    glow: 'rgba(56, 189, 248, 0.08)',
+    intensity: 0.2,
+  },
+  maintain: {
+    primary: '#3b0764',      // Deep purple - balanced
+    secondary: '#1e1b4b',    // Dark indigo
+    gradient: ['#000000', '#1e1b4b', '#3b0764'],
+    glow: 'rgba(168, 85, 247, 0.08)',
+    intensity: 0.15,
+  },
+  bulk: {
+    primary: '#78350f',      // Deep amber - heavy, powerful
+    secondary: '#451a03',    // Dark brown
+    gradient: ['#000000', '#451a03', '#78350f'],
+    glow: 'rgba(245, 158, 11, 0.1)',
+    intensity: 0.25,
+  },
+};
+
+/**
+ * Get goal-based color tints for the current theme.
+ */
+export function getGoalTints(
+  goal: FitnessGoal,
+  mode: 'light' | 'dark'
+): GoalTints {
+  if (mode === 'dark') {
+    return darkGoalTints[goal];
+  }
+  return lightGoalTints[goal];
+}
+
+/**
+ * Get a themed gradient style for backgrounds based on goal.
+ * Returns CSS-like gradient string for use with LinearGradient.
+ */
+export function getGoalGradientColors(
+  goal: FitnessGoal,
+  mode: 'light' | 'dark'
+): string[] {
+  const tints = getGoalTints(goal, mode);
+  return tints.gradient;
 }

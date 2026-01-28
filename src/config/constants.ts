@@ -47,7 +47,11 @@ export const LEGAL_URLS = {
 
 // Developer access - should be verified server-side
 // This is only used for UI hints, actual access is controlled by backend
-export const DEVELOPER_EMAILS = ['egeng@umich.edu', 'eric@egeng.co'] as const;
+export const DEVELOPER_EMAILS = [
+  'egeng@umich.edu',
+  'eric@egeng.co',
+  'delta.test@example.com',  // Test account for development
+] as const;
 
 /**
  * Check if an email belongs to a developer.

@@ -8,7 +8,7 @@
  * - Edit profile in modal
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -35,7 +35,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAccess } from '../context/AccessContext';
 import { FadeInView, AnimatedCard } from '../components/Animated';
 import { supabase } from '../services/supabase';
-import { profileApi, profileCardsApi, StatCard as StatCardType, StatCardInput } from '../services/api';
+import { profileApi, profileCardsApi, StatCard as StatCardType, StatCardInput, dashboardApi, DashboardResponse } from '../services/api';
 import { decode } from 'base64-arraybuffer';
 import { StatCard, StatCardEditor } from '../components/Profile';
 
@@ -82,6 +82,8 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
     profileImage: null,
   });
   const [editData, setEditData] = useState<ProfileData>(profileData);
+  const [dashboardData, setDashboardData] = useState<DashboardResponse | null>(null);
+  const [memberSince, setMemberSince] = useState<string | null>(null);
 
   // Load profile display data (syncs with profile context changes)
   useEffect(() => {
@@ -136,6 +138,41 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
       }
     };
     loadStatCards();
+  }, [user?.id]);
+
+  // Load dashboard data for health overview
+  useEffect(() => {
+    const loadDashboard = async (): Promise<void> => {
+      if (!user?.id) return;
+      try {
+        const data = await dashboardApi.getDashboard(user.id);
+        setDashboardData(data);
+      } catch {
+        // Silent fail
+      }
+    };
+    loadDashboard();
+  }, [user?.id]);
+
+  // Load member since date
+  useEffect(() => {
+    const loadMemberDate = async (): Promise<void> => {
+      if (!user?.id) return;
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('created_at')
+          .eq('id', user.id)
+          .single();
+        if (data?.created_at) {
+          const date = new Date(data.created_at);
+          setMemberSince(date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
+        }
+      } catch {
+        // Silent fail
+      }
+    };
+    loadMemberDate();
   }, [user?.id]);
 
   const handleAddStatCard = (): void => {
@@ -341,6 +378,49 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
         <TouchableOpacity style={styles.editProfileButton} onPress={openEditModal}>
           <Ionicons name="pencil" size={16} color={theme.accent} />
         </TouchableOpacity>
+      </Animated.View>
+
+      {/* Health Overview */}
+      <Animated.View entering={FadeInDown.delay(200).springify()} style={styles.section}>
+        <Text style={styles.sectionTitle}>Overview</Text>
+        <View style={styles.overviewGrid}>
+          {dashboardData?.streak && (
+            <View style={styles.overviewItem}>
+              <View style={[styles.overviewIcon, { backgroundColor: theme.accent + '20' }]}>
+                <Ionicons name="flame-outline" size={20} color={theme.accent} />
+              </View>
+              <Text style={styles.overviewValue}>{dashboardData.streak.current_streak}</Text>
+              <Text style={styles.overviewLabel}>Day Streak</Text>
+            </View>
+          )}
+          {dashboardData?.streak && (
+            <View style={styles.overviewItem}>
+              <View style={[styles.overviewIcon, { backgroundColor: '#8B5CF620' }]}>
+                <Ionicons name="trophy-outline" size={20} color="#8B5CF6" />
+              </View>
+              <Text style={styles.overviewValue}>{dashboardData.streak.longest_streak}</Text>
+              <Text style={styles.overviewLabel}>Best Streak</Text>
+            </View>
+          )}
+          {profileData.age.length > 0 && (
+            <View style={styles.overviewItem}>
+              <View style={[styles.overviewIcon, { backgroundColor: '#22C55E20' }]}>
+                <Ionicons name="person-outline" size={20} color="#22C55E" />
+              </View>
+              <Text style={styles.overviewValue}>{profileData.age}</Text>
+              <Text style={styles.overviewLabel}>Age</Text>
+            </View>
+          )}
+          {memberSince && (
+            <View style={styles.overviewItem}>
+              <View style={[styles.overviewIcon, { backgroundColor: '#F59E0B20' }]}>
+                <Ionicons name="calendar-outline" size={20} color="#F59E0B" />
+              </View>
+              <Text style={styles.overviewValue}>{memberSince}</Text>
+              <Text style={styles.overviewLabel}>Member Since</Text>
+            </View>
+          )}
+        </View>
       </Animated.View>
 
       {/* My Stats Section */}
@@ -828,6 +908,39 @@ function createStyles(theme: Theme, topInset: number) {
     },
     statsGrid: {
       gap: 0,
+    },
+    overviewGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 12,
+    },
+    overviewItem: {
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+      padding: 14,
+      alignItems: 'center',
+      flex: 1,
+      minWidth: '45%' as unknown as number,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    overviewIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    overviewValue: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: theme.textPrimary,
+      marginBottom: 2,
+    },
+    overviewLabel: {
+      fontSize: 12,
+      color: theme.textSecondary,
     },
   });
 }

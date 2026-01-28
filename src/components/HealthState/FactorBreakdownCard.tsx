@@ -19,6 +19,7 @@ interface Factor {
   impact: 'positive' | 'negative' | 'neutral';
   contribution: number; // 0-100 representing relative contribution
   description?: string;
+  suggestion?: string; // LLM-generated actionable advice
   value?: string;
 }
 
@@ -139,10 +140,16 @@ export default function FactorBreakdownCard({
                 </Text>
               </View>
 
-              {/* Expanded description */}
+              {/* Expanded description with LLM explanation and suggestion */}
               {isExpanded && factor.description && (
                 <Animated.View entering={FadeInUp.duration(200)} style={styles.descriptionContainer}>
                   <Text style={styles.description}>{factor.description}</Text>
+                  {factor.suggestion && (
+                    <View style={styles.suggestionContainer}>
+                      <Ionicons name="bulb-outline" size={14} color={theme.accent} style={styles.suggestionIcon} />
+                      <Text style={[styles.description, styles.suggestion]}>{factor.suggestion}</Text>
+                    </View>
+                  )}
                 </Animated.View>
               )}
             </TouchableOpacity>
@@ -265,6 +272,22 @@ function createStyles(theme: Theme, compact: boolean) {
       fontSize: 12,
       color: theme.textSecondary,
       lineHeight: 18,
+    },
+    suggestionContainer: {
+      flexDirection: 'row',
+      marginTop: spacing.sm,
+      paddingTop: spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+    },
+    suggestionIcon: {
+      marginRight: spacing.xs,
+      marginTop: 2,
+    },
+    suggestion: {
+      flex: 1,
+      color: theme.accent,
+      fontStyle: 'italic',
     },
     legend: {
       flexDirection: 'row',

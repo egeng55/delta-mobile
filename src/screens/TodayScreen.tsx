@@ -26,17 +26,20 @@ import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { Theme } from '../theme/colors';
 import { spacing, typography, borderRadius, shadows } from '../theme/designSystem';
 import { useInsightsData } from '../hooks/useInsightsData';
+import { useDayChange } from '../hooks/useDayChange';
 import { useUnits } from '../context/UnitsContext';
 import { useHealthKit } from '../context/HealthKitContext';
 import { StackedRings } from '../components/CircularProgress';
 import { RecoveryGauge, StrainGauge } from '../components/Gauges';
 import { FactorBreakdownCard } from '../components/HealthState';
+import { DeltaVoiceCompact } from '../components/Feed';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface TodayScreenProps {
   theme: Theme;
   isFocused?: boolean;
+  onClose?: () => void;
   onNavigateToRecovery?: () => void;
   onNavigateToHistory?: () => void;
 }
@@ -44,6 +47,7 @@ interface TodayScreenProps {
 export default function TodayScreen({
   theme,
   isFocused = true,
+  onClose,
   onNavigateToRecovery,
   onNavigateToHistory,
 }: TodayScreenProps): React.ReactElement {
@@ -56,12 +60,14 @@ export default function TodayScreen({
     weeklySummaries,
     analyticsLoading,
     fetchAnalyticsData,
+    deltaCommentary,
+    digestionInsights,
   } = useInsightsData();
 
   const { isMetric, volumeUnit } = useUnits();
 
   // Use centralized HealthKit context for Apple Watch data
-  const { hasWatchData, healthData, refreshHealthData } = useHealthKit();
+  const { isEnabled: healthKitEnabled, hasWatchData, healthData, refreshHealthData } = useHealthKit();
 
   const wasFocused = useRef(isFocused);
 
@@ -137,12 +143,17 @@ export default function TodayScreen({
   useEffect(() => {
     if (isFocused && !wasFocused.current) {
       fetchAnalyticsData(true);
-      if (hasWatchData) {
+      if (healthKitEnabled && hasWatchData) {
         refreshHealthData();
       }
     }
     wasFocused.current = isFocused;
-  }, [isFocused, fetchAnalyticsData, hasWatchData, refreshHealthData]);
+  }, [isFocused, fetchAnalyticsData, healthKitEnabled, hasWatchData, refreshHealthData]);
+
+  // Refresh data when day changes (midnight or app foregrounded on new day)
+  useDayChange(() => {
+    fetchAnalyticsData(true);
+  });
 
   // Format selected date for display
   const dateDisplay = useMemo(() => {
@@ -325,6 +336,16 @@ export default function TodayScreen({
     >
       {/* Header with Date Navigation */}
       <View style={styles.header}>
+        {/* Close button when shown as modal */}
+        {onClose && (
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={onClose}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="close" size={24} color={theme.textPrimary} />
+          </TouchableOpacity>
+        )}
         <View style={styles.dateNavRow}>
           <TouchableOpacity
             style={[styles.dateArrow, !canGoBack && styles.dateArrowDisabled]}
@@ -381,37 +402,38 @@ export default function TodayScreen({
         </TouchableOpacity>
       </Animated.View>
 
-      {/* Quick Stats Row */}
+      {/* Quick Stats Row - only show metrics we have data for */}
       <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.quickStatsRow}>
-        {(quickStats.sleepHours !== null || (hasWatchData && healthData.sleep)) && (
+        {(quickStats.sleepHours !== null || (healthKitEnabled && hasWatchData && healthData.sleep)) && (
           <View style={styles.quickStatItem}>
             <Ionicons name="moon-outline" size={16} color={theme.accent} />
             <Text style={styles.quickStatValue}>
-              {hasWatchData && healthData.sleep
+              {healthKitEnabled && hasWatchData && healthData.sleep
                 ? healthData.sleep.totalSleepHours.toFixed(1)
                 : quickStats.sleepHours?.toFixed(1) ?? '--'}h
             </Text>
             <Text style={styles.quickStatLabel}>Sleep</Text>
           </View>
         )}
-        <View style={styles.quickStatItem}>
-          <Ionicons name="pulse-outline" size={16} color="#8B5CF6" />
-          <Text style={styles.quickStatValue}>
-            {hasWatchData && healthData.hrv
-              ? Math.round(healthData.hrv.hrvMs)
-              : '--'}
-          </Text>
-          <Text style={styles.quickStatLabel}>HRV</Text>
-        </View>
-        <View style={styles.quickStatItem}>
-          <Ionicons name="heart-outline" size={16} color="#EF4444" />
-          <Text style={styles.quickStatValue}>
-            {hasWatchData && healthData.restingHeartRate
-              ? healthData.restingHeartRate.bpm
-              : '--'}
-          </Text>
-          <Text style={styles.quickStatLabel}>Resting HR</Text>
-        </View>
+        {/* HRV and Resting HR only shown when HealthKit is enabled and has data */}
+        {healthKitEnabled && hasWatchData && healthData.hrv && (
+          <View style={styles.quickStatItem}>
+            <Ionicons name="pulse-outline" size={16} color="#8B5CF6" />
+            <Text style={styles.quickStatValue}>
+              {Math.round(healthData.hrv.hrvMs)}
+            </Text>
+            <Text style={styles.quickStatLabel}>HRV</Text>
+          </View>
+        )}
+        {healthKitEnabled && hasWatchData && healthData.restingHeartRate && (
+          <View style={styles.quickStatItem}>
+            <Ionicons name="heart-outline" size={16} color="#EF4444" />
+            <Text style={styles.quickStatValue}>
+              {healthData.restingHeartRate.bpm}
+            </Text>
+            <Text style={styles.quickStatLabel}>Resting HR</Text>
+          </View>
+        )}
       </Animated.View>
 
       {/* Factor Summary */}
@@ -472,6 +494,55 @@ export default function TodayScreen({
         </View>
       </Animated.View>
 
+      {/* Digestion Insights */}
+      {isToday && digestionInsights && digestionInsights.has_data && (
+        <Animated.View entering={FadeInDown.delay(350).duration(400)} style={styles.progressSection}>
+          <Text style={styles.sectionTitle}>Digestion</Text>
+          <View style={[styles.progressCard, { flexDirection: 'column' }]}>
+            <Text style={[styles.actionText, { marginBottom: spacing.sm }]}>
+              {digestionInsights.summary}
+            </Text>
+            {digestionInsights.factors.map((factor, idx) => (
+              <View key={idx} style={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
+                marginBottom: spacing.xs,
+                paddingVertical: spacing.xs,
+              }}>
+                <View style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: 3,
+                  marginTop: 5,
+                  marginRight: spacing.sm,
+                  backgroundColor: factor.status === 'good' ? theme.success
+                    : factor.status === 'concern' ? theme.warning
+                    : theme.textSecondary,
+                }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.legendLabel, { color: theme.textPrimary, fontWeight: '400', marginBottom: 2 }]}>
+                    {factor.label}
+                  </Text>
+                  <Text style={[styles.actionText, { fontSize: 12 }]}>
+                    {factor.detail}
+                  </Text>
+                </View>
+              </View>
+            ))}
+            {digestionInsights.suggestions.length > 0 && (
+              <View style={{ marginTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border, paddingTop: spacing.sm }}>
+                {digestionInsights.suggestions.map((s, idx) => (
+                  <View key={idx} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: spacing.xs }}>
+                    <Ionicons name="bulb-outline" size={13} color={theme.accent} style={{ marginRight: spacing.xs, marginTop: 1 }} />
+                    <Text style={[styles.actionText, { flex: 1, fontSize: 12 }]}>{s}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        </Animated.View>
+      )}
+
       {/* Workout Day Banner */}
       {targetsInfo.isWorkoutDay && (
         <Animated.View entering={FadeInDown.delay(350).duration(400)} style={styles.workoutBanner}>
@@ -481,8 +552,19 @@ export default function TodayScreen({
         </Animated.View>
       )}
 
-      {/* Action Card - only show for today */}
-      {isToday && (
+      {/* Delta Commentary - LLM-powered insights using new Feed component */}
+      {isToday && deltaCommentary && deltaCommentary.headline && (
+        <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.commentaryContainer}>
+          <DeltaVoiceCompact
+            theme={theme}
+            headline={deltaCommentary.headline}
+            tone={deltaCommentary.tone}
+          />
+        </Animated.View>
+      )}
+
+      {/* Fallback if no Delta commentary */}
+      {isToday && (!deltaCommentary || !deltaCommentary.headline) && (
         <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.actionCard}>
           <View style={styles.actionIcon}>
             <Ionicons name="bulb" size={20} color={theme.accent} />
@@ -672,6 +754,13 @@ function createStyles(theme: Theme) {
       alignItems: 'center',
       paddingBottom: spacing.lg,
     },
+    closeButton: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      padding: spacing.sm,
+      zIndex: 10,
+    },
     dateNavRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -695,17 +784,18 @@ function createStyles(theme: Theme) {
       marginTop: spacing.xxs,
     },
     dayName: {
-      fontSize: 14,
-      fontWeight: '500',
+      fontSize: 12,
+      fontWeight: '300',
       color: theme.textSecondary,
       textTransform: 'uppercase',
-      letterSpacing: 1,
+      letterSpacing: 2,
     },
     date: {
-      fontSize: 28,
-      fontWeight: '700',
+      fontSize: 32,
+      fontWeight: '200',
       color: theme.textPrimary,
       marginTop: spacing.xs,
+      letterSpacing: -0.5,
     },
     gaugesRow: {
       flexDirection: 'row',
@@ -729,14 +819,17 @@ function createStyles(theme: Theme) {
       gap: spacing.xs,
     },
     quickStatValue: {
-      fontSize: 18,
-      fontWeight: '700',
+      fontSize: 22,
+      fontWeight: '200',
       color: theme.textPrimary,
+      letterSpacing: -0.5,
     },
     quickStatLabel: {
-      fontSize: 10,
+      fontSize: 9,
+      fontWeight: '400',
       color: theme.textSecondary,
       textTransform: 'uppercase',
+      letterSpacing: 1.5,
     },
     factorSection: {
       marginBottom: spacing.lg,
@@ -745,11 +838,11 @@ function createStyles(theme: Theme) {
       marginBottom: spacing.lg,
     },
     sectionTitle: {
-      fontSize: 13,
-      fontWeight: '600',
+      fontSize: 11,
+      fontWeight: '400',
       color: theme.textSecondary,
       textTransform: 'uppercase',
-      letterSpacing: 0.5,
+      letterSpacing: 2,
       marginBottom: spacing.md,
     },
     progressCard: {
@@ -772,9 +865,10 @@ function createStyles(theme: Theme) {
       justifyContent: 'center',
     },
     progressPercent: {
-      fontSize: 18,
-      fontWeight: '700',
+      fontSize: 24,
+      fontWeight: '200',
       color: theme.textPrimary,
+      letterSpacing: -0.5,
     },
     progressLegend: {
       flex: 1,
@@ -787,19 +881,21 @@ function createStyles(theme: Theme) {
       gap: spacing.sm,
     },
     legendDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
+      width: 6,
+      height: 6,
+      borderRadius: 3,
     },
     legendLabel: {
       flex: 1,
       fontSize: 13,
+      fontWeight: '300',
       color: theme.textSecondary,
     },
     legendValue: {
       fontSize: 13,
-      fontWeight: '600',
+      fontWeight: '400',
       color: theme.textPrimary,
+      letterSpacing: -0.3,
     },
     workoutBanner: {
       flexDirection: 'row',
@@ -812,14 +908,19 @@ function createStyles(theme: Theme) {
     },
     workoutBannerText: {
       fontSize: 14,
-      fontWeight: '600',
+      fontWeight: '400',
       color: theme.success,
       flex: 1,
+      letterSpacing: -0.2,
     },
     workoutBannerSub: {
       fontSize: 12,
+      fontWeight: '300',
       color: theme.success,
       opacity: 0.8,
+    },
+    commentaryContainer: {
+      marginBottom: spacing.lg,
     },
     actionCard: {
       flexDirection: 'row',
@@ -842,15 +943,17 @@ function createStyles(theme: Theme) {
       flex: 1,
     },
     actionTitle: {
-      fontSize: 14,
-      fontWeight: '600',
+      fontSize: 16,
+      fontWeight: '400',
       color: theme.textPrimary,
       marginBottom: spacing.xs,
+      letterSpacing: -0.2,
     },
     actionText: {
-      fontSize: 13,
+      fontSize: 14,
+      fontWeight: '300',
       color: theme.textSecondary,
-      lineHeight: 18,
+      lineHeight: 20,
     },
     statsCard: {
       backgroundColor: theme.surface,
@@ -865,13 +968,16 @@ function createStyles(theme: Theme) {
       gap: spacing.xs,
     },
     statLabel: {
-      fontSize: 12,
+      fontSize: 11,
+      fontWeight: '300',
       color: theme.textSecondary,
+      letterSpacing: 0.5,
     },
     statValue: {
-      fontSize: 16,
-      fontWeight: '600',
+      fontSize: 18,
+      fontWeight: '300',
       color: theme.textPrimary,
+      letterSpacing: -0.3,
     },
     dateRow: {
       flexDirection: 'row',
@@ -903,8 +1009,9 @@ function createStyles(theme: Theme) {
     },
     calendarMonthTitle: {
       fontSize: 18,
-      fontWeight: '600',
+      fontWeight: '300',
       color: theme.textPrimary,
+      letterSpacing: -0.3,
     },
     calendarWeek: {
       flexDirection: 'row',

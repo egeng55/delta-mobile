@@ -19,9 +19,15 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Theme } from '../../theme/colors';
 import { CausalChain } from '../../services/api';
 
+// Extended pattern with LLM explanations (from Delta Intelligence)
+interface ExplainedPatternFields {
+  why?: string;
+  advice?: string;
+}
+
 interface ChainCardProps {
   theme: Theme;
-  chain: CausalChain;
+  chain: CausalChain & ExplainedPatternFields;
   index?: number;
 }
 
@@ -122,6 +128,22 @@ export default function ChainCard({
       {/* Narrative */}
       <Text style={styles.narrative}>{chain.narrative}</Text>
 
+      {/* LLM-generated explanation (why) */}
+      {chain.why && (
+        <View style={styles.whyContainer}>
+          <Text style={styles.whyLabel}>Why this happens:</Text>
+          <Text style={styles.whyText}>{chain.why}</Text>
+        </View>
+      )}
+
+      {/* LLM-generated advice */}
+      {chain.advice && (
+        <View style={styles.adviceContainer}>
+          <Ionicons name="bulb-outline" size={14} color={theme.accent} style={styles.adviceIcon} />
+          <Text style={styles.adviceText}>{chain.advice}</Text>
+        </View>
+      )}
+
       {/* Confidence and occurrences */}
       <View style={styles.metaRow}>
         <View style={styles.confidenceBadge}>
@@ -194,6 +216,41 @@ function createStyles(theme: Theme, confidenceColor: string) {
       color: theme.textSecondary,
       lineHeight: 18,
       marginBottom: 10,
+    },
+    whyContainer: {
+      backgroundColor: theme.background,
+      borderRadius: 8,
+      padding: 10,
+      marginBottom: 10,
+    },
+    whyLabel: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: theme.textSecondary,
+      marginBottom: 4,
+    },
+    whyText: {
+      fontSize: 12,
+      color: theme.textPrimary,
+      lineHeight: 18,
+    },
+    adviceContainer: {
+      flexDirection: 'row',
+      backgroundColor: theme.accent + '10',
+      borderRadius: 8,
+      padding: 10,
+      marginBottom: 10,
+    },
+    adviceIcon: {
+      marginRight: 8,
+      marginTop: 1,
+    },
+    adviceText: {
+      flex: 1,
+      fontSize: 12,
+      color: theme.accent,
+      lineHeight: 18,
+      fontStyle: 'italic',
     },
     metaRow: {
       flexDirection: 'row',

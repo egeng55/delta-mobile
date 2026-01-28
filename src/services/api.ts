@@ -1229,6 +1229,16 @@ export interface HealthStateResponse {
     patterns: Array<{ type: string; note?: string; confidence?: number }>;
     metrics_summary: Record<string, number | null>;
   };
+  readiness?: {
+    score: number;
+    recommendation: 'green_light' | 'normal' | 'caution' | 'rest';
+    message: string;
+    breakdown?: Record<string, { contribution: number; detail: string; recent_avg?: number }>;
+    cycle_context?: {
+      phase: string;
+      day_of_cycle: number;
+    };
+  };
   disclaimer?: string;
   message?: string;
 }
@@ -1309,7 +1319,221 @@ export const healthIntelligenceApi = {
   ): Promise<NarrativeResponse> => {
     return request<NarrativeResponse>(`/health-intelligence/${userId}/narrative/${period}`);
   },
+
+  // =========================================================================
+  // DELTA INTELLIGENCE - LLM-powered explanations
+  // =========================================================================
+
+  /**
+   * Get full Delta insights with LLM-generated explanations.
+   * This is the main endpoint for Delta's voice.
+   */
+  getInsights: async (userId: string): Promise<DeltaInsightsResponse> => {
+    return request<DeltaInsightsResponse>(`/health-intelligence/${userId}/insights`);
+  },
+
+  /**
+   * Get just Delta's daily commentary (headline + body + tone).
+   * Lightweight endpoint for dashboard display.
+   */
+  getCommentary: async (userId: string): Promise<DeltaCommentaryResponse> => {
+    return request<DeltaCommentaryResponse>(`/health-intelligence/${userId}/commentary`);
+  },
+
+  /**
+   * Get workout guidance: go/caution/skip with specific modifications.
+   */
+  getWorkoutGuidance: async (
+    userId: string,
+    workoutType?: string
+  ): Promise<WorkoutGuidanceResponse> => {
+    return request<WorkoutGuidanceResponse>(
+      `/health-intelligence/${userId}/workout-guidance`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ workout_type: workoutType }),
+      }
+    );
+  },
+
+  /**
+   * Get Delta's analysis of sleep data.
+   */
+  analyzeSleep: async (
+    userId: string,
+    sleepData: SleepAnalysisInput
+  ): Promise<SleepAnalysisResponse> => {
+    return request<SleepAnalysisResponse>(
+      `/health-intelligence/${userId}/sleep-analysis`,
+      {
+        method: 'POST',
+        body: JSON.stringify(sleepData),
+      }
+    );
+  },
+
+  /**
+   * Get Delta's analysis of a metric trend.
+   */
+  analyzeTrend: async (
+    userId: string,
+    metric: string,
+    days: number = 7
+  ): Promise<TrendAnalysisResponse> => {
+    return request<TrendAnalysisResponse>(
+      `/health-intelligence/${userId}/trend-analysis`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ metric, days }),
+      }
+    );
+  },
+
+  /**
+   * Get detailed explanation for a specific causal pattern.
+   */
+  explainPattern: async (
+    userId: string,
+    patternId: string
+  ): Promise<PatternExplanationResponse> => {
+    return request<PatternExplanationResponse>(
+      `/health-intelligence/${userId}/pattern/${patternId}/explain`
+    );
+  },
+
+  getDigestionInsights: async (userId: string): Promise<DigestionInsightsResponse> => {
+    return request<DigestionInsightsResponse>(
+      `/health-intelligence/${userId}/digestion`
+    );
+  },
 };
+
+// =============================================================================
+// DELTA INTELLIGENCE TYPES
+// =============================================================================
+
+export interface DeltaCommentary {
+  headline: string;
+  body: string;
+  tone: 'positive' | 'neutral' | 'caution' | 'rest';
+}
+
+export interface ExplainedPattern {
+  cause: string;
+  effect: string;
+  times_observed: number;
+  total_occurrences: number;
+  impact_percentage: number;
+  confidence: number;
+  lag_days: number;
+  // LLM-generated explanations
+  narrative: string;
+  why: string;
+  advice: string;
+}
+
+export interface ExplainedFactor {
+  key: string;
+  name: string;
+  state: string;
+  impact: 'positive' | 'negative' | 'neutral';
+  current_value?: number;
+  baseline?: number;
+  // LLM-generated explanations
+  explanation: string;
+  suggestion: string | null;
+}
+
+export interface FactorInteraction {
+  interaction: string;
+  net_effect: string;
+  priority: string;
+}
+
+export interface DeltaInsightsResponse {
+  user_id: string;
+  has_data: boolean;
+  commentary: DeltaCommentary;
+  patterns: ExplainedPattern[];
+  factors: ExplainedFactor[];
+  interaction: FactorInteraction | null;
+  readiness: {
+    score: number;
+    recommendation: string;
+  } | null;
+  cycle_context: {
+    phase: string;
+    day_in_cycle: number;
+  } | null;
+}
+
+export interface DeltaCommentaryResponse {
+  user_id: string;
+  commentary: DeltaCommentary;
+  readiness_score: number | null;
+}
+
+export interface WorkoutGuidanceResponse {
+  user_id: string;
+  readiness_score: number | null;
+  recommendation: 'go' | 'caution' | 'skip';
+  rationale: string;
+  modifications: string | null;
+  alternatives: string | null;
+}
+
+export interface SleepAnalysisInput {
+  duration_hours: number;
+  efficiency?: number;
+  wake_count?: number;
+  bedtime?: string;
+  wake_time?: string;
+  deep_sleep_pct?: number;
+  rem_sleep_pct?: number;
+}
+
+export interface SleepAnalysisResponse {
+  user_id: string;
+  quality_assessment: string;
+  issues: string[];
+  recommendations: string[];
+}
+
+export interface DigestionFactor {
+  label: string;
+  status: 'good' | 'moderate' | 'concern';
+  detail: string;
+}
+
+export interface DigestionInsightsResponse {
+  user_id: string;
+  has_data: boolean;
+  summary: string;
+  factors: DigestionFactor[];
+  suggestions: string[];
+}
+
+export interface TrendAnalysisResponse {
+  user_id: string;
+  metric: string;
+  trend: {
+    direction: 'improving' | 'declining' | 'stable' | 'volatile';
+    change_percent: number;
+    days: number;
+    values: number[];
+  };
+  summary: string;
+  interpretation: string;
+  outlook: string;
+}
+
+export interface PatternExplanationResponse {
+  user_id: string;
+  pattern: CausalChain;
+  narrative: string;
+  why: string;
+  advice: string;
+}
 
 // =============================================================================
 // PROFILE STAT CARDS TYPES
@@ -1459,6 +1683,144 @@ export const conversationsApi = {
         method: 'POST',
         body: JSON.stringify({ conversations }),
       }
+    );
+  },
+};
+
+// =============================================================================
+// DATA OVERSIGHT TYPES & API
+// =============================================================================
+
+export interface DataIssue {
+  type: 'duplicate' | 'anomaly' | 'impossible_value';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  entry_ids: string[];
+  field?: string;
+  current_value?: number;
+  expected_range?: { min: number; max: number };
+  similarity_score?: number;
+  explanation: string;
+  recommended_action?: string;
+}
+
+export interface AuditLogEntry {
+  audit_id: string;
+  action_type: 'entry_created' | 'entry_updated' | 'entry_deleted' | 'entries_merged' | 'batch_deleted' | 'value_corrected';
+  actor: 'user' | 'delta_auto' | 'delta_suggested' | 'system';
+  affected_entry_ids: string[];
+  affected_count: number;
+  before_state?: Record<string, unknown>;
+  after_state?: Record<string, unknown>;
+  reason: string;
+  delta_explanation?: string;
+  created_at: string;
+  is_reversible: boolean;
+  reversed_at?: string;
+}
+
+export interface DataHealthResponse {
+  user_id: string;
+  has_issues: boolean;
+  issue_count: number;
+  issues: DataIssue[];
+  recent_actions: AuditLogEntry[];
+  summary: {
+    duplicates_found: number;
+    anomalies_found: number;
+    impossible_values_found: number;
+  };
+}
+
+export interface AuditLogResponse {
+  user_id: string;
+  entries: AuditLogEntry[];
+  count: number;
+  limit: number;
+  offset: number;
+}
+
+export interface DataActionResponse {
+  success: boolean;
+  message: string;
+  audit_id?: string;
+  error?: string;
+}
+
+export interface DataScanResponse {
+  user_id: string;
+  scan_complete: boolean;
+  issues_found: number;
+  duplicates: number;
+  anomalies: number;
+  impossible_values: number;
+}
+
+// Data Oversight API
+export const dataOversightApi = {
+  /**
+   * Get data health status - issues, recent actions, summary.
+   */
+  getHealth: async (userId: string): Promise<DataHealthResponse> => {
+    return request<DataHealthResponse>(`/data-health/${userId}`);
+  },
+
+  /**
+   * Get audit log history - all data modifications by Delta.
+   */
+  getAuditLog: async (
+    userId: string,
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<AuditLogResponse> => {
+    return request<AuditLogResponse>(
+      `/data-audit/${userId}?limit=${limit}&offset=${offset}`
+    );
+  },
+
+  /**
+   * Approve or reject a suggested data correction.
+   */
+  approveAction: async (
+    userId: string,
+    action: 'approve' | 'reject',
+    issueType: string,
+    entryIds: string[],
+    reason?: string
+  ): Promise<DataActionResponse> => {
+    return request<DataActionResponse>(
+      `/data-oversight/${userId}/approve`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          action,
+          issue_type: issueType,
+          entry_ids: entryIds,
+          reason,
+        }),
+      }
+    );
+  },
+
+  /**
+   * Undo a previous data modification.
+   */
+  undoAction: async (
+    userId: string,
+    auditId: string
+  ): Promise<DataActionResponse> => {
+    return request<DataActionResponse>(
+      `/data-oversight/${userId}/undo/${auditId}`,
+      { method: 'POST' }
+    );
+  },
+
+  /**
+   * Trigger a manual data health scan.
+   */
+  triggerScan: async (userId: string): Promise<DataScanResponse> => {
+    return request<DataScanResponse>(
+      `/data-oversight/${userId}/scan`,
+      { method: 'POST' }
     );
   },
 };

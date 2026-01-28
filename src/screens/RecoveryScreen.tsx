@@ -30,19 +30,22 @@ import { RecoveryGauge } from '../components/Gauges';
 import { SleepPerformanceCard } from '../components/Sleep';
 import { MetricComparisonCard } from '../components/Metrics';
 import { useHealthKit } from '../context/HealthKitContext';
+import { useDayChange } from '../hooks/useDayChange';
 
 interface RecoveryScreenProps {
   theme: Theme;
   isFocused?: boolean;
+  onClose?: () => void;
 }
 
-export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScreenProps): React.ReactElement {
+export default function RecoveryScreen({ theme, isFocused = true, onClose }: RecoveryScreenProps): React.ReactElement {
   const {
     healthState,
     causalChains,
     weeklySummaries,
     analyticsLoading,
     fetchAnalyticsData,
+    deltaInsights,
   } = useInsightsData();
 
   // Use centralized HealthKit context
@@ -75,6 +78,11 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
     }
     wasFocused.current = isFocused;
   }, [isFocused, fetchAnalyticsData, healthKitEnabled, healthKitAuthorized, refreshHealthData]);
+
+  // Refresh data when day changes (midnight or app foregrounded on new day)
+  useDayChange(() => {
+    fetchAnalyticsData(true);
+  });
 
   const requestHealthKitAccess = async () => {
     try {
@@ -233,6 +241,15 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
     >
       {/* Header */}
       <View style={styles.header}>
+        {onClose && (
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={onClose}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="close" size={24} color={theme.textPrimary} />
+          </TouchableOpacity>
+        )}
         <Text style={styles.headerTitle}>Recovery</Text>
         {hasWatchData && (
           <View style={styles.healthKitBadge}>
@@ -242,9 +259,9 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
         )}
       </View>
 
-      {/* Hero: Sleep Performance Card */}
+      {/* Hero: Sleep Performance Card - Only show Apple Watch features when enabled */}
       <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
-        {hasWatchData && healthData.sleep && healthData.sleep.hasData ? (
+        {healthKitEnabled && hasWatchData && healthData.sleep && healthData.sleep.hasData ? (
           <SleepPerformanceCard
             theme={theme}
             data={{
@@ -264,20 +281,8 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
             <Text style={styles.emptyTitle}>No Sleep Data</Text>
             <Text style={styles.emptyText}>Sleep data will appear here after your next night</Text>
           </View>
-        ) : healthKitAvailable ? (
-          <TouchableOpacity style={styles.healthKitPrompt} onPress={requestHealthKitAccess}>
-            <View style={[styles.healthKitIcon, { backgroundColor: '#FF2D5520' }]}>
-              <Ionicons name="watch" size={28} color="#FF2D55" />
-            </View>
-            <View style={styles.healthKitPromptContent}>
-              <Text style={styles.healthKitPromptTitle}>Connect Apple Watch</Text>
-              <Text style={styles.healthKitPromptSubtitle}>
-                Sync sleep, heart rate, HRV, and activity automatically
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
-          </TouchableOpacity>
         ) : (
+          /* When HealthKit is disabled or not available, show log via chat option */
           <View style={styles.emptyCard}>
             <Ionicons name="moon-outline" size={40} color={theme.textSecondary} />
             <Text style={styles.emptyTitle}>Track Your Sleep</Text>
@@ -307,8 +312,25 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
         </Animated.View>
       )}
 
-      {/* Factor Breakdown */}
-      {recoveryFactors.length > 0 && (
+      {/* Factor Breakdown with Delta Explanations */}
+      {(deltaInsights?.factors?.length ?? 0) > 0 ? (
+        <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.section}>
+          <FactorBreakdownCard
+            theme={theme}
+            title="What's Affecting Recovery"
+            factors={deltaInsights!.factors.map(f => ({
+              name: f.name,
+              impact: f.impact,
+              contribution: f.current_value !== undefined && f.baseline !== undefined
+                ? Math.round((f.current_value / f.baseline) * 50 + 25) // Normalize around 50%
+                : 50,
+              value: f.current_value !== undefined ? String(Math.round(f.current_value)) : f.state,
+              description: f.explanation, // LLM-generated explanation
+              suggestion: f.suggestion ?? undefined, // LLM-generated suggestion
+            }))}
+          />
+        </Animated.View>
+      ) : recoveryFactors.length > 0 && (
         <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.section}>
           <FactorBreakdownCard
             theme={theme}
@@ -318,8 +340,8 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
         </Animated.View>
       )}
 
-      {/* Heart Metrics with Comparisons - Only show with Apple Watch data */}
-      {hasWatchData && (healthData.hrv || healthData.restingHeartRate) && (
+      {/* Heart Metrics with Comparisons - Only show when HealthKit enabled and has data */}
+      {healthKitEnabled && hasWatchData && (healthData.hrv || healthData.restingHeartRate) && (
         <Animated.View entering={FadeInDown.delay(250).duration(400)} style={styles.section}>
           <Text style={styles.sectionTitle}>Heart Metrics</Text>
           <View style={styles.metricsRow}>
@@ -422,8 +444,8 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
         </Animated.View>
       )}
 
-      {/* Causal Chains (Collapsible) */}
-      {causalChains.length > 0 && (
+      {/* Causal Chains with Delta Explanations (Collapsible) */}
+      {(deltaInsights?.patterns?.length ?? causalChains.length) > 0 && (
         <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.section}>
           <TouchableOpacity
             style={styles.sectionHeader}
@@ -431,7 +453,9 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
           >
             <Text style={styles.sectionTitle}>Patterns Detected</Text>
             <View style={styles.chainBadge}>
-              <Text style={styles.chainBadgeText}>{causalChains.length}</Text>
+              <Text style={styles.chainBadgeText}>
+                {deltaInsights?.patterns?.length ?? causalChains.length}
+              </Text>
             </View>
             <Ionicons
               name={showCausalChains ? 'chevron-up' : 'chevron-down'}
@@ -442,19 +466,45 @@ export default function RecoveryScreen({ theme, isFocused = true }: RecoveryScre
 
           {showCausalChains && (
             <View style={styles.chainsContainer}>
-              {causalChains.map((chain, index) => (
-                <ChainCard
-                  key={chain.chain_type}
-                  theme={theme}
-                  chain={chain}
-                  index={index}
-                />
-              ))}
+              {deltaInsights?.patterns?.length ? (
+                // Use Delta's explained patterns (with why/advice)
+                deltaInsights.patterns.map((pattern, index) => (
+                  <ChainCard
+                    key={`${pattern.cause}-${pattern.effect}`}
+                    theme={theme}
+                    chain={{
+                      chain_type: `${pattern.cause}_${pattern.effect}`,
+                      cause_event: pattern.cause,
+                      effect_event: pattern.effect,
+                      occurrences: pattern.total_occurrences,
+                      co_occurrences: pattern.times_observed,
+                      confidence: pattern.confidence,
+                      lag_days: pattern.lag_days,
+                      narrative: pattern.narrative,
+                      why: pattern.why,
+                      advice: pattern.advice,
+                    }}
+                    index={index}
+                  />
+                ))
+              ) : (
+                // Fall back to raw causal chains
+                causalChains.map((chain, index) => (
+                  <ChainCard
+                    key={chain.chain_type}
+                    theme={theme}
+                    chain={chain}
+                    index={index}
+                  />
+                ))
+              )}
             </View>
           )}
 
-          {!showCausalChains && causalChains[0] && (
-            <Text style={styles.chainPreview}>{causalChains[0].narrative}</Text>
+          {!showCausalChains && (deltaInsights?.patterns?.[0] ?? causalChains[0]) && (
+            <Text style={styles.chainPreview}>
+              {deltaInsights?.patterns?.[0]?.narrative ?? causalChains[0]?.narrative}
+            </Text>
           )}
         </Animated.View>
       )}
@@ -484,6 +534,13 @@ function createStyles(theme: Theme) {
     header: {
       paddingBottom: spacing.lg,
     },
+    closeButton: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      padding: spacing.sm,
+      zIndex: 10,
+    },
     headerTitle: {
       ...typography.headline,
       color: theme.textPrimary,
@@ -502,10 +559,11 @@ function createStyles(theme: Theme) {
       marginBottom: spacing.md,
     },
     sectionTitle: {
-      ...typography.labelLarge,
+      fontSize: 11,
+      fontWeight: '400',
       color: theme.textSecondary,
       textTransform: 'uppercase',
-      letterSpacing: 0.5,
+      letterSpacing: 2,
       flex: 1,
       marginBottom: spacing.md,
     },
@@ -523,7 +581,8 @@ function createStyles(theme: Theme) {
     healthKitBadgeText: {
       fontSize: 10,
       color: '#FF2D55',
-      fontWeight: '500',
+      fontWeight: '400',
+      letterSpacing: 0.5,
     },
     emptyCard: {
       backgroundColor: theme.surface,
@@ -535,7 +594,7 @@ function createStyles(theme: Theme) {
     emptyTitle: {
       ...typography.bodyMedium,
       color: theme.textPrimary,
-      fontWeight: '600',
+      fontWeight: '400',
       marginTop: spacing.md,
     },
     emptyText: {

@@ -10,9 +10,10 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Theme, lightTheme, darkTheme } from '../theme/colors';
+import { Theme, lightTheme, darkTheme, FitnessGoal, GoalTints, getGoalTints } from '../theme/colors';
 
 const THEME_STORAGE_KEY = '@delta_theme_preference';
+const GOAL_STORAGE_KEY = '@delta_fitness_goal';
 
 interface ThemeContextType {
   theme: Theme;
@@ -21,6 +22,10 @@ interface ThemeContextType {
   setDarkMode: (dark: boolean) => void;
   useSystemTheme: () => void;
   isUsingSystem: boolean;
+  // Goal-based theming
+  fitnessGoal: FitnessGoal;
+  goalTints: GoalTints;
+  setFitnessGoal: (goal: FitnessGoal) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -33,14 +38,19 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.ReactNode
   const systemColorScheme = useColorScheme();
   const [isDark, setIsDark] = useState<boolean>(systemColorScheme === 'dark');
   const [isUsingSystem, setIsUsingSystem] = useState<boolean>(true);
+  const [fitnessGoal, setFitnessGoalState] = useState<FitnessGoal>('maintain');
 
-  // Load saved theme preference
+  // Load saved theme preference and fitness goal
   useEffect(() => {
-    const loadThemePreference = async (): Promise<void> => {
+    const loadPreferences = async (): Promise<void> => {
       try {
-        const savedPreference = await AsyncStorage.getItem(THEME_STORAGE_KEY);
-        if (savedPreference !== null) {
-          const preference = JSON.parse(savedPreference);
+        const [savedTheme, savedGoal] = await Promise.all([
+          AsyncStorage.getItem(THEME_STORAGE_KEY),
+          AsyncStorage.getItem(GOAL_STORAGE_KEY),
+        ]);
+
+        if (savedTheme !== null) {
+          const preference = JSON.parse(savedTheme);
           if (preference.useSystem === true) {
             setIsUsingSystem(true);
             setIsDark(systemColorScheme === 'dark');
@@ -49,11 +59,18 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.ReactNode
             setIsDark(preference.isDark === true);
           }
         }
+
+        if (savedGoal !== null) {
+          const goal = savedGoal as FitnessGoal;
+          if (goal === 'cut' || goal === 'maintain' || goal === 'bulk') {
+            setFitnessGoalState(goal);
+          }
+        }
       } catch {
-        // Use system default on error
+        // Use defaults on error
       }
     };
-    loadThemePreference();
+    loadPreferences();
   }, []);
 
   // Update theme when system changes (if using system)
@@ -93,7 +110,17 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.ReactNode
     savePreference(true, systemColorScheme === 'dark');
   }, [systemColorScheme, savePreference]);
 
+  const setFitnessGoal = useCallback(async (goal: FitnessGoal): Promise<void> => {
+    setFitnessGoalState(goal);
+    try {
+      await AsyncStorage.setItem(GOAL_STORAGE_KEY, goal);
+    } catch {
+      // Silent fail
+    }
+  }, []);
+
   const theme: Theme = isDark === true ? darkTheme : lightTheme;
+  const goalTints: GoalTints = getGoalTints(fitnessGoal, isDark ? 'dark' : 'light');
 
   return (
     <ThemeContext.Provider
@@ -104,6 +131,9 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.ReactNode
         setDarkMode,
         useSystemTheme,
         isUsingSystem,
+        fitnessGoal,
+        goalTints,
+        setFitnessGoal,
       }}
     >
       {children}

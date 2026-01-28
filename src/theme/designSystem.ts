@@ -102,99 +102,110 @@ export const fontSize = {
 
 /**
  * Typography presets for common use cases
+ *
+ * DESIGN PHILOSOPHY: Thin, sleek typography with high contrast
+ * - Large sizes with light weights = modern, elegant
+ * - Tight letter spacing on big text = refined
+ * - Regular/medium weights only for emphasis, never bold
  */
 export const typography = {
-  // Headers
+  // Headers - thin and large for contrast
   displayLarge: {
     fontSize: fontSize.display.size,
     lineHeight: fontSize.display.lineHeight,
-    fontWeight: fontWeight.bold,
-    letterSpacing: -0.5,
+    fontWeight: fontWeight.light,
+    letterSpacing: -1,
   },
   displayMedium: {
     fontSize: fontSize.hero.size,
     lineHeight: fontSize.hero.lineHeight,
-    fontWeight: fontWeight.bold,
-    letterSpacing: -0.3,
+    fontWeight: fontWeight.light,
+    letterSpacing: -0.5,
   },
   headline: {
     fontSize: fontSize.xxxl.size,
     lineHeight: fontSize.xxxl.lineHeight,
-    fontWeight: fontWeight.bold,
-    letterSpacing: -0.2,
+    fontWeight: fontWeight.regular,
+    letterSpacing: -0.3,
   },
   title: {
     fontSize: fontSize.xl.size,
     lineHeight: fontSize.xl.lineHeight,
-    fontWeight: fontWeight.semibold,
+    fontWeight: fontWeight.regular,
   },
   subtitle: {
     fontSize: fontSize.lg.size,
     lineHeight: fontSize.lg.lineHeight,
-    fontWeight: fontWeight.semibold,
+    fontWeight: fontWeight.regular,
   },
 
-  // Body
+  // Body - clean and readable
   bodyLarge: {
     fontSize: fontSize.md.size,
     lineHeight: fontSize.md.lineHeight,
-    fontWeight: fontWeight.regular,
+    fontWeight: fontWeight.light,
   },
   bodyMedium: {
     fontSize: fontSize.base.size,
     lineHeight: fontSize.base.lineHeight,
-    fontWeight: fontWeight.regular,
+    fontWeight: fontWeight.light,
   },
   bodySmall: {
     fontSize: fontSize.sm.size,
     lineHeight: fontSize.sm.lineHeight,
-    fontWeight: fontWeight.regular,
+    fontWeight: fontWeight.light,
   },
 
-  // Labels
+  // Labels - slightly more weight for UI clarity
   labelLarge: {
     fontSize: fontSize.base.size,
     lineHeight: fontSize.base.lineHeight,
-    fontWeight: fontWeight.medium,
+    fontWeight: fontWeight.regular,
     letterSpacing: 0.1,
   },
   labelMedium: {
     fontSize: fontSize.sm.size,
     lineHeight: fontSize.sm.lineHeight,
-    fontWeight: fontWeight.medium,
+    fontWeight: fontWeight.regular,
     letterSpacing: 0.2,
   },
   labelSmall: {
     fontSize: fontSize.xs.size,
     lineHeight: fontSize.xs.lineHeight,
-    fontWeight: fontWeight.medium,
+    fontWeight: fontWeight.regular,
     letterSpacing: 0.3,
   },
 
-  // Special
+  // Special - metrics look sleek when thin and large
   metric: {
     fontSize: fontSize.xxl.size,
     lineHeight: fontSize.xxl.lineHeight,
-    fontWeight: fontWeight.bold,
-    letterSpacing: -0.3,
+    fontWeight: fontWeight.light,
+    letterSpacing: -0.5,
   },
   metricLarge: {
     fontSize: fontSize.hero.size,
     lineHeight: fontSize.hero.lineHeight,
-    fontWeight: fontWeight.bold,
-    letterSpacing: -0.5,
+    fontWeight: fontWeight.thin,
+    letterSpacing: -1,
+  },
+  metricHero: {
+    fontSize: fontSize.display.size,
+    lineHeight: fontSize.display.lineHeight,
+    fontWeight: fontWeight.thin,
+    letterSpacing: -1.5,
   },
   caption: {
     fontSize: fontSize.xs.size,
     lineHeight: fontSize.xs.lineHeight,
-    fontWeight: fontWeight.regular,
-    letterSpacing: 0.2,
+    fontWeight: fontWeight.light,
+    letterSpacing: 0.3,
   },
   overline: {
     fontSize: fontSize.xs.size,
     lineHeight: fontSize.xs.lineHeight,
-    fontWeight: fontWeight.semibold,
-    letterSpacing: 1.5,
+    fontWeight: fontWeight.regular,
+    letterSpacing: 2,
     textTransform: 'uppercase' as const,
   },
 } as const;

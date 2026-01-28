@@ -37,6 +37,7 @@ import { MetricComparisonCard } from '../components/Metrics';
 interface HistoryScreenProps {
   theme: Theme;
   isFocused?: boolean;
+  onClose?: () => void;
 }
 
 // Calendar helpers
@@ -97,7 +98,7 @@ const DOMAIN_LABELS: Record<Domain, { label: string; icon: string; color: string
   recovery: { label: 'Recovery', icon: 'heart', color: '#EF4444' },
 };
 
-export default function HistoryScreen({ theme, isFocused = true }: HistoryScreenProps): React.ReactElement {
+export default function HistoryScreen({ theme, isFocused = true, onClose }: HistoryScreenProps): React.ReactElement {
   const { user } = useAuth();
   const {
     monthLogs,
@@ -285,6 +286,15 @@ export default function HistoryScreen({ theme, isFocused = true }: HistoryScreen
     >
       {/* Header */}
       <View style={styles.header}>
+        {onClose && (
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={onClose}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="close" size={24} color={theme.textPrimary} />
+          </TouchableOpacity>
+        )}
         <Text style={styles.headerTitle}>Trends</Text>
       </View>
 
@@ -535,6 +545,13 @@ function createStyles(theme: Theme) {
     },
     header: {
       paddingBottom: spacing.md,
+    },
+    closeButton: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      padding: spacing.sm,
+      zIndex: 10,
     },
     headerTitle: {
       ...typography.headline,

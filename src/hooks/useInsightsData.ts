@@ -28,6 +28,10 @@ import {
   MenstrualCalendarDay,
   MenstrualSettings,
   CyclePhase,
+  // Delta Intelligence types
+  DeltaInsightsResponse,
+  DeltaCommentary,
+  DigestionInsightsResponse,
 } from '../services/api';
 import * as menstrualService from '../services/menstrualTracking';
 
@@ -120,6 +124,11 @@ export interface InsightsDataState {
   healthState: HealthStateResponse | null;
   causalChains: CausalChain[];
 
+  // Delta Intelligence - LLM-powered explanations
+  deltaInsights: DeltaInsightsResponse | null;
+  deltaCommentary: DeltaCommentary | null;
+  digestionInsights: DigestionInsightsResponse | null;
+
   // Workout data
   workout: WorkoutPlan | null;
 
@@ -131,6 +140,7 @@ export interface InsightsDataState {
 
   // Loading states
   analyticsLoading: boolean;
+  llmLoading: boolean;  // True while LLM-powered data loads in background
   workoutLoading: boolean;
   calendarLoading: boolean;
   error: string;
@@ -166,6 +176,11 @@ export function useInsightsData(): InsightsDataState {
   const [healthState, setHealthState] = useState<HealthStateResponse | null>(null);
   const [causalChains, setCausalChains] = useState<CausalChain[]>([]);
 
+  // Delta Intelligence state
+  const [deltaInsights, setDeltaInsights] = useState<DeltaInsightsResponse | null>(null);
+  const [deltaCommentary, setDeltaCommentary] = useState<DeltaCommentary | null>(null);
+  const [digestionInsights, setDigestionInsights] = useState<DigestionInsightsResponse | null>(null);
+
   // Workout state
   const [workout, setWorkout] = useState<WorkoutPlan | null>(null);
 
@@ -177,6 +192,7 @@ export function useInsightsData(): InsightsDataState {
 
   // Loading states
   const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(true);
+  const [llmLoading, setLlmLoading] = useState<boolean>(false); // Separate state for LLM data
   const [workoutLoading, setWorkoutLoading] = useState<boolean>(false);
   const [calendarLoading, setCalendarLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
@@ -242,6 +258,7 @@ export function useInsightsData(): InsightsDataState {
         targetsInfo: TargetsInfo;
         healthState: HealthStateResponse | null;
         causalChains: CausalChain[];
+        deltaInsights: DeltaInsightsResponse | null;
       }>(cacheKey);
 
       if (cached) {
@@ -255,6 +272,8 @@ export function useInsightsData(): InsightsDataState {
         setTargetsInfo(cached.targetsInfo);
         setHealthState(cached.healthState);
         setCausalChains(cached.causalChains ?? []);
+        setDeltaInsights(cached.deltaInsights);
+        setDeltaCommentary(cached.deltaInsights?.commentary ?? null);
         setAnalyticsLoading(false);
         loadedTabs.current.add('analytics');
         return;
@@ -275,24 +294,37 @@ export function useInsightsData(): InsightsDataState {
         targets_source: 'default',
       };
       const defaultHealthState: HealthStateResponse = { has_data: false };
+      const defaultDeltaInsights: DeltaInsightsResponse = {
+        user_id: userId,
+        has_data: false,
+        commentary: { headline: '', body: '', tone: 'neutral' },
+        patterns: [],
+        factors: [],
+        interaction: null,
+        readiness: null,
+        cycle_context: null,
+      };
 
+      const defaultDigestion: DigestionInsightsResponse = {
+        user_id: userId,
+        has_data: false,
+        summary: '',
+        factors: [],
+        suggestions: [],
+      };
+
+      // Phase 1: Fetch core data first (fast endpoints - no LLM calls)
+      // These are pure database queries, should complete in <2 seconds
       const [insightsData, derivativesData, cardsData, weeklyData, dashboardData, healthStateData] = await Promise.all([
-        withTimeout(insightsApi.getInsights(userId), 8000, defaultInsights),
-        withTimeout(derivativesApi.getDerivatives(userId, 30), 8000, defaultDerivatives),
-        withTimeout(derivativesApi.getCards(userId, 14), 8000, { cards: [], count: 0 }),
-        withTimeout(dashboardApi.getWeekly(userId) as Promise<{ weekly_summaries: WeeklySummary[] }>, 8000, defaultWeekly),
-        withTimeout(dashboardApi.getDashboard(userId), 8000, defaultDashboard),
-        withTimeout(healthIntelligenceApi.getState(userId), 8000, defaultHealthState),
+        withTimeout(insightsApi.getInsights(userId), 5000, defaultInsights),
+        withTimeout(derivativesApi.getDerivatives(userId, 30), 5000, defaultDerivatives),
+        withTimeout(derivativesApi.getCards(userId, 14), 5000, { cards: [], count: 0 }),
+        withTimeout(dashboardApi.getWeekly(userId) as Promise<{ weekly_summaries: WeeklySummary[] }>, 5000, defaultWeekly),
+        withTimeout(dashboardApi.getDashboard(userId), 5000, defaultDashboard),
+        withTimeout(healthIntelligenceApi.getState(userId), 5000, defaultHealthState),
       ]);
 
-      setInsights(insightsData);
-      setDerivatives(derivativesData);
-      setDerivativeCards(cardsData.cards);
-      setHealthState(healthStateData);
-      setCausalChains(healthStateData.causal_chains ?? []);
-      setWeeklySummaries(weeklyData.weekly_summaries?.reverse() ?? []);
-      setTodaySummary(dashboardData.today as WeeklySummary | null);
-
+      // Process targets immediately (no async needed)
       const isWorkoutDay = dashboardData.is_workout_day === true;
       const workoutDayTargets = dashboardData.workout_day_targets as WorkoutDayTargets | null;
 
@@ -319,24 +351,56 @@ export function useInsightsData(): InsightsDataState {
         tdee: dashboardData.tdee as number | null ?? null,
       };
 
+      // Set ALL core data immediately so UI can render
+      setInsights(insightsData);
+      setDerivatives(derivativesData);
+      setDerivativeCards(cardsData.cards);
+      setHealthState(healthStateData);
+      setCausalChains(healthStateData.causal_chains ?? []);
+      setWeeklySummaries(weeklyData.weekly_summaries?.reverse() ?? []);
+      setTodaySummary(dashboardData.today as WeeklySummary | null);
       setTargets(newTargets);
       setTargetsPersonalized(dashboardData.targets_calculated ?? false);
       setTargetsInfo(newTargetsInfo);
 
-      await setCache(cacheKey, {
-        insights: insightsData,
-        derivatives: derivativesData,
-        cards: cardsData.cards,
-        weekly: weeklyData.weekly_summaries?.reverse() ?? [],
-        today: dashboardData.today as WeeklySummary | null,
-        targets: newTargets,
-        targetsPersonalized: dashboardData.targets_calculated ?? false,
-        targetsInfo: newTargetsInfo,
-        healthState: healthStateData,
-        causalChains: healthStateData.causal_chains ?? [],
-      });
-
+      // UI CAN RENDER NOW - set loading false
+      setAnalyticsLoading(false);
       loadedTabs.current.add('analytics');
+
+      // Phase 2: Fetch LLM-powered data in BACKGROUND (don't await!)
+      // These call OpenAI and take 5-15 seconds - UI should NOT wait
+      setLlmLoading(true);
+
+      // Fire and forget - don't block with await
+      Promise.all([
+        withTimeout(healthIntelligenceApi.getInsights(userId), 20000, defaultDeltaInsights),
+        withTimeout(healthIntelligenceApi.getDigestionInsights(userId), 20000, defaultDigestion),
+      ]).then(([deltaInsightsData, digestionData]) => {
+        // Update state when LLM data arrives (UI already rendered)
+        setDeltaInsights(deltaInsightsData);
+        setDeltaCommentary(deltaInsightsData.commentary);
+        setDigestionInsights(digestionData);
+        setLlmLoading(false);
+
+        // Update cache with complete data
+        setCache(cacheKey, {
+          insights: insightsData,
+          derivatives: derivativesData,
+          cards: cardsData.cards,
+          weekly: weeklyData.weekly_summaries?.reverse() ?? [],
+          today: dashboardData.today as WeeklySummary | null,
+          targets: newTargets,
+          targetsPersonalized: dashboardData.targets_calculated ?? false,
+          targetsInfo: newTargetsInfo,
+          healthState: healthStateData,
+          causalChains: healthStateData.causal_chains ?? [],
+          deltaInsights: deltaInsightsData,
+        });
+      }).catch((err) => {
+        console.log('[useInsightsData] LLM fetch failed:', err);
+        setLlmLoading(false);
+        // Keep default values - don't crash
+      });
     } catch {
       setError('Could not load analytics');
       setInsights(defaultInsights);
@@ -499,6 +563,11 @@ export function useInsightsData(): InsightsDataState {
     healthState,
     causalChains,
 
+    // Delta Intelligence - LLM-powered explanations
+    deltaInsights,
+    deltaCommentary,
+    digestionInsights,
+
     // Workout data
     workout,
 
@@ -510,6 +579,7 @@ export function useInsightsData(): InsightsDataState {
 
     // Loading states
     analyticsLoading,
+    llmLoading,  // True while LLM endpoints load (show skeleton cards)
     workoutLoading,
     calendarLoading,
     error,
