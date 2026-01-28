@@ -1,15 +1,21 @@
 /**
  * App Navigator - Root navigation structure.
  *
+ * ARCHITECTURE (Conversation-first redesign):
+ * 3-tab navigation: Delta (chat) | Journal (log) | You (profile + intelligence)
+ *
+ * Delta is not a dashboard. It's an AI scientist studying you.
+ * The chat IS the app, patterns are the product, transparency is the differentiator.
+ *
  * SAFETY DECISIONS:
  * - No custom theme with fonts (caused issues)
  * - Explicit boolean checks for auth state
  * - Simple screen options without complex types
- * - Settings as modal from Profile
+ * - Settings as modal from You tab
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ActivityIndicator, View, StyleSheet, Modal } from 'react-native';
+import { ActivityIndicator, View, Text, StyleSheet, Modal } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -21,16 +27,11 @@ import { useTheme } from '../context/ThemeContext';
 // Screens
 import AuthScreen from '../screens/AuthScreen';
 import ChatScreen from '../screens/ChatScreen';
-import ActivityScreen from '../screens/ActivityScreen';
-import ProfileScreen from '../screens/ProfileScreen';
+import JournalScreen from '../screens/JournalScreen';
+import YouScreen from '../screens/YouScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import WelcomeAnimationScreen from '../screens/WelcomeAnimationScreen';
 import OnboardingScreen, { hasCompletedOnboarding } from '../screens/OnboardingScreen';
-
-// Navigators
-import InsightsNavigator from './InsightsNavigator';
-// Note: Using RevenueCat's built-in Paywall UI instead of custom PaywallScreen
-// Access showPaywall() from useAccess() to present the paywall
 
 // Type definitions
 export type RootStackParamList = {
@@ -39,17 +40,16 @@ export type RootStackParamList = {
 };
 
 export type MainTabParamList = {
-  Chat: undefined;
-  Activity: undefined;
-  Insights: undefined;
-  Profile: undefined;
+  Delta: undefined;
+  Journal: undefined;
+  You: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
 /**
- * Bottom tab navigator for authenticated users.
+ * Bottom tab navigator - 3 tabs: Delta | Journal | You
  * SAFETY: Icon names are typed, no dynamic string interpolation.
  */
 function MainTabs(): React.ReactNode {
@@ -72,19 +72,24 @@ function MainTabs(): React.ReactNode {
           tabBarActiveTintColor: theme.textPrimary,
           tabBarInactiveTintColor: theme.textSecondary,
           tabBarStyle: {
-            backgroundColor: theme.mode === 'dark' ? '#000000' : theme.surface,
-            borderTopColor: theme.mode === 'dark' ? '#1a1a1a' : theme.border,
+            backgroundColor: theme.mode === 'dark' ? '#0A0A0F' : theme.surface,
+            borderTopColor: theme.mode === 'dark' ? '#1E1E2E' : theme.border,
             borderTopWidth: 1,
             paddingTop: 12,
             paddingBottom: 30,
             height: 90,
           },
+          tabBarLabelStyle: {
+            fontSize: 10,
+            fontWeight: '500',
+            marginTop: 2,
+          },
         }}
       >
         <Tab.Screen
-          name="Chat"
+          name="Delta"
           options={{
-            tabBarShowLabel: false,
+            tabBarLabel: 'Delta',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="triangle-outline" size={size} color={color} />
             ),
@@ -94,39 +99,27 @@ function MainTabs(): React.ReactNode {
         </Tab.Screen>
 
         <Tab.Screen
-          name="Activity"
+          name="Journal"
           options={{
-            tabBarShowLabel: false,
+            tabBarLabel: 'Journal',
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="barbell-outline" size={size} color={color} />
+              <Ionicons name="book-outline" size={size} color={color} />
             ),
           }}
         >
-          {() => <ActivityScreen theme={theme} />}
+          {() => <JournalScreen theme={theme} />}
         </Tab.Screen>
 
         <Tab.Screen
-          name="Insights"
+          name="You"
           options={{
-            tabBarShowLabel: false,
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="stats-chart-outline" size={size} color={color} />
-            ),
-          }}
-        >
-          {() => <InsightsNavigator theme={theme} />}
-        </Tab.Screen>
-
-        <Tab.Screen
-          name="Profile"
-          options={{
-            tabBarShowLabel: false,
+            tabBarLabel: 'You',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="person-outline" size={size} color={color} />
             ),
           }}
         >
-          {() => <ProfileScreen theme={theme} onOpenSettings={openSettings} />}
+          {() => <YouScreen theme={theme} onOpenSettings={openSettings} />}
         </Tab.Screen>
       </Tab.Navigator>
 

@@ -150,7 +150,7 @@ export interface InsightsDataState {
   fetchWorkoutData: (forceRefresh?: boolean) => Promise<void>;
   fetchCalendarData: (year: number, month: number, forceRefresh?: boolean) => Promise<void>;
   refreshAll: () => Promise<void>;
-  invalidateCache: (tab: 'analytics' | 'workout' | 'calendar') => Promise<void>;
+  invalidateCache: (tab: 'analytics' | 'workout' | 'calendar', refetch?: boolean) => Promise<void>;
 }
 
 export function useInsightsData(): InsightsDataState {

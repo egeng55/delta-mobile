@@ -48,9 +48,9 @@ import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useAccess } from '../context/AccessContext';
 import { useUnits } from '../context/UnitsContext';
-import { chatApi, conversationsApi, dashboardInsightApi } from '../services/api';
+import { chatApi, conversationsApi, dashboardInsightApi, healthIntelligenceApi, AgentAction } from '../services/api';
 import { DeltaLogoSimple } from '../components/DeltaLogo';
-import { MainTabParamList } from '../navigation/AppNavigator';
+import type { MainTabParamList } from '../navigation/AppNavigator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useInsightsData } from '../hooks/useInsightsData';
 import { supabase } from '../services/supabase';
@@ -58,6 +58,7 @@ import { getWeather, formatWeatherForContext, WeatherData } from '../services/we
 import { PullDownDashboard } from '../components/Dashboard';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import VoiceChatModal from '../components/Chat/VoiceChatModal';
+import { ProactiveCardsList } from '../components/ProactiveCard';
 
 const springConfig = {
   damping: 15,
@@ -224,6 +225,7 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
   const [showVoiceModal, setShowVoiceModal] = useState<boolean>(false);
   const [dashboardMessage, setDashboardMessage] = useState<string | undefined>(undefined);
   const [isLoadingDashboardMessage, setIsLoadingDashboardMessage] = useState<boolean>(false);
+  const [proactiveActions, setProactiveActions] = useState<AgentAction[]>([]);
   const flatListRef = useRef<FlatList<Message>>(null);
   const inputRef = useRef<TextInput>(null);
   const renameInputRef = useRef<TextInput>(null);
@@ -239,6 +241,20 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
       fetchDashboardInsight();
     }
   }, [user?.id, weatherData]);
+
+  // Fetch proactive agent actions
+  useEffect(() => {
+    const fetchActions = async () => {
+      if (!user?.id) return;
+      try {
+        const response = await healthIntelligenceApi.getAgentActions(user.id);
+        setProactiveActions(response.actions);
+      } catch {
+        // Silent fail
+      }
+    };
+    fetchActions();
+  }, [user?.id]);
 
   // Auto-save current conversation when messages change
   useEffect(() => {
@@ -530,6 +546,21 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
   const openDashboard = (): void => {
     setShowDashboard(true);
     fetchDashboardInsight();
+  };
+
+  // Handle proactive card press - send as chat message
+  const handleActionPress = (action: AgentAction): void => {
+    if (action.action_type === 'chat') {
+      setInputText(action.action_label || 'Tell me more');
+    } else if (action.action_type === 'log') {
+      setInputText(action.action_label || '');
+    }
+    // Dismiss the card
+    setProactiveActions(prev => prev.filter(a => a.id !== action.id));
+  };
+
+  const handleActionDismiss = (actionId: string): void => {
+    setProactiveActions(prev => prev.filter(a => a.id !== actionId));
   };
 
   // Handle voice input - send text directly
@@ -964,7 +995,7 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         </View>
         <Pressable
           style={styles.profileButton}
-          onPress={() => navigation.navigate('Profile')}
+          onPress={() => navigation.navigate('You')}
         >
           {profileImage !== null ? (
             <Image source={{ uri: profileImage }} style={styles.profileImage} />
@@ -993,6 +1024,14 @@ export default function ChatScreen({ theme }: ChatScreenProps): React.ReactNode 
         onContentSizeChange={() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         }}
+      />
+
+      {/* Proactive Cards */}
+      <ProactiveCardsList
+        theme={theme}
+        actions={proactiveActions}
+        onActionPress={handleActionPress}
+        onDismiss={handleActionDismiss}
       />
 
       {isLoading === true && (

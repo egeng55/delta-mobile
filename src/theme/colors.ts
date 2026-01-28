@@ -26,23 +26,23 @@ export const lightTheme = {
   heart: '#ef4444',            // Red for heart rate
 };
 
-// Dark theme - Sleek, high contrast
+// Dark theme - Conversation-first, Delta intelligence aesthetic
 export const darkTheme = {
   mode: 'dark' as const,
-  background: '#000000',       // True black
-  surface: '#0a0a0a',          // Near black cards
-  surfaceSecondary: '#141414', // Slightly lighter
+  background: '#0A0A0F',       // Near-black with slight blue
+  surface: '#14141F',          // Dark blue-gray cards
+  surfaceSecondary: '#1A1A2E', // Slightly lighter
   textPrimary: '#fafafa',      // Off-white (easier on eyes than pure white)
   textSecondary: '#737373',    // Muted gray
-  accent: '#818cf8',           // Soft indigo (more visible on dark)
-  accentLight: '#1e1b4b',      // Dark indigo
-  border: '#262626',           // Subtle dark borders
+  accent: '#6366F1',           // Indigo - Delta's voice
+  accentLight: '#6366F126',    // Delta's voice at 15% opacity
+  border: '#1E1E2E',           // Subtle dark borders with blue tint
   error: '#f87171',            // Bright red
-  success: '#4ade80',          // Bright green (recovery)
-  warning: '#fbbf24',          // Bright yellow/orange (strain)
-  // Semantic colors - vibrant for contrast
-  recovery: '#34d399',         // Emerald green
-  strain: '#fb923c',           // Orange
+  success: '#5EEAD4',          // Muted teal (not bright green)
+  warning: '#FBBF24',          // Soft amber (not WHOOP orange)
+  // Semantic colors - intelligence-first
+  recovery: '#5EEAD4',         // Muted teal
+  strain: '#FBBF24',           // Soft amber
   sleep: '#a78bfa',            // Purple
   heart: '#fb7185',            // Rose
 };

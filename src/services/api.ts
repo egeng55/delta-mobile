@@ -1406,6 +1406,92 @@ export const healthIntelligenceApi = {
       `/health-intelligence/${userId}/digestion`
     );
   },
+
+  /**
+   * Get proactive agent actions - things Delta wants to tell the user.
+   * Predictions resolving, patterns discovered, data gaps, etc.
+   */
+  getAgentActions: async (userId: string): Promise<AgentActionsResponse> => {
+    try {
+      return await request<AgentActionsResponse>(
+        `/health-intelligence/${userId}/agent-actions`
+      );
+    } catch {
+      return { user_id: userId, actions: [] };
+    }
+  },
+
+  /**
+   * Get learned causal chains with full detail.
+   */
+  getLearnedChains: async (userId: string): Promise<LearnedChainsResponse> => {
+    try {
+      return await request<LearnedChainsResponse>(
+        `/health-intelligence/${userId}/learned-chains`
+      );
+    } catch {
+      return { user_id: userId, chains: [], count: 0 };
+    }
+  },
+
+  /**
+   * Get active predictions - what Delta thinks happens next 24h.
+   */
+  getPredictions: async (userId: string): Promise<PredictionsResponse> => {
+    try {
+      return await request<PredictionsResponse>(
+        `/health-intelligence/${userId}/predictions`
+      );
+    } catch {
+      return { user_id: userId, predictions: [], accuracy: null };
+    }
+  },
+
+  /**
+   * Get recent belief updates - what Delta learned, what changed.
+   */
+  getBeliefUpdates: async (userId: string): Promise<BeliefUpdatesResponse> => {
+    try {
+      return await request<BeliefUpdatesResponse>(
+        `/health-intelligence/${userId}/belief-updates`
+      );
+    } catch {
+      return { user_id: userId, updates: [] };
+    }
+  },
+
+  /**
+   * Get knowledge gaps - what data Delta needs to improve predictions.
+   */
+  getUncertainty: async (userId: string): Promise<UncertaintyResponse> => {
+    try {
+      return await request<UncertaintyResponse>(
+        `/health-intelligence/${userId}/uncertainty`
+      );
+    } catch {
+      return { user_id: userId, gaps: [], overall_confidence: 0 };
+    }
+  },
+
+  /**
+   * Get overall learning status - how Delta's intelligence is progressing.
+   */
+  getLearningStatus: async (userId: string): Promise<LearningStatusResponse> => {
+    try {
+      return await request<LearningStatusResponse>(
+        `/health-intelligence/${userId}/learning-status`
+      );
+    } catch {
+      return {
+        user_id: userId,
+        days_of_data: 0,
+        patterns_discovered: 0,
+        predictions_made: 0,
+        predictions_correct: 0,
+        status: 'learning',
+      };
+    }
+  },
 };
 
 // =============================================================================
@@ -1533,6 +1619,103 @@ export interface PatternExplanationResponse {
   narrative: string;
   why: string;
   advice: string;
+}
+
+// =============================================================================
+// AGENT ACTIONS & INTELLIGENCE TYPES (Conversation-first redesign)
+// =============================================================================
+
+export interface AgentAction {
+  id: string;
+  type: 'prediction_resolving' | 'pattern_discovered' | 'data_gap' | 'milestone' | 'insight';
+  title: string;
+  body: string;
+  priority: 'high' | 'medium' | 'low';
+  action_label?: string;
+  action_type?: 'log' | 'chat' | 'view';
+  created_at: string;
+  expires_at?: string;
+}
+
+export interface AgentActionsResponse {
+  user_id: string;
+  actions: AgentAction[];
+}
+
+export interface LearnedChain {
+  id: string;
+  cause: string;
+  effect: string;
+  lag_days: number;
+  confidence: number;
+  times_verified: number;
+  total_occurrences: number;
+  narrative: string;
+  why?: string;
+  advice?: string;
+  last_verified?: string;
+  belief_history?: Array<{ date: string; confidence: number }>;
+}
+
+export interface LearnedChainsResponse {
+  user_id: string;
+  chains: LearnedChain[];
+  count: number;
+}
+
+export interface Prediction {
+  id: string;
+  metric: string;
+  predicted_value: string;
+  predicted_direction: 'up' | 'down' | 'stable';
+  confidence: number;
+  reasoning: string;
+  resolves_at: string;
+  resolved?: boolean;
+  actual_value?: string;
+  was_correct?: boolean;
+}
+
+export interface PredictionsResponse {
+  user_id: string;
+  predictions: Prediction[];
+  accuracy: { correct: number; total: number } | null;
+}
+
+export interface BeliefUpdate {
+  id: string;
+  pattern: string;
+  old_confidence: number;
+  new_confidence: number;
+  reason: string;
+  updated_at: string;
+}
+
+export interface BeliefUpdatesResponse {
+  user_id: string;
+  updates: BeliefUpdate[];
+}
+
+export interface KnowledgeGap {
+  metric: string;
+  description: string;
+  impact: string;
+  days_needed: number;
+}
+
+export interface UncertaintyResponse {
+  user_id: string;
+  gaps: KnowledgeGap[];
+  overall_confidence: number;
+}
+
+export interface LearningStatusResponse {
+  user_id: string;
+  days_of_data: number;
+  patterns_discovered: number;
+  predictions_made: number;
+  predictions_correct: number;
+  status: 'learning' | 'calibrating' | 'confident';
 }
 
 // =============================================================================
