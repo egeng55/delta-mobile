@@ -2,7 +2,7 @@
  * useInsightsData - Shared data hook for insights screens
  *
  * Provides cached data fetching for analytics, workout, and calendar data.
- * Used by TodayScreen, ActivityScreen, RecoveryScreen, and HistoryScreen.
+ * Used by DailyInsightsScreen and DashboardScreen.
  */
 
 import { useState, useCallback, useRef, useMemo } from 'react';
@@ -32,6 +32,9 @@ import {
   DeltaInsightsResponse,
   DeltaCommentary,
   DigestionInsightsResponse,
+  // Module types
+  DeltaModule,
+  ModulesResponse,
 } from '../services/api';
 import * as menstrualService from '../services/menstrualTracking';
 
@@ -129,6 +132,10 @@ export interface InsightsDataState {
   deltaCommentary: DeltaCommentary | null;
   digestionInsights: DigestionInsightsResponse | null;
 
+  // Backend-driven modules
+  modules: DeltaModule[];
+  modulesLoading: boolean;
+
   // Workout data
   workout: WorkoutPlan | null;
 
@@ -180,6 +187,10 @@ export function useInsightsData(): InsightsDataState {
   const [deltaInsights, setDeltaInsights] = useState<DeltaInsightsResponse | null>(null);
   const [deltaCommentary, setDeltaCommentary] = useState<DeltaCommentary | null>(null);
   const [digestionInsights, setDigestionInsights] = useState<DigestionInsightsResponse | null>(null);
+
+  // Backend-driven modules
+  const [modules, setModules] = useState<DeltaModule[]>([]);
+  const [modulesLoading, setModulesLoading] = useState<boolean>(false);
 
   // Workout state
   const [workout, setWorkout] = useState<WorkoutPlan | null>(null);
@@ -276,6 +287,16 @@ export function useInsightsData(): InsightsDataState {
         setDeltaCommentary(cached.deltaInsights?.commentary ?? null);
         setAnalyticsLoading(false);
         loadedTabs.current.add('analytics');
+
+        // Still fetch modules in background — not cached
+        const defaultModulesCached: ModulesResponse = { user_id: userId, has_data: false, modules: [] };
+        setModulesLoading(true);
+        withTimeout(healthIntelligenceApi.getModules(userId), 20000, defaultModulesCached)
+          .then((modulesData) => {
+            setModules(modulesData.modules ?? []);
+            setModulesLoading(false);
+          })
+          .catch(() => { setModulesLoading(false); });
         return;
       }
     }
@@ -370,17 +391,23 @@ export function useInsightsData(): InsightsDataState {
       // Phase 2: Fetch LLM-powered data in BACKGROUND (don't await!)
       // These call OpenAI and take 5-15 seconds - UI should NOT wait
       setLlmLoading(true);
+      setModulesLoading(true);
+
+      const defaultModules: ModulesResponse = { user_id: userId, has_data: false, modules: [] };
 
       // Fire and forget - don't block with await
       Promise.all([
         withTimeout(healthIntelligenceApi.getInsights(userId), 20000, defaultDeltaInsights),
         withTimeout(healthIntelligenceApi.getDigestionInsights(userId), 20000, defaultDigestion),
-      ]).then(([deltaInsightsData, digestionData]) => {
+        withTimeout(healthIntelligenceApi.getModules(userId), 20000, defaultModules),
+      ]).then(([deltaInsightsData, digestionData, modulesData]) => {
         // Update state when LLM data arrives (UI already rendered)
         setDeltaInsights(deltaInsightsData);
         setDeltaCommentary(deltaInsightsData.commentary);
         setDigestionInsights(digestionData);
+        setModules(modulesData.modules ?? []);
         setLlmLoading(false);
+        setModulesLoading(false);
 
         // Update cache with complete data
         setCache(cacheKey, {
@@ -399,6 +426,7 @@ export function useInsightsData(): InsightsDataState {
       }).catch((err) => {
         console.log('[useInsightsData] LLM fetch failed:', err);
         setLlmLoading(false);
+        setModulesLoading(false);
         // Keep default values - don't crash
       });
     } catch {
@@ -567,6 +595,10 @@ export function useInsightsData(): InsightsDataState {
     deltaInsights,
     deltaCommentary,
     digestionInsights,
+
+    // Backend-driven modules
+    modules,
+    modulesLoading,
 
     // Workout data
     workout,
