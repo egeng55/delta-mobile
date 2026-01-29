@@ -35,9 +35,9 @@ interface DeltaBrainProps {
 export default function DeltaBrain({
   theme,
   learningStatus,
-  predictions,
-  beliefUpdates,
-  knowledgeGaps,
+  predictions = [],
+  beliefUpdates = [],
+  knowledgeGaps = [],
 }: DeltaBrainProps): React.ReactNode {
   const styles = createStyles(theme);
 
