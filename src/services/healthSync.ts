@@ -148,6 +148,10 @@ class HealthSyncService {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
 
+      if (!token) {
+        return { synced: false, error: 'No auth session available' };
+      }
+
       // Send to backend
       const response = await fetch(`${API_BASE_URL}/health-sync`, {
         method: 'POST',
