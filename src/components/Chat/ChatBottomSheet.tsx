@@ -146,7 +146,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
     useEffect(() => {
       breatheOpacity.value = withRepeat(
         withSequence(
-          withTiming(0.85, { duration: 2000 }),
+          withTiming(0.95, { duration: 2000 }),
           withTiming(1.0, { duration: 2000 }),
         ),
         -1,
