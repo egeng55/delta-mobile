@@ -15,6 +15,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { Theme } from '../theme/colors';
 import VizContainer from '../components/viz/VizContainer';
 import { useAuth } from '../context/AuthContext';
@@ -118,16 +119,88 @@ export default function DashboardScreen({ theme }: DashboardScreenProps): React.
             />
           ))
         ) : (
-          <View style={{ paddingVertical: 40, alignItems: 'center' }}>
-            <Text style={{ color: theme.textSecondary, fontSize: 14, textAlign: 'center' }}>
-              No viz modules from backend.{'\n'}
-              /modules endpoint may not be deployed.
-            </Text>
-          </View>
+          <EmptyDashboard theme={theme} />
         )}
 
         <View style={{ height: 32 }} />
       </ScrollView>
+    </View>
+  );
+}
+
+const EXAMPLE_VIZ = [
+  { icon: 'trending-up-outline' as const, title: 'Sleep vs. Recovery', type: 'Line chart', color: '#a78bfa' },
+  { icon: 'bar-chart-outline' as const, title: 'Weekly Training Load', type: 'Bar chart', color: '#5EEAD4' },
+  { icon: 'grid-outline' as const, title: 'Habit Consistency', type: 'Heatmap', color: '#FBBF24' },
+  { icon: 'scatter-chart' as const, title: 'Stress × Sleep Quality', type: 'Scatter plot', color: '#fb7185' },
+  { icon: 'stats-chart-outline' as const, title: 'Energy Distribution', type: 'Distribution', color: '#6366F1' },
+  { icon: 'swap-horizontal-outline' as const, title: 'Rest Days vs. Active', type: 'Comparison', color: '#38BDF8' },
+] as const;
+
+const CAPABILITY_TAGS = [
+  'Trend detection', 'Cause & effect', 'Anomaly alerts',
+  'Weekly summaries', 'Before/after', 'Correlations',
+];
+
+function EmptyDashboard({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ paddingTop: 24 }}>
+      {/* Hero message */}
+      <View style={{ alignItems: 'center', paddingHorizontal: 24, marginBottom: 28 }}>
+        <View style={{
+          width: 56, height: 56, borderRadius: 28,
+          backgroundColor: theme.accent + '15', alignItems: 'center', justifyContent: 'center',
+          marginBottom: 14,
+        }}>
+          <Ionicons name="analytics-outline" size={28} color={theme.accent} />
+        </View>
+        <Text style={{ color: theme.textPrimary, fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: 6 }}>
+          Your personal analytics
+        </Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 14, textAlign: 'center', lineHeight: 20 }}>
+          Delta builds custom visualizations based on your data. Log a few days and these will populate automatically.
+        </Text>
+      </View>
+
+      {/* Example viz cards */}
+      <Text style={{ color: theme.textSecondary, fontSize: 11, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10, paddingHorizontal: 4 }}>
+        Visualizations Delta can generate
+      </Text>
+      {EXAMPLE_VIZ.map((viz, i) => (
+        <View key={i} style={{
+          flexDirection: 'row', alignItems: 'center',
+          backgroundColor: theme.surface, borderRadius: 12,
+          padding: 14, marginBottom: 8,
+          borderWidth: 1, borderColor: theme.border,
+          opacity: 0.7,
+        }}>
+          <View style={{
+            width: 36, height: 36, borderRadius: 10,
+            backgroundColor: viz.color + '18', alignItems: 'center', justifyContent: 'center',
+            marginRight: 12,
+          }}>
+            <Ionicons name={viz.icon === 'scatter-chart' ? 'ellipse-outline' : viz.icon} size={18} color={viz.color} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '600' }}>{viz.title}</Text>
+            <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 1 }}>{viz.type}</Text>
+          </View>
+          <Ionicons name="lock-closed-outline" size={14} color={theme.textSecondary + '60'} />
+        </View>
+      ))}
+
+      {/* Capability tags */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 16, paddingHorizontal: 4 }}>
+        {CAPABILITY_TAGS.map((tag) => (
+          <View key={tag} style={{
+            paddingHorizontal: 10, paddingVertical: 5,
+            borderRadius: 100, backgroundColor: theme.accent + '12',
+            borderWidth: 1, borderColor: theme.accent + '20',
+          }}>
+            <Text style={{ color: theme.accent, fontSize: 11, fontWeight: '500' }}>{tag}</Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
