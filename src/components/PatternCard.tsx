@@ -8,17 +8,26 @@
  * Uses frosted glass aesthetic for AI-generated content.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { Theme } from '../theme/colors';
 import { LearnedChain } from '../services/api';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 interface PatternCardProps {
   theme: Theme;
@@ -46,7 +55,7 @@ export default function PatternCard({
   index = 0,
 }: PatternCardProps): React.ReactNode {
   const [expanded, setExpanded] = useState(false);
-  const styles = createStyles(theme);
+  const styles = useMemo(() => createStyles(theme), [theme]);
 
   const causeLabel = EVENT_LABELS[chain.cause] || chain.cause;
   const effectLabel = EVENT_LABELS[chain.effect] || chain.effect;
@@ -60,11 +69,28 @@ export default function PatternCard({
     ? theme.warning
     : theme.textSecondary;
 
+  // Trend indicator from belief history
+  const trend = useMemo(() => {
+    const bh = chain.belief_history;
+    if (!bh || bh.length < 2) return null;
+    const last = bh[bh.length - 1].confidence;
+    const prev = bh[bh.length - 2].confidence;
+    if (last > prev + 0.02) return 'up' as const;
+    if (last < prev - 0.02) return 'down' as const;
+    return null;
+  }, [chain.belief_history]);
+
+  const handlePress = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setExpanded(!expanded);
+  };
+
   return (
     <Animated.View entering={FadeInDown.delay(index * 80).springify()}>
       <Pressable
         style={styles.container}
-        onPress={() => setExpanded(!expanded)}
+        onPress={handlePress}
       >
         {/* Compact pattern summary */}
         <View style={styles.summaryRow}>
@@ -84,6 +110,13 @@ export default function PatternCard({
           <View style={styles.metaItem}>
             <View style={[styles.confidenceDot, { backgroundColor: confidenceColor }]} />
             <Text style={[styles.metaText, { color: confidenceColor }]}>{confidencePct}%</Text>
+            {trend && (
+              <Ionicons
+                name={trend === 'up' ? 'arrow-up' : 'arrow-down'}
+                size={10}
+                color={trend === 'up' ? theme.success : theme.warning}
+              />
+            )}
           </View>
           <View style={styles.metaItem}>
             <Ionicons name="checkmark-circle-outline" size={12} color={theme.textSecondary} />

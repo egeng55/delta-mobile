@@ -1344,6 +1344,26 @@ export interface NarrativeResponse {
   metrics_summary: Record<string, number | null>;
 }
 
+// Intelligence cache — 5-minute TTL to avoid redundant fetches
+const intelligenceCache = new Map<string, { data: unknown; ts: number }>();
+const INTEL_CACHE_TTL = 5 * 60 * 1000;
+
+function cachedRequest<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  const cached = intelligenceCache.get(key);
+  if (cached && Date.now() - cached.ts < INTEL_CACHE_TTL) {
+    return Promise.resolve(cached.data as T);
+  }
+  return fetcher().then((data) => {
+    intelligenceCache.set(key, { data, ts: Date.now() });
+    return data;
+  });
+}
+
+/** Call to force-clear intelligence cache (e.g. after new data logged). */
+export function invalidateIntelligenceCache(): void {
+  intelligenceCache.clear();
+}
+
 // Health Intelligence API
 export const healthIntelligenceApi = {
   getState: async (userId: string): Promise<HealthStateResponse> => {
@@ -1517,7 +1537,8 @@ export const healthIntelligenceApi = {
       return await request<AgentActionsResponse>(
         `/health-intelligence/${userId}/agent-actions`
       );
-    } catch {
+    } catch (e) {
+      console.warn('[Intelligence] getAgentActions failed:', e);
       return { user_id: userId, actions: [] };
     }
   },
@@ -1527,8 +1548,8 @@ export const healthIntelligenceApi = {
    */
   getLearnedChains: async (userId: string): Promise<LearnedChainsResponse> => {
     try {
-      return await request<LearnedChainsResponse>(
-        `/health-intelligence/${userId}/learned-chains`
+      return await cachedRequest(`chains:${userId}`, () =>
+        request<LearnedChainsResponse>(`/health-intelligence/${userId}/learned-chains`)
       );
     } catch (e) {
       console.warn('[Intelligence] getLearnedChains failed:', e);
@@ -1541,8 +1562,8 @@ export const healthIntelligenceApi = {
    */
   getPredictions: async (userId: string): Promise<PredictionsResponse> => {
     try {
-      return await request<PredictionsResponse>(
-        `/health-intelligence/${userId}/predictions`
+      return await cachedRequest(`preds:${userId}`, () =>
+        request<PredictionsResponse>(`/health-intelligence/${userId}/predictions`)
       );
     } catch (e) {
       console.warn('[Intelligence] getPredictions failed:', e);
@@ -1555,8 +1576,8 @@ export const healthIntelligenceApi = {
    */
   getBeliefUpdates: async (userId: string): Promise<BeliefUpdatesResponse> => {
     try {
-      return await request<BeliefUpdatesResponse>(
-        `/health-intelligence/${userId}/belief-updates`
+      return await cachedRequest(`beliefs:${userId}`, () =>
+        request<BeliefUpdatesResponse>(`/health-intelligence/${userId}/belief-updates`)
       );
     } catch (e) {
       console.warn('[Intelligence] getBeliefUpdates failed:', e);
@@ -1569,8 +1590,8 @@ export const healthIntelligenceApi = {
    */
   getUncertainty: async (userId: string): Promise<UncertaintyResponse> => {
     try {
-      return await request<UncertaintyResponse>(
-        `/health-intelligence/${userId}/uncertainty`
+      return await cachedRequest(`uncertainty:${userId}`, () =>
+        request<UncertaintyResponse>(`/health-intelligence/${userId}/uncertainty`)
       );
     } catch (e) {
       console.warn('[Intelligence] getUncertainty failed:', e);
@@ -1583,8 +1604,8 @@ export const healthIntelligenceApi = {
    */
   getLearningStatus: async (userId: string): Promise<LearningStatusResponse> => {
     try {
-      return await request<LearningStatusResponse>(
-        `/health-intelligence/${userId}/learning-status`
+      return await cachedRequest(`status:${userId}`, () =>
+        request<LearningStatusResponse>(`/health-intelligence/${userId}/learning-status`)
       );
     } catch (e) {
       console.warn('[Intelligence] getLearningStatus failed:', e);

@@ -3,16 +3,17 @@
  *
  * Shows how Delta is learning about the user:
  * - Prediction accuracy (simple fraction: "34/41 correct")
- * - Active predictions (next 24h)
- * - Recent belief updates (what changed)
+ * - Active predictions (next 24h) — filters out resolved
+ * - Recent belief updates (what changed) — show 3, expandable
  * - Knowledge gaps (what data is needed)
  */
 
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
+  TouchableOpacity,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -32,6 +33,17 @@ interface DeltaBrainProps {
   knowledgeGaps: KnowledgeGap[];
 }
 
+function formatTimeRemaining(resolves_at: string): string {
+  const now = Date.now();
+  const target = new Date(resolves_at).getTime();
+  const diffMs = target - now;
+  if (diffMs <= 0) return 'resolving soon';
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  if (hours < 1) return `${Math.ceil(diffMs / (1000 * 60))}m left`;
+  if (hours < 24) return `${hours}h left`;
+  return `${Math.floor(hours / 24)}d left`;
+}
+
 export default function DeltaBrain({
   theme,
   learningStatus,
@@ -39,7 +51,26 @@ export default function DeltaBrain({
   beliefUpdates = [],
   knowledgeGaps = [],
 }: DeltaBrainProps): React.ReactNode {
-  const styles = createStyles(theme);
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const [showAllUpdates, setShowAllUpdates] = useState(false);
+
+  // Filter to only active (unresolved) predictions
+  const activePredictions = useMemo(
+    () => predictions.filter((p) => !p.resolved && !p.was_correct && !p.actual_value),
+    [predictions]
+  );
+
+  const visibleUpdates = showAllUpdates ? beliefUpdates : beliefUpdates.slice(0, 3);
+
+  // Trend indicator for belief history
+  const getTrend = (bh?: Array<{ date: string; confidence: number }>): 'up' | 'down' | 'stable' => {
+    if (!bh || bh.length < 2) return 'stable';
+    const last = bh[bh.length - 1].confidence;
+    const prev = bh[bh.length - 2].confidence;
+    if (last > prev + 0.02) return 'up';
+    if (last < prev - 0.02) return 'down';
+    return 'stable';
+  };
 
   return (
     <View style={styles.container}>
@@ -74,13 +105,15 @@ export default function DeltaBrain({
       </Animated.View>
 
       {/* Active Predictions */}
-      {predictions.length > 0 && (
-        <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="telescope-outline" size={16} color={theme.accent} />
-            <Text style={styles.sectionTitle}>Active Predictions</Text>
-          </View>
-          {predictions.map((pred) => (
+      <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="telescope-outline" size={16} color={theme.accent} />
+          <Text style={styles.sectionTitle}>Active Predictions</Text>
+        </View>
+        {activePredictions.length === 0 ? (
+          <Text style={styles.emptyText}>No active predictions yet</Text>
+        ) : (
+          activePredictions.map((pred) => (
             <View key={pred.id} style={styles.predictionCard}>
               <View style={styles.predictionHeader}>
                 <Text style={styles.predictionMetric}>{pred.metric}</Text>
@@ -99,61 +132,79 @@ export default function DeltaBrain({
                 <Text style={styles.predictionConfidence}>
                   {Math.round(pred.confidence * 100)}% confident
                 </Text>
+                {pred.resolves_at && (
+                  <Text style={styles.predictionTime}>
+                    {' · '}{formatTimeRemaining(pred.resolves_at)}
+                  </Text>
+                )}
               </View>
             </View>
-          ))}
-        </Animated.View>
-      )}
+          ))
+        )}
+      </Animated.View>
 
       {/* Recent Belief Updates */}
-      {beliefUpdates.length > 0 && (
-        <Animated.View entering={FadeInDown.delay(200).springify()} style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="refresh-outline" size={16} color={theme.accent} />
-            <Text style={styles.sectionTitle}>Recent Learning</Text>
-          </View>
-          {beliefUpdates.slice(0, 3).map((update) => {
-            const isIncrease = update.new_confidence > update.old_confidence;
-            return (
-              <View key={update.id} style={styles.updateCard}>
-                <View style={styles.updateHeader}>
-                  <Text style={styles.updatePattern}>{update.pattern}</Text>
-                  <View style={styles.updateDelta}>
-                    <Ionicons
-                      name={isIncrease ? 'arrow-up' : 'arrow-down'}
-                      size={12}
-                      color={isIncrease ? theme.success : theme.warning}
-                    />
-                    <Text style={[
-                      styles.updateDeltaText,
-                      { color: isIncrease ? theme.success : theme.warning },
-                    ]}>
-                      {Math.round(update.old_confidence * 100)}% → {Math.round(update.new_confidence * 100)}%
-                    </Text>
+      <Animated.View entering={FadeInDown.delay(200).springify()} style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="refresh-outline" size={16} color={theme.accent} />
+          <Text style={styles.sectionTitle}>Recent Learning</Text>
+        </View>
+        {beliefUpdates.length === 0 ? (
+          <Text style={styles.emptyText}>No belief updates yet</Text>
+        ) : (
+          <>
+            {visibleUpdates.map((update) => {
+              const isIncrease = update.new_confidence > update.old_confidence;
+              return (
+                <View key={update.id} style={styles.updateCard}>
+                  <View style={styles.updateHeader}>
+                    <Text style={styles.updatePattern}>{update.pattern}</Text>
+                    <View style={styles.updateDelta}>
+                      <Ionicons
+                        name={isIncrease ? 'arrow-up' : 'arrow-down'}
+                        size={12}
+                        color={isIncrease ? theme.success : theme.warning}
+                      />
+                      <Text style={[
+                        styles.updateDeltaText,
+                        { color: isIncrease ? theme.success : theme.warning },
+                      ]}>
+                        {Math.round(update.old_confidence * 100)}% → {Math.round(update.new_confidence * 100)}%
+                      </Text>
+                    </View>
                   </View>
+                  <Text style={styles.updateReason}>{update.reason}</Text>
                 </View>
-                <Text style={styles.updateReason}>{update.reason}</Text>
-              </View>
-            );
-          })}
-        </Animated.View>
-      )}
+              );
+            })}
+            {beliefUpdates.length > 3 && (
+              <TouchableOpacity onPress={() => setShowAllUpdates(!showAllUpdates)}>
+                <Text style={styles.showMoreText}>
+                  {showAllUpdates ? 'Show less' : `Show ${beliefUpdates.length - 3} more`}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </>
+        )}
+      </Animated.View>
 
       {/* Knowledge Gaps */}
-      {knowledgeGaps.length > 0 && (
-        <Animated.View entering={FadeInDown.delay(300).springify()} style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="help-circle-outline" size={16} color={theme.warning} />
-            <Text style={styles.sectionTitle}>Knowledge Gaps</Text>
-          </View>
-          {knowledgeGaps.map((gap, i) => (
-            <View key={i} style={styles.gapCard}>
+      <Animated.View entering={FadeInDown.delay(300).springify()} style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="help-circle-outline" size={16} color={theme.warning} />
+          <Text style={styles.sectionTitle}>Knowledge Gaps</Text>
+        </View>
+        {knowledgeGaps.length === 0 ? (
+          <Text style={styles.emptyText}>No known knowledge gaps</Text>
+        ) : (
+          knowledgeGaps.map((gap) => (
+            <View key={gap.metric} style={styles.gapCard}>
               <Text style={styles.gapDescription}>{gap.description}</Text>
               <Text style={styles.gapImpact}>{gap.impact}</Text>
             </View>
-          ))}
-        </Animated.View>
-      )}
+          ))
+        )}
+      </Animated.View>
 
       {/* Learning Status */}
       {learningStatus && (
@@ -269,6 +320,10 @@ function createStyles(theme: Theme) {
       fontSize: 11,
       color: theme.textSecondary,
     },
+    predictionTime: {
+      fontSize: 11,
+      color: theme.textSecondary,
+    },
     // Belief Updates
     updateCard: {
       backgroundColor: theme.background,
@@ -302,6 +357,13 @@ function createStyles(theme: Theme) {
       fontSize: 12,
       color: theme.textSecondary,
       lineHeight: 16,
+    },
+    showMoreText: {
+      fontSize: 13,
+      color: theme.accent,
+      textAlign: 'center',
+      paddingVertical: 6,
+      fontWeight: '500',
     },
     // Knowledge Gaps
     gapCard: {

@@ -16,7 +16,7 @@
  * - GET /profile/{user_id}/cards
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -46,6 +46,7 @@ import {
   healthIntelligenceApi,
   profileApi,
   dashboardApi,
+  invalidateIntelligenceCache,
   LearnedChain,
   Prediction,
   BeliefUpdate,
@@ -102,7 +103,7 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
   const [memberSince, setMemberSince] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const styles = createStyles(theme, insets.top);
+  const styles = useMemo(() => createStyles(theme, insets.top), [theme, insets.top]);
 
   // Fetch intelligence data
   const fetchIntelligence = useCallback(async () => {
@@ -150,56 +151,46 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
     }));
   }, [user?.name, profile?.name, profile?.username, profile?.age, profile?.gender]);
 
-  useEffect(() => {
-    const loadCloudData = async () => {
-      if (!user?.id) return;
-      try {
-        const { data: profileRow } = await supabase
-          .from('profiles')
-          .select('avatar_url, bio')
-          .eq('id', user.id)
-          .single();
-        const avatarUrl = profileRow?.avatar_url ?? null;
-        const bio = profileRow?.bio ?? '';
-        setProfileData(prev => ({ ...prev, profileImage: avatarUrl, bio }));
-        setEditData(prev => ({ ...prev, profileImage: avatarUrl, bio }));
-      } catch { /* */ }
-    };
-    loadCloudData();
+  // Combined profile cloud data + member since (single query instead of two)
+  const loadCloudData = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const { data: profileRow } = await supabase
+        .from('profiles')
+        .select('avatar_url, bio, created_at')
+        .eq('id', user.id)
+        .single();
+      const avatarUrl = profileRow?.avatar_url ?? null;
+      const bio = profileRow?.bio ?? '';
+      setProfileData(prev => ({ ...prev, profileImage: avatarUrl, bio }));
+      setEditData(prev => ({ ...prev, profileImage: avatarUrl, bio }));
+      if (profileRow?.created_at) {
+        const date = new Date(profileRow.created_at);
+        setMemberSince(date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
+      }
+    } catch (e) {
+      console.warn('[YouScreen] Failed to load cloud profile:', e);
+    }
   }, [user?.id]);
 
-  useEffect(() => {
-    const loadDashboard = async () => {
-      if (!user?.id) return;
-      try {
-        const data = await dashboardApi.getDashboard(user.id);
-        setDashboardData(data);
-      } catch { /* */ }
-    };
-    loadDashboard();
+  useEffect(() => { loadCloudData(); }, [loadCloudData]);
+
+  const loadDashboard = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const data = await dashboardApi.getDashboard(user.id);
+      setDashboardData(data);
+    } catch (e) {
+      console.warn('[YouScreen] Failed to load dashboard:', e);
+    }
   }, [user?.id]);
 
-  useEffect(() => {
-    const loadMemberDate = async () => {
-      if (!user?.id) return;
-      try {
-        const { data } = await supabase
-          .from('profiles')
-          .select('created_at')
-          .eq('id', user.id)
-          .single();
-        if (data?.created_at) {
-          const date = new Date(data.created_at);
-          setMemberSince(date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
-        }
-      } catch { /* */ }
-    };
-    loadMemberDate();
-  }, [user?.id]);
+  useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchIntelligence();
+    invalidateIntelligenceCache();
+    await Promise.all([fetchIntelligence(), loadCloudData(), loadDashboard()]);
     setRefreshing(false);
   };
 
@@ -250,7 +241,7 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
               const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(fileName);
               avatarUrl = urlData?.publicUrl ?? null;
             }
-          } catch { /* */ }
+          } catch (e) { console.warn('[YouScreen] Avatar upload failed:', e); }
         } else {
           avatarUrl = null;
         }
@@ -273,7 +264,7 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
           setIsSaving(false);
           return;
         }
-        try { await profileApi.syncToDelta(user.id); } catch { /* */ }
+        try { await profileApi.syncToDelta(user.id); } catch (e) { console.warn('[YouScreen] Profile sync failed:', e); }
         await checkAccess();
       }
       setProfileData(editData);
