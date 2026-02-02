@@ -12,6 +12,8 @@ import {
   TIMEOUTS,
   RETRY_CONFIG,
 } from '../config/constants';
+import { recordDecision } from './deltaDecisionLog';
+import { supabase } from './supabase';
 
 // Timeouts for Render free tier cold starts
 const COLD_START_TIMEOUT = TIMEOUTS.COLD_START;
@@ -94,11 +96,22 @@ async function request<T>(
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
+    // Attach Supabase session token for authenticated endpoints
+    const authHeaders: Record<string, string> = {};
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData?.session?.access_token) {
+      authHeaders['Authorization'] = `Bearer ${sessionData.session.access_token}`;
+    }
+    if (__DEV__ && endpoint.includes('/modules')) {
+      console.log('[API] /modules auth:', sessionData?.session?.access_token ? 'token present' : 'NO TOKEN');
+    }
+
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders,
         ...options.headers,
       },
     });
@@ -228,6 +241,28 @@ export const chatApi = {
   },
 };
 
+// Viz Zoom API - re-render a visualization at a different zoom level
+export interface VizZoomResponse {
+  viz_json: string;
+}
+
+export const vizApi = {
+  zoom: async (
+    conversationId: string,
+    vizId: string,
+    newZoom: string
+  ): Promise<VizZoomResponse> => {
+    return request<VizZoomResponse>('/chat/viz-zoom', {
+      method: 'POST',
+      body: JSON.stringify({
+        conversation_id: conversationId,
+        viz_id: vizId,
+        new_zoom: newZoom,
+      }),
+    });
+  },
+};
+
 // Vision API - for standalone image analysis
 export const visionApi = {
   analyzeMeal: async (
@@ -290,7 +325,8 @@ export const dashboardInsightApi = {
   generateInsight: async (
     userId: string,
     weatherContext?: string,
-    unitSystem?: 'metric' | 'imperial'
+    unitSystem?: 'metric' | 'imperial',
+    uiContext?: Record<string, unknown>
   ): Promise<DashboardInsightResponse> => {
     try {
       const clientTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -304,7 +340,15 @@ export const dashboardInsightApi = {
           client_local_time: clientLocalTime,
           weather_context: weatherContext,
           unit_system: unitSystem,
+          ui_context: uiContext,
         }),
+      });
+      recordDecision({
+        timestamp: new Date().toISOString(),
+        source: 'generateInsight',
+        decision: response.message,
+        reasoning: `context: ${response.context_used.join(', ')}`,
+        raw: response,
       });
       return response;
     } catch {
@@ -952,9 +996,14 @@ export const exportApi = {
     options?: ExportRequest
   ): Promise<Blob> => {
     const url = `${API_BASE_URL}/export/${userId}/pdf`;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (sessionData?.session?.access_token) {
+      authHeaders['Authorization'] = `Bearer ${sessionData.session.access_token}`;
+    }
     const response = await fetchWithRetry(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify(options || {}),
     });
 
@@ -974,9 +1023,14 @@ export const exportApi = {
     options?: ExportRequest
   ): Promise<string> => {
     const url = `${API_BASE_URL}/export/${userId}/csv`;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (sessionData?.session?.access_token) {
+      authHeaders['Authorization'] = `Bearer ${sessionData.session.access_token}`;
+    }
     const response = await fetchWithRetry(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify(options || {}),
     });
 
@@ -1304,9 +1358,19 @@ export const healthIntelligenceApi = {
     userId: string,
     days: number = 30
   ): Promise<{ user_id: string; chains: CausalChain[]; days_analyzed: number }> => {
-    return request<{ user_id: string; chains: CausalChain[]; days_analyzed: number }>(
+    const res = await request<{ user_id: string; chains: CausalChain[]; days_analyzed: number }>(
       `/health-intelligence/${userId}/causal-chains?days=${days}`
     );
+    for (const chain of res.chains) {
+      recordDecision({
+        timestamp: new Date().toISOString(),
+        source: 'causalChains',
+        decision: `${chain.cause_event} → ${chain.effect_event}`,
+        reasoning: `${Math.round(chain.confidence * 100)}% conf, ${chain.occurrences} occurrences, lag ${chain.lag_days}d`,
+        raw: chain,
+      });
+    }
+    return res;
   },
 
   getAlignment: async (userId: string): Promise<AlignmentResponse> => {
@@ -1329,7 +1393,34 @@ export const healthIntelligenceApi = {
    * This is the main endpoint for Delta's voice.
    */
   getInsights: async (userId: string): Promise<DeltaInsightsResponse> => {
-    return request<DeltaInsightsResponse>(`/health-intelligence/${userId}/insights`);
+    const res = await request<DeltaInsightsResponse>(`/health-intelligence/${userId}/insights`);
+    if (res.commentary?.headline) {
+      recordDecision({
+        timestamp: new Date().toISOString(),
+        source: 'insights',
+        decision: res.commentary.headline,
+        reasoning: `tone: ${res.commentary.tone}, patterns: ${res.patterns?.length ?? 0}, factors: ${res.factors?.length ?? 0}`,
+        raw: res,
+      });
+    }
+    return res;
+  },
+
+  /**
+   * Get Delta-driven modules for frontend rendering.
+   * Backend controls layout, priority, viz, brevity. Frontend is a dumb renderer.
+   */
+  getModules: async (userId: string): Promise<ModulesResponse> => {
+    try {
+      const res = await request<ModulesResponse>(
+        `/health-intelligence/${userId}/modules`
+      );
+      if (__DEV__) console.log('[API] /modules response:', JSON.stringify(res).slice(0, 200));
+      return res;
+    } catch (err) {
+      if (__DEV__) console.error('[API] /modules FAILED:', err);
+      return { user_id: userId, has_data: false, modules: [] };
+    }
   },
 
   /**
@@ -1337,7 +1428,17 @@ export const healthIntelligenceApi = {
    * Lightweight endpoint for dashboard display.
    */
   getCommentary: async (userId: string): Promise<DeltaCommentaryResponse> => {
-    return request<DeltaCommentaryResponse>(`/health-intelligence/${userId}/commentary`);
+    const res = await request<DeltaCommentaryResponse>(`/health-intelligence/${userId}/commentary`);
+    if (res.commentary?.headline) {
+      recordDecision({
+        timestamp: new Date().toISOString(),
+        source: 'commentary',
+        decision: res.commentary.headline,
+        reasoning: `tone: ${res.commentary.tone}, readiness: ${res.readiness_score ?? 'n/a'}`,
+        raw: res,
+      });
+    }
+    return res;
   },
 
   /**
@@ -1716,6 +1817,40 @@ export interface LearningStatusResponse {
   predictions_made: number;
   predictions_correct: number;
   status: 'learning' | 'calibrating' | 'confident';
+}
+
+// =============================================================================
+// DELTA MODULES TYPES (Backend-driven module system)
+// =============================================================================
+
+export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter' | 'year';
+
+export interface VizDirective {
+  chart_type: 'line' | 'bar' | 'scatter' | 'heatmap' | 'distribution' | 'comparison';
+  metric: string;
+  title: string;
+  zoom: ZoomLevel;
+  insight?: string;
+}
+
+export interface DeltaModule {
+  id: string;
+  type: string;
+  layout: 'wide' | 'standard' | 'compact';
+  priority: number;
+  brief: string;
+  detail: string;
+  tone: 'positive' | 'caution' | 'rest' | 'neutral';
+  icon: string;
+  chat_prefill?: string;
+  metric_value?: string;
+  viz?: VizDirective;
+}
+
+export interface ModulesResponse {
+  user_id: string;
+  has_data: boolean;
+  modules: DeltaModule[];
 }
 
 // =============================================================================

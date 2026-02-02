@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.delta.health",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "icon": "./assets/icon.png",
       "infoPlist": {
         "NSHealthShareUsageDescription": "Delta uses health data to provide personalized wellness insights and track your fitness progress.",

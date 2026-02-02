@@ -76,8 +76,9 @@ export function DeltaLogoSimple({
   size?: number;
   color?: string;
 }): React.ReactNode {
+  const height = size * (18 / 24); // triangle spans y=2..20 (18 units of 24)
   return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Svg width={size} height={height} viewBox="0 2 24 18" fill="none">
       <Path
         d="M12 2L22 20H2L12 2Z"
         fill={color}

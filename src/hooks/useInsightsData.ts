@@ -254,8 +254,10 @@ export function useInsightsData(): InsightsDataState {
     const cacheKey = `analytics_${userId}`;
 
     if (!forceRefresh && loadedTabs.current.has('analytics')) {
+      console.log('[useInsightsData] Already loaded, skipping. modules:', modules.length);
       return; // Already loaded
     }
+    console.log('[useInsightsData] fetchAnalyticsData called, forceRefresh:', forceRefresh, 'userId:', userId);
 
     if (!forceRefresh) {
       const cached = await getCached<{
@@ -291,12 +293,14 @@ export function useInsightsData(): InsightsDataState {
         // Still fetch modules in background — not cached
         const defaultModulesCached: ModulesResponse = { user_id: userId, has_data: false, modules: [] };
         setModulesLoading(true);
+        console.log('[useInsightsData] Cache hit — fetching modules in background');
         withTimeout(healthIntelligenceApi.getModules(userId), 20000, defaultModulesCached)
           .then((modulesData) => {
+            console.log('[useInsightsData] Modules arrived:', modulesData.modules?.length ?? 0);
             setModules(modulesData.modules ?? []);
             setModulesLoading(false);
           })
-          .catch(() => { setModulesLoading(false); });
+          .catch((err) => { console.log('[useInsightsData] Modules fetch failed:', err); setModulesLoading(false); });
         return;
       }
     }
@@ -392,6 +396,7 @@ export function useInsightsData(): InsightsDataState {
       // These call OpenAI and take 5-15 seconds - UI should NOT wait
       setLlmLoading(true);
       setModulesLoading(true);
+      console.log('[useInsightsData] Phase 2: firing modules + insights fetch');
 
       const defaultModules: ModulesResponse = { user_id: userId, has_data: false, modules: [] };
 
@@ -401,6 +406,7 @@ export function useInsightsData(): InsightsDataState {
         withTimeout(healthIntelligenceApi.getDigestionInsights(userId), 20000, defaultDigestion),
         withTimeout(healthIntelligenceApi.getModules(userId), 20000, defaultModules),
       ]).then(([deltaInsightsData, digestionData, modulesData]) => {
+        console.log('[useInsightsData] Phase 2 complete. modules:', modulesData.modules?.length ?? 0);
         // Update state when LLM data arrives (UI already rendered)
         setDeltaInsights(deltaInsightsData);
         setDeltaCommentary(deltaInsightsData.commentary);

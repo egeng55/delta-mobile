@@ -11,7 +11,9 @@
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_KEY = '951a378efddb3fd91a988a7496b46da5';
+import Constants from 'expo-constants';
+
+const API_KEY: string = Constants.expoConfig?.extra?.openWeatherMapApiKey ?? '';
 const BASE_URL = 'https://api.openweathermap.org/data/2.5';
 const ONE_CALL_URL = 'https://api.openweathermap.org/data/3.0/onecall';
 const CACHE_KEY = '@delta_weather_cache';

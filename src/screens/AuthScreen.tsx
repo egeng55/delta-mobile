@@ -60,8 +60,12 @@ export default function AuthScreen({ theme }: AuthScreenProps): React.ReactNode 
         setError('Email is required');
         return;
       }
-      if (password.length < 6) {
-        setError('Password must be at least 6 characters');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        setError('Please enter a valid email address');
+        return;
+      }
+      if (password.length < 8) {
+        setError('Password must be at least 8 characters');
         return;
       }
 
@@ -82,12 +86,20 @@ export default function AuthScreen({ theme }: AuthScreenProps): React.ReactNode 
         setError('Name is required');
         return;
       }
+      if (name.trim().length > 100) {
+        setError('Name must be 100 characters or less');
+        return;
+      }
       if (email.trim().length === 0) {
         setError('Email is required');
         return;
       }
-      if (password.length < 6) {
-        setError('Password must be at least 6 characters');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        setError('Please enter a valid email address');
+        return;
+      }
+      if (password.length < 8) {
+        setError('Password must be at least 8 characters');
         return;
       }
       // Move to step 2

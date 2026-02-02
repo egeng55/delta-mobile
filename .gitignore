@@ -33,6 +33,9 @@ yarn-error.*
 # TypeScript
 *.tsbuildinfo
 
+# Archived
+_archived/
+
 # Testing
 coverage/
 

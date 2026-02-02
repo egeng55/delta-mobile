@@ -35,9 +35,8 @@ import { useAuth } from '../context/AuthContext';
 import { useAccess } from '../context/AccessContext';
 import { FadeInView, AnimatedCard } from '../components/Animated';
 import { supabase } from '../services/supabase';
-import { profileApi, profileCardsApi, StatCard as StatCardType, StatCardInput, dashboardApi, DashboardResponse } from '../services/api';
+import { profileApi, dashboardApi, DashboardResponse } from '../services/api';
 import { decode } from 'base64-arraybuffer';
-import { StatCard, StatCardEditor } from '../components/Profile';
 
 type Gender = 'male' | 'female' | 'other' | null;
 
@@ -70,9 +69,6 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
 
   const [editModalVisible, setEditModalVisible] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [statCards, setStatCards] = useState<StatCardType[]>([]);
-  const [statCardEditorVisible, setStatCardEditorVisible] = useState<boolean>(false);
-  const [editingStatCard, setEditingStatCard] = useState<StatCardType | null>(null);
   const [profileData, setProfileData] = useState<ProfileData>({
     displayName: user?.name ?? 'User',
     username: profile?.username ?? '',
@@ -126,20 +122,6 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
     loadCloudData();
   }, [user?.id]);
 
-  // Load stat cards
-  useEffect(() => {
-    const loadStatCards = async (): Promise<void> => {
-      if (!user?.id) return;
-      try {
-        const response = await profileCardsApi.getCards(user.id);
-        setStatCards(response.cards);
-      } catch {
-        // Cards might not exist yet, that's fine
-      }
-    };
-    loadStatCards();
-  }, [user?.id]);
-
   // Load dashboard data for health overview
   useEffect(() => {
     const loadDashboard = async (): Promise<void> => {
@@ -174,36 +156,6 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
     };
     loadMemberDate();
   }, [user?.id]);
-
-  const handleAddStatCard = (): void => {
-    setEditingStatCard(null);
-    setStatCardEditorVisible(true);
-  };
-
-  const handleEditStatCard = (card: StatCardType): void => {
-    setEditingStatCard(card);
-    setStatCardEditorVisible(true);
-  };
-
-  const handleSaveStatCard = async (data: StatCardInput): Promise<void> => {
-    if (!user?.id) return;
-
-    if (editingStatCard !== null) {
-      // Update existing card
-      const response = await profileCardsApi.updateCard(user.id, editingStatCard.id, data);
-      setStatCards(prev => prev.map(c => c.id === editingStatCard.id ? response.card : c));
-    } else {
-      // Create new card
-      const response = await profileCardsApi.createCard(user.id, data);
-      setStatCards(prev => [...prev, response.card]);
-    }
-  };
-
-  const handleDeleteStatCard = async (cardId: string): Promise<void> => {
-    if (!user?.id) return;
-    await profileCardsApi.deleteCard(user.id, cardId);
-    setStatCards(prev => prev.filter(c => c.id !== cardId));
-  };
 
   const saveProfile = async (): Promise<void> => {
     // Validate username
@@ -271,7 +223,7 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
             age: ageNum,
             gender: editData.gender,
             avatar_url: avatarUrl,
-            // Note: bio saved locally via AsyncStorage until Supabase migration is added
+            bio: editData.bio,
           })
           .eq('id', user.id);
 
@@ -423,47 +375,7 @@ export default function ProfileScreen({ theme, onOpenSettings }: ProfileScreenPr
         </View>
       </Animated.View>
 
-      {/* My Stats Section */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>My Stats</Text>
-          <TouchableOpacity style={styles.addButton} onPress={handleAddStatCard}>
-            <Ionicons name="add-circle-outline" size={24} color={theme.accent} />
-          </TouchableOpacity>
-        </View>
-
-        {statCards.length === 0 ? (
-          <TouchableOpacity style={styles.emptyStatsCard} onPress={handleAddStatCard}>
-            <Ionicons name="analytics-outline" size={32} color={theme.textSecondary} />
-            <Text style={styles.emptyStatsText}>Add your first stat</Text>
-            <Text style={styles.emptyStatsHint}>Track PRs, body metrics, and more</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.statsGrid}>
-            {statCards.map((card, index) => (
-              <StatCard
-                key={card.id}
-                theme={theme}
-                card={card}
-                onEdit={handleEditStatCard}
-                index={index}
-              />
-            ))}
-          </View>
-        )}
-      </View>
-
     </ScrollView>
-
-    {/* Stat Card Editor Modal */}
-    <StatCardEditor
-      theme={theme}
-      visible={statCardEditorVisible}
-      card={editingStatCard}
-      onClose={() => setStatCardEditorVisible(false)}
-      onSave={handleSaveStatCard}
-      onDelete={handleDeleteStatCard}
-    />
 
     {/* Edit Profile Modal */}
     <Modal
@@ -876,38 +788,6 @@ function createStyles(theme: Theme, topInset: number) {
     genderOptionTextSelected: {
       color: theme.accent,
       fontWeight: '600',
-    },
-    sectionHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: 12,
-    },
-    addButton: {
-      padding: 4,
-    },
-    emptyStatsCard: {
-      backgroundColor: theme.surface,
-      borderRadius: 12,
-      padding: 32,
-      alignItems: 'center',
-      borderWidth: 1,
-      borderColor: theme.border,
-      borderStyle: 'dashed',
-    },
-    emptyStatsText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: theme.textPrimary,
-      marginTop: 12,
-    },
-    emptyStatsHint: {
-      fontSize: 13,
-      color: theme.textSecondary,
-      marginTop: 4,
-    },
-    statsGrid: {
-      gap: 0,
     },
     overviewGrid: {
       flexDirection: 'row',

@@ -5,18 +5,22 @@
  * Import from this file instead of hardcoding values in components.
  */
 
+import Constants from 'expo-constants';
+
 // Environment detection
 export const IS_DEV = __DEV__;
 export const IS_PROD = !__DEV__;
 
-// API Configuration
-export const API_BASE_URL = 'https://delta-80ht.onrender.com';
+// API Configuration - sourced from app.config.ts via expo.extra
+export const API_BASE_URL: string =
+  Constants.expoConfig?.extra?.apiBaseUrl ?? 'https://delta-80ht.onrender.com';
 
-// Supabase Configuration
-export const SUPABASE_URL = 'https://fhbfaoowwnzzynhbgcms.supabase.co';
+// Supabase Configuration - sourced from app.config.ts via expo.extra
+export const SUPABASE_URL: string =
+  Constants.expoConfig?.extra?.supabaseUrl ?? '';
 
-export const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZoYmZhb293d256enluaGJnY21zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5NTQxOTcsImV4cCI6MjA4NDUzMDE5N30.tLvdwDBL9ftVq-xb2C9UCm4MXb8r2owNMlSL_G_iM8k';
+export const SUPABASE_ANON_KEY: string =
+  Constants.expoConfig?.extra?.supabaseAnonKey ?? '';
 
 // Request timeouts (in milliseconds)
 export const TIMEOUTS = {
@@ -45,13 +49,12 @@ export const LEGAL_URLS = {
   HIPAA_NOTICE: `${API_BASE_URL}/legal/hipaa`,
 } as const;
 
-// Developer access - should be verified server-side
-// This is only used for UI hints, actual access is controlled by backend
-export const DEVELOPER_EMAILS = [
-  'egeng@umich.edu',
-  'eric@egeng.co',
-  'delta.test@example.com',  // Test account for development
-] as const;
+// Developer access - sourced from env, only used for UI hints
+// Actual access control is server-side
+const devEmailsRaw: string = Constants.expoConfig?.extra?.developerEmails ?? '';
+export const DEVELOPER_EMAILS: readonly string[] = devEmailsRaw
+  ? devEmailsRaw.split(',').map((e: string) => e.trim().toLowerCase())
+  : [];
 
 /**
  * Check if an email belongs to a developer.
@@ -59,5 +62,5 @@ export const DEVELOPER_EMAILS = [
  */
 export function isDeveloperEmail(email: string | undefined): boolean {
   if (!email) return false;
-  return DEVELOPER_EMAILS.includes(email.toLowerCase() as typeof DEVELOPER_EMAILS[number]);
+  return DEVELOPER_EMAILS.includes(email.toLowerCase());
 }

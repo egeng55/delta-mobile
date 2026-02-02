@@ -45,10 +45,7 @@ import { decode } from 'base64-arraybuffer';
 import {
   healthIntelligenceApi,
   profileApi,
-  profileCardsApi,
   dashboardApi,
-  StatCard as StatCardType,
-  StatCardInput,
   LearnedChain,
   Prediction,
   BeliefUpdate,
@@ -56,7 +53,6 @@ import {
   LearningStatusResponse,
   DashboardResponse,
 } from '../services/api';
-import { StatCard, StatCardEditor } from '../components/Profile';
 import PatternCard from '../components/PatternCard';
 import DeltaBrain from '../components/DeltaBrain';
 
@@ -92,9 +88,6 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
   // Profile data (migrated from ProfileScreen)
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [statCards, setStatCards] = useState<StatCardType[]>([]);
-  const [statCardEditorVisible, setStatCardEditorVisible] = useState(false);
-  const [editingStatCard, setEditingStatCard] = useState<StatCardType | null>(null);
   const [profileData, setProfileData] = useState<ProfileData>({
     displayName: user?.name ?? 'User',
     username: profile?.username ?? '',
@@ -173,17 +166,6 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
   }, [user?.id]);
 
   useEffect(() => {
-    const loadStatCards = async () => {
-      if (!user?.id) return;
-      try {
-        const response = await profileCardsApi.getCards(user.id);
-        setStatCards(response.cards);
-      } catch { /* */ }
-    };
-    loadStatCards();
-  }, [user?.id]);
-
-  useEffect(() => {
     const loadDashboard = async () => {
       if (!user?.id) return;
       try {
@@ -216,25 +198,6 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
     setRefreshing(true);
     await fetchIntelligence();
     setRefreshing(false);
-  };
-
-  // Stat card handlers
-  const handleAddStatCard = () => { setEditingStatCard(null); setStatCardEditorVisible(true); };
-  const handleEditStatCard = (card: StatCardType) => { setEditingStatCard(card); setStatCardEditorVisible(true); };
-  const handleSaveStatCard = async (data: StatCardInput) => {
-    if (!user?.id) return;
-    if (editingStatCard !== null) {
-      const response = await profileCardsApi.updateCard(user.id, editingStatCard.id, data);
-      setStatCards(prev => prev.map(c => c.id === editingStatCard.id ? response.card : c));
-    } else {
-      const response = await profileCardsApi.createCard(user.id, data);
-      setStatCards(prev => [...prev, response.card]);
-    }
-  };
-  const handleDeleteStatCard = async (cardId: string) => {
-    if (!user?.id) return;
-    await profileCardsApi.deleteCard(user.id, cardId);
-    setStatCards(prev => prev.filter(c => c.id !== cardId));
   };
 
   // Profile edit handlers
@@ -439,41 +402,10 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
           )}
         </View>
 
-        {/* Stat Cards */}
-        <View style={styles.statsSection}>
-          <View style={styles.statsHeader}>
-            <Text style={styles.statsTitle}>My Stats</Text>
-            <TouchableOpacity onPress={handleAddStatCard}>
-              <Ionicons name="add-circle-outline" size={22} color={theme.accent} />
-            </TouchableOpacity>
-          </View>
-          {statCards.length === 0 ? (
-            <TouchableOpacity style={styles.emptyStats} onPress={handleAddStatCard}>
-              <Ionicons name="analytics-outline" size={28} color={theme.textSecondary} />
-              <Text style={styles.emptyStatsText}>Add your first stat</Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.statsGrid}>
-              {statCards.map((card, index) => (
-                <StatCard key={card.id} theme={theme} card={card} onEdit={handleEditStatCard} index={index} />
-              ))}
-            </View>
-          )}
-        </View>
       </View>
 
       <View style={{ height: 32 }} />
     </ScrollView>
-
-    {/* Stat Card Editor Modal */}
-    <StatCardEditor
-      theme={theme}
-      visible={statCardEditorVisible}
-      card={editingStatCard}
-      onClose={() => setStatCardEditorVisible(false)}
-      onSave={handleSaveStatCard}
-      onDelete={handleDeleteStatCard}
-    />
 
     {/* Edit Profile Modal */}
     <Modal
@@ -737,37 +669,6 @@ function createStyles(theme: Theme, topInset: number) {
       fontSize: 11,
       color: theme.textSecondary,
       marginTop: 2,
-    },
-    statsSection: {
-      marginTop: 4,
-    },
-    statsHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 10,
-    },
-    statsTitle: {
-      fontSize: 15,
-      fontWeight: '600',
-      color: theme.textPrimary,
-    },
-    emptyStats: {
-      alignItems: 'center',
-      padding: 24,
-      backgroundColor: theme.surface,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: theme.border,
-      borderStyle: 'dashed',
-    },
-    emptyStatsText: {
-      fontSize: 14,
-      color: theme.textSecondary,
-      marginTop: 8,
-    },
-    statsGrid: {
-      gap: 0,
     },
     // Modal
     modalContainer: { flex: 1 },
