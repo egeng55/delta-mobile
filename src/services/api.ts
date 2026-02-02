@@ -22,6 +22,8 @@ const MAX_RETRIES = RETRY_CONFIG.MAX_RETRIES;
 
 // Track if we've successfully connected (server is warm)
 let serverIsWarm = false;
+let lastSuccessfulRequest = 0;
+const WARM_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 // Response types
 export interface User {
@@ -90,6 +92,9 @@ async function request<T>(
   retries: number = MAX_RETRIES
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+  if (serverIsWarm && Date.now() - lastSuccessfulRequest > WARM_TIMEOUT_MS) {
+    serverIsWarm = false;
+  }
   const timeout = serverIsWarm ? NORMAL_TIMEOUT : COLD_START_TIMEOUT;
 
   const controller = new AbortController();
@@ -130,6 +135,7 @@ async function request<T>(
 
     // Mark server as warm after successful response
     serverIsWarm = true;
+    lastSuccessfulRequest = Date.now();
 
     if (response.ok !== true) {
       let errorMessage = 'Request failed';
@@ -154,13 +160,17 @@ async function request<T>(
         error.message.includes('timeout') ||
         error.message.includes('network'));
 
-    if (isRetryableError && retries > 0) {
-      // Wait before retrying (exponential backoff)
-      const backoffMs = 1000 * (MAX_RETRIES - retries + 1);
-      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    if (isRetryableError) {
+      serverIsWarm = false;
 
-      // Retry with warm timeout since we've already waited
-      return request<T>(endpoint, options, retries - 1);
+      if (retries > 0) {
+        // Wait before retrying (exponential backoff)
+        const backoffMs = 1000 * (MAX_RETRIES - retries + 1);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+
+        // Retry with warm timeout since we've already waited
+        return request<T>(endpoint, options, retries - 1);
+      }
     }
 
     throw error;
@@ -962,6 +972,9 @@ async function fetchWithRetry(
   options: RequestInit = {},
   retries: number = MAX_RETRIES
 ): Promise<Response> {
+  if (serverIsWarm && Date.now() - lastSuccessfulRequest > WARM_TIMEOUT_MS) {
+    serverIsWarm = false;
+  }
   const timeout = serverIsWarm ? NORMAL_TIMEOUT : COLD_START_TIMEOUT;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -974,6 +987,7 @@ async function fetchWithRetry(
 
     clearTimeout(timeoutId);
     serverIsWarm = true;
+    lastSuccessfulRequest = Date.now();
     return response;
   } catch (error) {
     clearTimeout(timeoutId);
@@ -985,10 +999,14 @@ async function fetchWithRetry(
         error.message.includes('timeout') ||
         error.message.includes('network'));
 
-    if (isRetryableError && retries > 0) {
-      const backoffMs = 1000 * (MAX_RETRIES - retries + 1);
-      await new Promise((resolve) => setTimeout(resolve, backoffMs));
-      return fetchWithRetry(url, options, retries - 1);
+    if (isRetryableError) {
+      serverIsWarm = false;
+
+      if (retries > 0) {
+        const backoffMs = 1000 * (MAX_RETRIES - retries + 1);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        return fetchWithRetry(url, options, retries - 1);
+      }
     }
 
     throw error;

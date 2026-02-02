@@ -228,22 +228,41 @@ async function syncPendingData(): Promise<void> {
 
   for (const item of pending) {
     try {
-      // Increment attempt count
       item.attempts += 1;
 
-      // Skip items that have failed too many times
       if (item.attempts > 3) {
+        console.warn('[OfflineCache] Dropping item after 3 failed sync attempts:', item.type);
         await removeFromPendingSync(item.id);
         continue;
       }
 
-      // Here you would implement the actual sync logic based on item.type
-      // For example:
-      // if (item.type === 'chat_message') {
-      //   await chatApi.sendMessage(item.data.userId, item.data.message);
-      // }
+      // Attempt to replay the pending operation
+      const { API_BASE_URL } = await import('../config/constants');
+      const { supabase } = await import('./supabase');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
 
-      // For now, just mark as synced
+      if (item.type === 'tracking' && typeof item.data === 'object' && item.data !== null) {
+        const trackingData = item.data as Record<string, unknown>;
+        const endpoint = trackingData._endpoint as string | undefined;
+        if (endpoint) {
+          const { _endpoint, ...body } = trackingData;
+          const resp = await fetch(`${API_BASE_URL}${endpoint}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify(body),
+          });
+          if (resp.ok) {
+            await removeFromPendingSync(item.id);
+            continue;
+          }
+        }
+      }
+
+      // If we don't know how to sync this type, drop it
       await removeFromPendingSync(item.id);
     } catch {
       // Update the pending item with new attempt count

@@ -12,6 +12,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import healthKitService, { SleepSummary, HRVReading, RestingHeartRateReading } from './healthKit';
 import { API_BASE_URL } from '../config/constants';
+import { supabase } from './supabase';
 
 const LAST_SYNC_KEY = '@delta_health_last_sync';
 const SYNC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
@@ -143,11 +144,16 @@ class HealthSyncService {
         payload.steps = steps;
       }
 
+      // Get auth token for the request
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
       // Send to backend
       const response = await fetch(`${API_BASE_URL}/health-sync`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(payload),
       });
