@@ -98,7 +98,17 @@ async function request<T>(
   try {
     // Attach Supabase session token for authenticated endpoints
     const authHeaders: Record<string, string> = {};
-    const { data: sessionData } = await supabase.auth.getSession();
+    let { data: sessionData } = await supabase.auth.getSession();
+    // Refresh token if expired or about to expire (within 60s)
+    if (sessionData?.session) {
+      const expiresAt = sessionData.session.expires_at ?? 0;
+      if (expiresAt * 1000 < Date.now() + 60_000) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        if (refreshed?.session) {
+          sessionData = refreshed;
+        }
+      }
+    }
     if (sessionData?.session?.access_token) {
       authHeaders['Authorization'] = `Bearer ${sessionData.session.access_token}`;
     }
@@ -125,7 +135,7 @@ async function request<T>(
       let errorMessage = 'Request failed';
       try {
         const errorData = await response.json();
-        errorMessage = errorData.detail || errorData.message || errorMessage;
+        errorMessage = errorData.detail || errorData.message || errorData.error || errorMessage;
       } catch {
         // Use default error message
       }
@@ -1912,6 +1922,7 @@ export interface IntelligenceSummaryResponse {
   belief_updates: BeliefUpdatesResponse;
   uncertainty: UncertaintyResponse;
   learning_status: LearningStatusResponse;
+  contradictions?: ContradictionsResponse;
 }
 
 // =============================================================================

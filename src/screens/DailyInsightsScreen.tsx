@@ -70,7 +70,13 @@ class ModuleErrorBoundary extends Component<ModuleErrorBoundaryProps, ModuleErro
   }
 
   render(): React.ReactNode {
-    if (this.state.hasError) return null;
+    if (this.state.hasError) {
+      return (
+        <View style={{ padding: 12, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.05)', marginVertical: 4 }}>
+          <Text style={{ color: '#888', fontSize: 13, textAlign: 'center' }}>This module could not be displayed</Text>
+        </View>
+      );
+    }
     return this.props.children;
   }
 }

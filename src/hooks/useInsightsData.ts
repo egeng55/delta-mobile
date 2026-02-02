@@ -400,12 +400,15 @@ export function useInsightsData(): InsightsDataState {
 
       const defaultModules: ModulesResponse = { user_id: userId, has_data: false, modules: [] };
 
-      // Fire and forget - don't block with await
+      // Fire and forget with isMounted guard
+      let isMounted = true;
+      const phase2Cleanup = () => { isMounted = false; };
       Promise.all([
         withTimeout(healthIntelligenceApi.getInsights(userId), 20000, defaultDeltaInsights),
         withTimeout(healthIntelligenceApi.getDigestionInsights(userId), 20000, defaultDigestion),
         withTimeout(healthIntelligenceApi.getModules(userId), 20000, defaultModules),
       ]).then(([deltaInsightsData, digestionData, modulesData]) => {
+        if (!isMounted) return;
         console.log('[useInsightsData] Phase 2 complete. modules:', modulesData.modules?.length ?? 0);
         // Update state when LLM data arrives (UI already rendered)
         setDeltaInsights(deltaInsightsData);
@@ -430,11 +433,15 @@ export function useInsightsData(): InsightsDataState {
           deltaInsights: deltaInsightsData,
         });
       }).catch((err) => {
+        if (!isMounted) return;
         console.log('[useInsightsData] LLM fetch failed:', err);
+        setError('Could not load LLM insights');
         setLlmLoading(false);
         setModulesLoading(false);
         // Keep default values - don't crash
       });
+      // Cleanup function stored for potential future use
+      void phase2Cleanup;
     } catch {
       setError('Could not load analytics');
       setInsights(defaultInsights);

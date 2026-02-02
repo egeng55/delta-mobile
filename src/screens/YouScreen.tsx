@@ -119,11 +119,7 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
       setBeliefUpdates(summary.belief_updates?.updates ?? []);
       setKnowledgeGaps(summary.uncertainty?.gaps ?? []);
       setLearningStatus(summary.learning_status ?? null);
-      // Fetch contradictions separately (not in summary fallback shape)
-      try {
-        const cRes = await healthIntelligenceApi.getContradictions(user.id);
-        setContradictions(cRes.contradictions ?? []);
-      } catch { /* non-critical */ }
+      setContradictions(summary.contradictions?.contradictions ?? []);
     } catch (e) {
       console.warn('[YouScreen] Intelligence fetch failed:', e);
       setIntelligenceError(true);
@@ -238,11 +234,17 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
             const { error: uploadError } = await supabase.storage
               .from('avatars')
               .upload(fileName, decode(base64), { contentType, upsert: true });
-            if (!uploadError) {
+            if (uploadError) {
+              throw new Error(`Avatar upload failed: ${uploadError.message}`);
+            }
               const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(fileName);
               avatarUrl = urlData?.publicUrl ?? null;
-            }
-          } catch (e) { console.warn('[YouScreen] Avatar upload failed:', e); }
+          } catch (e) {
+            console.warn('[YouScreen] Avatar upload failed:', e);
+            Alert.alert('Upload Error', 'Could not upload avatar image. Please try again.');
+            setIsSaving(false);
+            return;
+          }
         } else {
           avatarUrl = null;
         }
@@ -667,7 +669,7 @@ function createStyles(theme: Theme, topInset: number) {
       borderRadius: 10,
       padding: 12,
       flex: 1,
-      minWidth: '45%' as unknown as number,
+      minWidth: '45%' as any,
       borderWidth: 1,
       borderColor: theme.border,
       alignItems: 'center',

@@ -80,10 +80,14 @@ const DeltaUICtx = createContext<DeltaUIContextValue | null>(null);
 
 const PREFS_KEY_PREFIX = 'delta-ui-prefs-';
 
+const MAX_INTERACTION_LOG = 500;
+
 export function DeltaUIProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [state, setState] = useState<DeltaUIState>(defaultState);
   const interactionLog = useRef<Array<{ type: string; moduleId: string; timestamp: number }>>([]);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   // Load persisted preferences on mount
   useEffect(() => {
@@ -102,12 +106,12 @@ export function DeltaUIProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user?.id) return;
     const interval = setInterval(() => {
-      const prefs = derivePreferences(interactionLog.current, state);
+      const prefs = derivePreferences(interactionLog.current, stateRef.current);
       setState(s => ({ ...s, preferences: prefs }));
       AsyncStorage.setItem(`${PREFS_KEY_PREFIX}${user.id}`, JSON.stringify(prefs)).catch(() => {});
     }, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [user?.id, state.dismissedModules, state.tappedModules]);
+  }, [user?.id]);
 
   const setActiveTab = useCallback((tab: DeltaUIState['activeTab']) => {
     setState(s => ({ ...s, activeTab: tab }));
@@ -146,6 +150,7 @@ export function DeltaUIProvider({ children }: { children: React.ReactNode }) {
 
   const recordModuleTap = useCallback((moduleId: string) => {
     interactionLog.current.push({ type: 'tap', moduleId, timestamp: Date.now() });
+    if (interactionLog.current.length > MAX_INTERACTION_LOG) interactionLog.current = interactionLog.current.slice(-MAX_INTERACTION_LOG);
     setState(s => ({
       ...s,
       tappedModules: s.tappedModules.includes(moduleId) ? s.tappedModules : [...s.tappedModules, moduleId],
@@ -154,6 +159,7 @@ export function DeltaUIProvider({ children }: { children: React.ReactNode }) {
 
   const recordModuleDismiss = useCallback((moduleId: string) => {
     interactionLog.current.push({ type: 'dismiss', moduleId, timestamp: Date.now() });
+    if (interactionLog.current.length > MAX_INTERACTION_LOG) interactionLog.current = interactionLog.current.slice(-MAX_INTERACTION_LOG);
     setState(s => ({
       ...s,
       dismissedModules: s.dismissedModules.includes(moduleId) ? s.dismissedModules : [...s.dismissedModules, moduleId],
@@ -162,6 +168,7 @@ export function DeltaUIProvider({ children }: { children: React.ReactNode }) {
 
   const recordModuleIgnored = useCallback((moduleId: string) => {
     interactionLog.current.push({ type: 'ignore', moduleId, timestamp: Date.now() });
+    if (interactionLog.current.length > MAX_INTERACTION_LOG) interactionLog.current = interactionLog.current.slice(-MAX_INTERACTION_LOG);
     setState(s => ({
       ...s,
       ignoredModules: s.ignoredModules.includes(moduleId) ? s.ignoredModules : [...s.ignoredModules, moduleId],

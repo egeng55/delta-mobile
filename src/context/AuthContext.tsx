@@ -132,7 +132,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
     );
 
     return () => {
-      subscription.unsubscribe();
+      subscription?.unsubscribe?.();
     };
   }, []);
 

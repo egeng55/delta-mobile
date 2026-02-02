@@ -203,9 +203,12 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
       close: () => animateTo('hidden'),
     }));
 
-    // Load weather
+    // Load weather + refresh every 30 minutes
     useEffect(() => {
-      getWeather().then(w => w && setWeatherData(w)).catch(() => {});
+      const fetchWeather = () => getWeather().then(w => w && setWeatherData(w)).catch(() => {});
+      fetchWeather();
+      const interval = setInterval(fetchWeather, 30 * 60 * 1000);
+      return () => clearInterval(interval);
     }, []);
 
     // Load conversations
@@ -289,13 +292,16 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
       try {
         const saved = await AsyncStorage.getItem(`${CONVERSATIONS_STORAGE_KEY}_${user?.id}`);
         if (saved) {
-          const parsed = JSON.parse(saved) as SavedConversation[];
+          let parsed: SavedConversation[];
+          try { parsed = JSON.parse(saved) as SavedConversation[]; } catch { parsed = []; }
           setConversations(parsed.sort((a, b) => b.updatedAt - a.updatedAt));
         }
         const currentId = await AsyncStorage.getItem(`${CURRENT_CONVERSATION_KEY}_${user?.id}`);
         if (currentId && saved) {
           setCurrentConversationId(currentId);
-          const conv = JSON.parse(saved).find((c: SavedConversation) => c.id === currentId);
+          let allConvs: SavedConversation[];
+          try { allConvs = JSON.parse(saved) as SavedConversation[]; } catch { allConvs = []; }
+          const conv = allConvs.find((c: SavedConversation) => c.id === currentId);
           if (conv) setMessages(conv.messages);
         }
       } catch {}
@@ -408,18 +414,18 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
 
     const handleVoiceSend = async (text: string) => {
       if (!text.trim() || isLoading) return;
-      const userMessage: Message = { id: Date.now().toString(), text: text.trim(), isUser: true, timestamp: Date.now() };
+      const userMessage: Message = { id: crypto.randomUUID(), text: text.trim(), isUser: true, timestamp: Date.now() };
       setMessages(prev => [...prev, userMessage]);
       setIsLoading(true);
       try {
         const userId = user?.id ?? 'anonymous';
         const weatherContext = weatherData ? formatWeatherForContext(weatherData) : undefined;
         const responseText = await chatApi.sendMessage(userId, text.trim(), unitSystem, weatherContext);
-        setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), text: responseText, isUser: false, timestamp: Date.now() }]);
+        setMessages(prev => [...prev, { id: crypto.randomUUID(), text: responseText, isUser: false, timestamp: Date.now() }]);
         invalidateCache('analytics', true);
         invalidateCache('workout', true);
       } catch {
-        setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), text: "I'm having trouble connecting. Please try again.", isUser: false, timestamp: Date.now() }]);
+        setMessages(prev => [...prev, { id: crypto.randomUUID(), text: "I'm having trouble connecting. Please try again.", isUser: false, timestamp: Date.now() }]);
       } finally { setIsLoading(false); }
     };
 
@@ -432,7 +438,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
       if (!hasText && !hasImage || isLoading) return;
 
       const userMessage: Message = {
-        id: Date.now().toString(),
+        id: crypto.randomUUID(),
         text: hasText ? trimmedText : 'Shared a photo',
         isUser: true,
         timestamp: Date.now(),
@@ -460,11 +466,11 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
           const weatherContext = weatherData ? formatWeatherForContext(weatherData) : undefined;
           responseText = await chatApi.sendMessage(userId, trimmedText, unitSystem, weatherContext);
         }
-        setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), text: responseText, isUser: false, timestamp: Date.now() }]);
+        setMessages(prev => [...prev, { id: crypto.randomUUID(), text: responseText, isUser: false, timestamp: Date.now() }]);
         invalidateCache('analytics', true);
         invalidateCache('workout', true);
       } catch {
-        setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), text: "I'm having trouble connecting. Please try again.", isUser: false, timestamp: Date.now() }]);
+        setMessages(prev => [...prev, { id: crypto.randomUUID(), text: "I'm having trouble connecting. Please try again.", isUser: false, timestamp: Date.now() }]);
       } finally { setIsLoading(false); }
     };
 
@@ -489,6 +495,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
       link: { color: theme.accent },
     }), [theme]);
 
+    const keyExtractor = useCallback((item: Message) => item.id, []);
     const styles = useMemo(() => createStyles(theme, insets), [theme, insets]);
 
     const renderMessage = useCallback(({ item }: { item: Message }) => {
@@ -528,9 +535,9 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
 
     return (
       <>
-        {/* Dark overlay — opacity driven continuously by translateY */}
+        {/* Dark overlay — opacity driven continuously by translateY, stops above tab bar */}
         <Animated.View
-          style={[StyleSheet.absoluteFill, blurOpacity, { zIndex: 50, backgroundColor: 'rgba(0,0,0,0.6)' }]}
+          style={[StyleSheet.absoluteFill, blurOpacity, { zIndex: 50, backgroundColor: 'rgba(0,0,0,0.6)', bottom: TAB_BAR_HEIGHT }]}
           pointerEvents={contentVisible ? 'auto' : 'none'}
         >
           <Pressable style={StyleSheet.absoluteFill} onPress={() => animateTo('hidden')} />
@@ -567,7 +574,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
               ref={flatListRef}
               data={messages}
               renderItem={renderMessage}
-              keyExtractor={item => item.id}
+              keyExtractor={keyExtractor}
               contentContainerStyle={styles.messageList}
               removeClippedSubviews
               maxToRenderPerBatch={10}
