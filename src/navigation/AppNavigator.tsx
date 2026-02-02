@@ -21,6 +21,7 @@ import { DeltaLogoSimple } from '../components/DeltaLogo';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { useAuth } from '../context/AuthContext';
+import { healthIntelligenceApi } from '../services/api';
 import { useTheme } from '../context/ThemeContext';
 import { DeltaUIProvider } from '../context/DeltaUIContext';
 
@@ -173,6 +174,21 @@ export default function AppNavigator(): React.ReactNode {
     }
     wasAuthenticated.current = isAuthenticated === true;
   }, [isAuthenticated]);
+
+  // Prefetch intelligence summary once per session so the You tab loads instantly.
+  // getSummary uses cachedRequest (5-min TTL), so subsequent reads hit cache.
+  const hasPrefetched = useRef<boolean>(false);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user !== null && user.id !== '' && hasPrefetched.current === false) {
+      hasPrefetched.current = true;
+      // Fire and forget — don't block startup
+      healthIntelligenceApi.getSummary(user.id).catch(() => {
+        // Silently ignore prefetch failures; the You tab will fetch on demand
+      });
+    }
+  }, [user]);
 
   const handleWelcomeComplete = (): void => {
     setShowWelcome(false);
