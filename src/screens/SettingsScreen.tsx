@@ -40,6 +40,7 @@ import * as notificationService from '../services/notifications';
 // RevenueCat subscription imports removed - see _archived/revenuecat/
 import SupportScreen from './SupportScreen';
 import { API_BASE_URL, LEGAL_URLS } from '../config/constants';
+import { supabase } from '../services/supabase';
 
 // Lazy load AvatarScanScreen to avoid expo-camera issues
 const AvatarScanScreen = React.lazy(() => import('./AvatarScanScreen'));
@@ -222,9 +223,18 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
           text: 'Export',
           onPress: async () => {
             try {
+              const { data: sessionData } = await supabase.auth.getSession();
+              const token = sessionData?.session?.access_token;
+              if (!token) {
+                Alert.alert('Error', 'Please sign in again.');
+                return;
+              }
               const response = await fetch(`${API_BASE_URL}/user/export`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,
+                },
                 body: JSON.stringify({ user_id: user.id }),
               });
               if (response.ok === true) {
@@ -260,9 +270,19 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
     if (!user?.id) return;
     setIsDeleting(true);
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) {
+        Alert.alert('Error', 'Please sign in again.');
+        setIsDeleting(false);
+        return;
+      }
       const response = await fetch(`${API_BASE_URL}/user/delete`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
         body: JSON.stringify({ user_id: user.id, confirm: true }),
       });
       if (response.ok === true) {

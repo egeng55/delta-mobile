@@ -83,6 +83,9 @@ export function recordDecision(decision: DeltaDecision): void {
   if (!__DEV__) return;
   logDeltaDecision(decision);
   sessionDecisions.push(decision);
+  if (sessionDecisions.length > 500) {
+    sessionDecisions.splice(0, sessionDecisions.length - 500);
+  }
 }
 
 export function getSessionDecisions(): DeltaDecision[] {

@@ -17,6 +17,7 @@ import React, {
 } from 'react';
 import { supabase } from '../services/supabase';
 import { invalidateIntelligenceCache } from '../services/api';
+import { avatarService } from '../services/avatarService';
 import { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
 // User type for our app
@@ -227,6 +228,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
   const logout = useCallback(async (): Promise<void> => {
     try {
       invalidateIntelligenceCache();
+      avatarService.clearCache();
       await supabase.auth.signOut();
     } catch {
       // Ignore errors, state will be reset by listener

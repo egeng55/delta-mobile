@@ -105,6 +105,8 @@ export interface ChatBottomSheetRef {
   close: () => void;
 }
 
+// NOTE: Conversation storage in AsyncStorage is unbounded. Consider pruning
+// old conversations (e.g., keep only the most recent 50) to prevent storage bloat.
 const CONVERSATIONS_STORAGE_KEY = '@delta_conversations';
 const CURRENT_CONVERSATION_KEY = '@delta_current_conversation';
 

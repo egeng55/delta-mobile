@@ -105,7 +105,7 @@ export function useDeltaFeed(
 
     const { phase, day_in_cycle } = deltaInsights.cycle_context;
     return {
-      id: `cycle-${Date.now()}`,
+      id: 'cycle-insight',
       type: 'insight',
       priority: 'medium',
       tone: 'neutral',
@@ -178,7 +178,7 @@ function transformFactorToFeedItem(factor: ExplainedFactor): FeedItem {
   const color = factor.impact === 'positive' ? 'success' : 'warning';
 
   return {
-    id: `factor-${factor.key}-${Date.now()}`,
+    id: `factor-${factor.key}`,
     type: 'insight',
     priority: factor.impact === 'negative' ? 'high' : 'medium',
     tone,

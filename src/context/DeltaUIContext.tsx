@@ -140,9 +140,10 @@ export function DeltaUIProvider({ children }: { children: React.ReactNode }) {
   const recordShownGreeting = useCallback((text: string) => {
     setState(s => {
       if (s.shownGreetings.includes(text)) return s;
+      const updated = [...s.shownGreetings, text];
       return {
         ...s,
-        shownGreetings: [...s.shownGreetings, text],
+        shownGreetings: updated.length > 100 ? updated.slice(-100) : updated,
         lastGreetingAt: new Date().toISOString(),
       };
     });
@@ -151,28 +152,31 @@ export function DeltaUIProvider({ children }: { children: React.ReactNode }) {
   const recordModuleTap = useCallback((moduleId: string) => {
     interactionLog.current.push({ type: 'tap', moduleId, timestamp: Date.now() });
     if (interactionLog.current.length > MAX_INTERACTION_LOG) interactionLog.current = interactionLog.current.slice(-MAX_INTERACTION_LOG);
-    setState(s => ({
-      ...s,
-      tappedModules: s.tappedModules.includes(moduleId) ? s.tappedModules : [...s.tappedModules, moduleId],
-    }));
+    setState(s => {
+      if (s.tappedModules.includes(moduleId)) return s;
+      const updated = [...s.tappedModules, moduleId];
+      return { ...s, tappedModules: updated.length > 100 ? updated.slice(-100) : updated };
+    });
   }, []);
 
   const recordModuleDismiss = useCallback((moduleId: string) => {
     interactionLog.current.push({ type: 'dismiss', moduleId, timestamp: Date.now() });
     if (interactionLog.current.length > MAX_INTERACTION_LOG) interactionLog.current = interactionLog.current.slice(-MAX_INTERACTION_LOG);
-    setState(s => ({
-      ...s,
-      dismissedModules: s.dismissedModules.includes(moduleId) ? s.dismissedModules : [...s.dismissedModules, moduleId],
-    }));
+    setState(s => {
+      if (s.dismissedModules.includes(moduleId)) return s;
+      const updated = [...s.dismissedModules, moduleId];
+      return { ...s, dismissedModules: updated.length > 100 ? updated.slice(-100) : updated };
+    });
   }, []);
 
   const recordModuleIgnored = useCallback((moduleId: string) => {
     interactionLog.current.push({ type: 'ignore', moduleId, timestamp: Date.now() });
     if (interactionLog.current.length > MAX_INTERACTION_LOG) interactionLog.current = interactionLog.current.slice(-MAX_INTERACTION_LOG);
-    setState(s => ({
-      ...s,
-      ignoredModules: s.ignoredModules.includes(moduleId) ? s.ignoredModules : [...s.ignoredModules, moduleId],
-    }));
+    setState(s => {
+      if (s.ignoredModules.includes(moduleId)) return s;
+      const updated = [...s.ignoredModules, moduleId];
+      return { ...s, ignoredModules: updated.length > 100 ? updated.slice(-100) : updated };
+    });
   }, []);
 
   const recordChatOpenedFrom = useCallback((source: string | null) => {

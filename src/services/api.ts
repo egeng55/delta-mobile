@@ -1383,6 +1383,10 @@ function cachedRequest<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
   }
   return fetcher().then((data) => {
     intelligenceCache.set(key, { data, ts: Date.now() });
+    if (intelligenceCache.size > 50) {
+      const oldestKey = intelligenceCache.keys().next().value;
+      if (oldestKey !== undefined) intelligenceCache.delete(oldestKey);
+    }
     return data;
   });
 }

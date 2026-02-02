@@ -101,28 +101,6 @@ export function HealthKitProvider({ children }: { children: ReactNode }): React.
     loadState();
   }, [isAvailable]);
 
-  // Fetch health data when enabled and authorized
-  useEffect(() => {
-    if (isEnabled && isAuthorized && !isLoading) {
-      refreshHealthData();
-    }
-  }, [isEnabled, isAuthorized, isLoading]);
-
-  // Auto-sync when enabled
-  useEffect(() => {
-    if (isEnabled && isAuthorized && user?.id) {
-      const checkAndSync = async () => {
-        const shouldSync = await healthSyncService.shouldSync();
-        if (shouldSync) {
-          await healthSyncService.syncHealthData(user.id);
-          const syncTime = await healthSyncService.getLastSyncTime();
-          setLastSyncTime(syncTime);
-        }
-      };
-      checkAndSync();
-    }
-  }, [isEnabled, isAuthorized, user?.id]);
-
   const requestAuthorization = useCallback(async (): Promise<boolean> => {
     if (!isAvailable) return false;
 
@@ -135,35 +113,6 @@ export function HealthKitProvider({ children }: { children: ReactNode }): React.
       return false;
     }
   }, [isAvailable]);
-
-  const setEnabled = useCallback(async (enabled: boolean): Promise<void> => {
-    setIsEnabledState(enabled);
-    await AsyncStorage.setItem(HEALTHKIT_ENABLED_KEY, enabled.toString());
-
-    if (enabled && !isAuthorized) {
-      await requestAuthorization();
-    }
-
-    if (enabled && isAuthorized) {
-      await refreshHealthData();
-    }
-  }, [isAuthorized, requestAuthorization]);
-
-  const syncNow = useCallback(async (): Promise<void> => {
-    if (!user?.id || !isAuthorized) return;
-
-    setIsLoading(true);
-    try {
-      await healthSyncService.forceSyncHealthData(user.id);
-      const syncTime = await healthSyncService.getLastSyncTime();
-      setLastSyncTime(syncTime);
-      await refreshHealthData();
-    } catch (e) {
-      console.log('[HealthKit] Sync error:', e);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user?.id, isAuthorized]);
 
   const refreshHealthData = useCallback(async (): Promise<void> => {
     if (!isAvailable || !isAuthorized) return;
@@ -195,6 +144,57 @@ export function HealthKitProvider({ children }: { children: ReactNode }): React.
       console.log('[HealthKit] Refresh error:', e);
     }
   }, [isAvailable, isAuthorized]);
+
+  // Fetch health data when enabled and authorized
+  useEffect(() => {
+    if (isEnabled && isAuthorized && !isLoading) {
+      refreshHealthData();
+    }
+  }, [isEnabled, isAuthorized, isLoading, refreshHealthData]);
+
+  // Auto-sync when enabled
+  useEffect(() => {
+    if (isEnabled && isAuthorized && user?.id) {
+      const checkAndSync = async () => {
+        const shouldSync = await healthSyncService.shouldSync();
+        if (shouldSync) {
+          await healthSyncService.syncHealthData(user.id);
+          const syncTime = await healthSyncService.getLastSyncTime();
+          setLastSyncTime(syncTime);
+        }
+      };
+      checkAndSync();
+    }
+  }, [isEnabled, isAuthorized, user?.id]);
+
+  const setEnabled = useCallback(async (enabled: boolean): Promise<void> => {
+    setIsEnabledState(enabled);
+    await AsyncStorage.setItem(HEALTHKIT_ENABLED_KEY, enabled.toString());
+
+    if (enabled && !isAuthorized) {
+      await requestAuthorization();
+    }
+
+    if (enabled && isAuthorized) {
+      await refreshHealthData();
+    }
+  }, [isAuthorized, requestAuthorization, refreshHealthData]);
+
+  const syncNow = useCallback(async (): Promise<void> => {
+    if (!user?.id || !isAuthorized) return;
+
+    setIsLoading(true);
+    try {
+      await healthSyncService.forceSyncHealthData(user.id);
+      const syncTime = await healthSyncService.getLastSyncTime();
+      setLastSyncTime(syncTime);
+      await refreshHealthData();
+    } catch (e) {
+      console.log('[HealthKit] Sync error:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.id, isAuthorized, refreshHealthData]);
 
   return (
     <HealthKitContext.Provider

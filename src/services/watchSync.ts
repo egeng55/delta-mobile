@@ -91,6 +91,7 @@ if (WatchSyncManagerModule) {
 // Watch sync service
 class WatchSyncService {
   private listeners: Map<string, ((data: any) => void)[]> = new Map();
+  private subscriptions: Array<{ remove: () => void }> = [];
   private isInitialized = false;
 
   /**
@@ -102,20 +103,32 @@ class WatchSyncService {
     WatchSyncManagerModule.activateSession();
 
     // Set up event listeners
-    eventEmitter?.addListener('onWatchMessage', (message: WatchMessage) => {
+    const sub1 = eventEmitter?.addListener('onWatchMessage', (message: WatchMessage) => {
       this.emit('message', message);
       this.handleWatchMessage(message);
     });
+    if (sub1) this.subscriptions.push(sub1);
 
-    eventEmitter?.addListener('onWatchReachabilityChanged', (data: { isReachable: boolean }) => {
+    const sub2 = eventEmitter?.addListener('onWatchReachabilityChanged', (data: { isReachable: boolean }) => {
       this.emit('reachabilityChanged', data.isReachable);
     });
+    if (sub2) this.subscriptions.push(sub2);
 
-    eventEmitter?.addListener('onWatchSessionStateChanged', (data: any) => {
+    const sub3 = eventEmitter?.addListener('onWatchSessionStateChanged', (data: any) => {
       this.emit('sessionStateChanged', data);
     });
+    if (sub3) this.subscriptions.push(sub3);
 
     this.isInitialized = true;
+  }
+
+  /**
+   * Clean up all native event listeners
+   */
+  cleanup(): void {
+    this.subscriptions.forEach(sub => sub.remove());
+    this.subscriptions = [];
+    this.isInitialized = false;
   }
 
   /**
