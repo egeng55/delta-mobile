@@ -129,7 +129,33 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
     }
   }, [user?.id]);
 
-  useEffect(() => { fetchIntelligence(); }, [fetchIntelligence]);
+  useEffect(() => {
+    let mounted = true;
+    const run = async () => {
+      if (!user?.id) return;
+      setIntelligenceLoading(true);
+      setIntelligenceError(false);
+      try {
+        const summary = await healthIntelligenceApi.getSummary(user.id);
+        if (!mounted) return;
+        if (__DEV__) console.log('[YouScreen] summary.chains:', JSON.stringify(summary?.chains));
+        setChains(summary.chains?.chains ?? []);
+        setPredictions(summary.predictions?.predictions ?? []);
+        setBeliefUpdates(summary.belief_updates?.updates ?? []);
+        setKnowledgeGaps(summary.uncertainty?.gaps ?? []);
+        setLearningStatus(summary.learning_status ?? null);
+        setContradictions(summary.contradictions?.contradictions ?? []);
+      } catch (e) {
+        if (!mounted) return;
+        console.warn('[YouScreen] Intelligence fetch failed:', e);
+        setIntelligenceError(true);
+      } finally {
+        if (mounted) setIntelligenceLoading(false);
+      }
+    };
+    run();
+    return () => { mounted = false; };
+  }, [user?.id]);
 
   // Load profile data (same as old ProfileScreen)
   useEffect(() => {

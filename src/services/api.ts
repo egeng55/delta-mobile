@@ -1680,12 +1680,13 @@ export const healthIntelligenceApi = {
     } catch (e) {
       console.warn('[Intelligence] getSummary failed, falling back to individual calls:', e);
       // Fallback: call individual endpoints
-      const [chainsRes, predsRes, beliefsRes, gapsRes, statusRes] = await Promise.all([
+      const [chainsRes, predsRes, beliefsRes, gapsRes, statusRes, contradictionsRes] = await Promise.all([
         healthIntelligenceApi.getLearnedChains(userId),
         healthIntelligenceApi.getPredictions(userId),
         healthIntelligenceApi.getBeliefUpdates(userId),
         healthIntelligenceApi.getUncertainty(userId),
         healthIntelligenceApi.getLearningStatus(userId),
+        healthIntelligenceApi.getContradictions(userId),
       ]);
       return {
         user_id: userId,
@@ -1694,6 +1695,7 @@ export const healthIntelligenceApi = {
         belief_updates: beliefsRes,
         uncertainty: gapsRes,
         learning_status: statusRes,
+        contradictions: contradictionsRes,
       };
     }
   },
