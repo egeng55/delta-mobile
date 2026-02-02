@@ -507,7 +507,7 @@ function Scan3DScreen({
     setScanState('ready');
     setScanResult(null);
     setError(null);
-    setProgress({ coverage: 0, guidanceMessage: 'Position yourself in frame' });
+    setProgress({ coverage: 0, guidanceMessage: 'Position yourself in frame', meshVertexCount: 0, state: 'initializing' });
   }, []);
 
   // Complete state - show result
@@ -1174,7 +1174,7 @@ function RPMCompleteScreen({
           theme={theme}
           size={280}
           autoRotate={true}
-          rotationSpeed={0.008}
+
         />
 
         <Text style={{

@@ -52,12 +52,12 @@ export async function requestPermissions(): Promise<boolean> {
     return false;
   }
 
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
+  const existingPermissions = await Notifications.getPermissionsAsync() as any;
+  let finalStatus = existingPermissions.status;
 
-  if (existingStatus !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
+  if (finalStatus !== 'granted') {
+    const newPermissions = await Notifications.requestPermissionsAsync() as any;
+    finalStatus = newPermissions.status;
   }
 
   if (finalStatus !== 'granted') {

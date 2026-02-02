@@ -156,6 +156,7 @@ export default function DailyInsightsScreen({ theme, onOpenChat }: DailyInsights
       const today = new Date().toISOString().slice(0, 10);
       const cacheKey = `delta-greeting-${user.id}-${today}`;
 
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
       AsyncStorage.getItem(cacheKey).then(cached => {
         if (cached) {
           setFallbackMessage(cached);
@@ -163,11 +164,12 @@ export default function DailyInsightsScreen({ theme, onOpenChat }: DailyInsights
           return;
         }
 
-        const timeout = setTimeout(() => setLlmLoading(false), 8000);
+        timeoutId = setTimeout(() => setLlmLoading(false), 8000);
         const weatherCtx = weatherData ? formatWeatherForContext(weatherData) : undefined;
         dashboardInsightApi.generateInsight(user.id, weatherCtx, unitSystem)
           .then(res => {
-            clearTimeout(timeout);
+            if (timeoutId) clearTimeout(timeoutId);
+            timeoutId = null;
             setFallbackMessage(res.message);
             setLlmLoading(false);
             AsyncStorage.setItem(cacheKey, res.message).catch(() => {});
@@ -180,10 +182,15 @@ export default function DailyInsightsScreen({ theme, onOpenChat }: DailyInsights
             });
           })
           .catch(() => {
-            clearTimeout(timeout);
+            if (timeoutId) clearTimeout(timeoutId);
+            timeoutId = null;
             setLlmLoading(false);
           });
       }).catch(() => setLlmLoading(false));
+
+      return () => {
+        if (timeoutId) clearTimeout(timeoutId);
+      };
     }
   }, [analyticsLoading, modulesLoading, modules, deltaCommentary, user?.id, weatherData, unitSystem]);
 
