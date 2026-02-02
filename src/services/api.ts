@@ -1619,6 +1619,50 @@ export const healthIntelligenceApi = {
       };
     }
   },
+
+  /**
+   * Get contradictions — beliefs that conflict with each other.
+   */
+  getContradictions: async (userId: string): Promise<ContradictionsResponse> => {
+    try {
+      return await cachedRequest(`contradictions:${userId}`, () =>
+        request<ContradictionsResponse>(`/health-intelligence/${userId}/contradictions`)
+      );
+    } catch (e) {
+      console.warn('[Intelligence] getContradictions failed:', e);
+      return { user_id: userId, total: 0, contradictions: [] };
+    }
+  },
+
+  /**
+   * Combined intelligence summary — single request for all intelligence data.
+   * Falls back to individual calls if summary endpoint unavailable.
+   */
+  getSummary: async (userId: string): Promise<IntelligenceSummaryResponse> => {
+    try {
+      return await cachedRequest(`summary:${userId}`, () =>
+        request<IntelligenceSummaryResponse>(`/health-intelligence/${userId}/summary`)
+      );
+    } catch (e) {
+      console.warn('[Intelligence] getSummary failed, falling back to individual calls:', e);
+      // Fallback: call individual endpoints
+      const [chainsRes, predsRes, beliefsRes, gapsRes, statusRes] = await Promise.all([
+        healthIntelligenceApi.getLearnedChains(userId),
+        healthIntelligenceApi.getPredictions(userId),
+        healthIntelligenceApi.getBeliefUpdates(userId),
+        healthIntelligenceApi.getUncertainty(userId),
+        healthIntelligenceApi.getLearningStatus(userId),
+      ]);
+      return {
+        user_id: userId,
+        chains: chainsRes,
+        predictions: predsRes,
+        belief_updates: beliefsRes,
+        uncertainty: gapsRes,
+        learning_status: statusRes,
+      };
+    }
+  },
 };
 
 // =============================================================================
@@ -1843,6 +1887,31 @@ export interface LearningStatusResponse {
   predictions_made: number;
   predictions_correct: number;
   status: 'learning' | 'calibrating' | 'confident';
+  contradictions?: number;
+  last_computed_at?: string;
+}
+
+export interface Contradiction {
+  id?: string;
+  chain_a: string;
+  chain_b: string;
+  conflict_type: string;
+  description: string;
+}
+
+export interface ContradictionsResponse {
+  user_id: string;
+  total: number;
+  contradictions: Contradiction[];
+}
+
+export interface IntelligenceSummaryResponse {
+  user_id: string;
+  chains: LearnedChainsResponse;
+  predictions: PredictionsResponse;
+  belief_updates: BeliefUpdatesResponse;
+  uncertainty: UncertaintyResponse;
+  learning_status: LearningStatusResponse;
 }
 
 // =============================================================================

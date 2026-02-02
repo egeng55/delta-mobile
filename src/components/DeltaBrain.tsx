@@ -22,6 +22,7 @@ import {
   Prediction,
   BeliefUpdate,
   KnowledgeGap,
+  Contradiction,
   LearningStatusResponse,
 } from '../services/api';
 
@@ -31,6 +32,7 @@ interface DeltaBrainProps {
   predictions: Prediction[];
   beliefUpdates: BeliefUpdate[];
   knowledgeGaps: KnowledgeGap[];
+  contradictions?: Contradiction[];
 }
 
 function formatTimeRemaining(resolves_at: string): string {
@@ -50,6 +52,7 @@ export default function DeltaBrain({
   predictions = [],
   beliefUpdates = [],
   knowledgeGaps = [],
+  contradictions = [],
 }: DeltaBrainProps): React.ReactNode {
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [showAllUpdates, setShowAllUpdates] = useState(false);
@@ -206,13 +209,35 @@ export default function DeltaBrain({
         )}
       </Animated.View>
 
+      {/* Contradictions — Delta questioning itself */}
+      {contradictions.length > 0 && (
+        <Animated.View entering={FadeInDown.delay(350).springify()} style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="alert-circle-outline" size={16} color={theme.warning} />
+            <Text style={styles.sectionTitle}>Delta is Questioning</Text>
+          </View>
+          {contradictions.map((c, i) => (
+            <View key={c.id || `c-${i}`} style={styles.contradictionCard}>
+              <Text style={styles.contradictionDesc}>{c.description}</Text>
+              <Text style={styles.contradictionType}>{c.conflict_type}</Text>
+            </View>
+          ))}
+        </Animated.View>
+      )}
+
       {/* Learning Status */}
       {learningStatus && (
         <Animated.View entering={FadeInDown.delay(400).springify()} style={styles.statusBar}>
           <Ionicons name="sparkles" size={14} color={theme.accent} />
           <Text style={styles.statusText}>
             {learningStatus.days_of_data} days analyzed · {learningStatus.patterns_discovered} patterns discovered
+            {learningStatus.contradictions ? ` · ${learningStatus.contradictions} conflicts` : ''}
           </Text>
+          {learningStatus.last_computed_at && (
+            <Text style={styles.timestampText}>
+              Updated {new Date(learningStatus.last_computed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          )}
         </Animated.View>
       )}
     </View>
@@ -395,6 +420,27 @@ function createStyles(theme: Theme) {
     statusText: {
       fontSize: 12,
       color: theme.accent,
+    },
+    timestampText: {
+      fontSize: 10,
+      color: theme.textSecondary,
+      marginTop: 2,
+    },
+    contradictionCard: {
+      backgroundColor: theme.warning + '10',
+      borderRadius: 8,
+      padding: 10,
+      marginBottom: 6,
+    },
+    contradictionDesc: {
+      fontSize: 13,
+      fontWeight: '500',
+      color: theme.textPrimary,
+      marginBottom: 2,
+    },
+    contradictionType: {
+      fontSize: 11,
+      color: theme.textSecondary,
     },
   });
 }

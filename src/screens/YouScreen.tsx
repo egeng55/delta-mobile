@@ -51,6 +51,7 @@ import {
   Prediction,
   BeliefUpdate,
   KnowledgeGap,
+  Contradiction,
   LearningStatusResponse,
   DashboardResponse,
 } from '../services/api';
@@ -83,6 +84,7 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [beliefUpdates, setBeliefUpdates] = useState<BeliefUpdate[]>([]);
   const [knowledgeGaps, setKnowledgeGaps] = useState<KnowledgeGap[]>([]);
+  const [contradictions, setContradictions] = useState<Contradiction[]>([]);
   const [learningStatus, setLearningStatus] = useState<LearningStatusResponse | null>(null);
   const [intelligenceLoading, setIntelligenceLoading] = useState(true);
   const [intelligenceError, setIntelligenceError] = useState(false);
@@ -111,18 +113,17 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
     setIntelligenceLoading(true);
     setIntelligenceError(false);
     try {
-      const [chainsRes, predsRes, beliefsRes, gapsRes, statusRes] = await Promise.all([
-        healthIntelligenceApi.getLearnedChains(user.id),
-        healthIntelligenceApi.getPredictions(user.id),
-        healthIntelligenceApi.getBeliefUpdates(user.id),
-        healthIntelligenceApi.getUncertainty(user.id),
-        healthIntelligenceApi.getLearningStatus(user.id),
-      ]);
-      setChains(chainsRes.chains);
-      setPredictions(predsRes.predictions);
-      setBeliefUpdates(beliefsRes.updates);
-      setKnowledgeGaps(gapsRes.gaps);
-      setLearningStatus(statusRes);
+      const summary = await healthIntelligenceApi.getSummary(user.id);
+      setChains(summary.chains?.chains ?? []);
+      setPredictions(summary.predictions?.predictions ?? []);
+      setBeliefUpdates(summary.belief_updates?.updates ?? []);
+      setKnowledgeGaps(summary.uncertainty?.gaps ?? []);
+      setLearningStatus(summary.learning_status ?? null);
+      // Fetch contradictions separately (not in summary fallback shape)
+      try {
+        const cRes = await healthIntelligenceApi.getContradictions(user.id);
+        setContradictions(cRes.contradictions ?? []);
+      } catch { /* non-critical */ }
     } catch (e) {
       console.warn('[YouScreen] Intelligence fetch failed:', e);
       setIntelligenceError(true);
@@ -347,6 +348,7 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
             predictions={predictions}
             beliefUpdates={beliefUpdates}
             knowledgeGaps={knowledgeGaps}
+            contradictions={contradictions}
           />
         )}
       </View>
