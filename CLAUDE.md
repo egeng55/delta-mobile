@@ -1,8 +1,10 @@
 # Delta Mobile - Project Context
 
-> **Last Updated:** 2026-02-02 — Security audit remediation applied. See delta-backend `PROJECT_NOTES.md` for full changelog.
+> **Last Updated:** 2026-02-02 — Security audit remediation round 2 complete. See delta-backend `PROJECT_NOTES.md` for full changelog.
 >
-> Key changes in this repo: hardcoded secrets moved to `app.config.ts` + env vars, `expo-secure-store` for auth tokens, `babel-plugin-transform-remove-console` + `module-resolver` added, `recordDecision()` no-ops in prod, AuthScreen validation tightened (email regex, 8-char password min, 100-char name limit), Android build changed to app-bundle, `_archived/` added to `.gitignore`.
+> **Round 1 changes:** hardcoded secrets moved to `app.config.ts` + env vars, `expo-secure-store` for auth tokens, `babel-plugin-transform-remove-console` + `module-resolver` added, `recordDecision()` no-ops in prod, AuthScreen validation tightened (email regex, 8-char password min, 100-char name limit), Android build changed to app-bundle, `_archived/` added to `.gitignore`.
+>
+> **Round 2 changes:** body-based endpoint ownership verification added, XSS protection in support emails, URL-quoted user IDs in all Supabase queries, GDPR-compliant user data deletion (14+ tables), debug endpoints blocked in production, workout plan ownership verification, auth token added to healthSync, intelligence cache cleared on logout, serverIsWarm staleness reset, offline sync replay implemented.
 
 ## Architecture Overview
 
