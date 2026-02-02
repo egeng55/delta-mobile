@@ -1530,7 +1530,8 @@ export const healthIntelligenceApi = {
       return await request<LearnedChainsResponse>(
         `/health-intelligence/${userId}/learned-chains`
       );
-    } catch {
+    } catch (e) {
+      console.warn('[Intelligence] getLearnedChains failed:', e);
       return { user_id: userId, chains: [], count: 0 };
     }
   },
@@ -1543,7 +1544,8 @@ export const healthIntelligenceApi = {
       return await request<PredictionsResponse>(
         `/health-intelligence/${userId}/predictions`
       );
-    } catch {
+    } catch (e) {
+      console.warn('[Intelligence] getPredictions failed:', e);
       return { user_id: userId, predictions: [], accuracy: null };
     }
   },
@@ -1556,7 +1558,8 @@ export const healthIntelligenceApi = {
       return await request<BeliefUpdatesResponse>(
         `/health-intelligence/${userId}/belief-updates`
       );
-    } catch {
+    } catch (e) {
+      console.warn('[Intelligence] getBeliefUpdates failed:', e);
       return { user_id: userId, updates: [] };
     }
   },
@@ -1569,7 +1572,8 @@ export const healthIntelligenceApi = {
       return await request<UncertaintyResponse>(
         `/health-intelligence/${userId}/uncertainty`
       );
-    } catch {
+    } catch (e) {
+      console.warn('[Intelligence] getUncertainty failed:', e);
       return { user_id: userId, gaps: [], overall_confidence: 0 };
     }
   },
@@ -1582,7 +1586,8 @@ export const healthIntelligenceApi = {
       return await request<LearningStatusResponse>(
         `/health-intelligence/${userId}/learning-status`
       );
-    } catch {
+    } catch (e) {
+      console.warn('[Intelligence] getLearningStatus failed:', e);
       return {
         user_id: userId,
         days_of_data: 0,

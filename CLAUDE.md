@@ -85,16 +85,12 @@ GET  /calendar/{user_id}/{date}                        → Get daily log
 GET  /calendar/{user_id}/month/{year}/{month}          → Get month logs
 POST /chat                                              → Chat with Delta
 POST /chat/with-inference                               → Chat with health context
-```
-
-**Frontend-ready but backend NOT YET BUILT (404):**
-```
-GET /health-intelligence/{user_id}/agent-actions     → Proactive cards
-GET /health-intelligence/{user_id}/learned-chains     → Discovered patterns (detailed)
-GET /health-intelligence/{user_id}/predictions        → Active predictions
-GET /health-intelligence/{user_id}/belief-updates     → What Delta learned
-GET /health-intelligence/{user_id}/uncertainty         → Knowledge gaps
-GET /health-intelligence/{user_id}/learning-status     → Overall AI progress
+GET  /health-intelligence/{user_id}/agent-actions      → Proactive cards
+GET  /health-intelligence/{user_id}/learned-chains     → Discovered patterns (detailed)
+GET  /health-intelligence/{user_id}/predictions        → Active predictions
+GET  /health-intelligence/{user_id}/belief-updates     → What Delta learned
+GET  /health-intelligence/{user_id}/uncertainty         → Knowledge gaps
+GET  /health-intelligence/{user_id}/learning-status    → Overall AI progress
 ```
 
 ### Simulation Infrastructure
@@ -140,7 +136,7 @@ Accent:         #6366F1  (indigo)
 - Supabase for auth/profiles/storage
 - Cold start timeout: 45s (Render)
 - Chat timeout: 30s
-- 6 endpoints need to be built (see "NOT YET BUILT" above)
+- All intelligence endpoints are now working
 
 ### Tech Stack
 
@@ -154,7 +150,7 @@ Accent:         #6366F1  (indigo)
 ### Pending Work
 
 1. **Remove QuickLog** from JournalScreen — users talk to Delta, not pick numbers
-2. **Build 6 missing backend endpoints** on the Python/FastAPI server
+2. ~~Build 6 missing backend endpoints~~ — Done, field mappings fixed
 3. **Visual analytics framework** — Delta as data analyst, choosing chart types, zoom levels
 4. **Local simulation DB** — run intelligence analysis locally for testing
 5. **Aesthetic improvements** — Journal and overall app polish

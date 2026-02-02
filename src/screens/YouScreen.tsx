@@ -84,6 +84,7 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
   const [knowledgeGaps, setKnowledgeGaps] = useState<KnowledgeGap[]>([]);
   const [learningStatus, setLearningStatus] = useState<LearningStatusResponse | null>(null);
   const [intelligenceLoading, setIntelligenceLoading] = useState(true);
+  const [intelligenceError, setIntelligenceError] = useState(false);
 
   // Profile data (migrated from ProfileScreen)
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -107,6 +108,7 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
   const fetchIntelligence = useCallback(async () => {
     if (!user?.id) return;
     setIntelligenceLoading(true);
+    setIntelligenceError(false);
     try {
       const [chainsRes, predsRes, beliefsRes, gapsRes, statusRes] = await Promise.all([
         healthIntelligenceApi.getLearnedChains(user.id),
@@ -120,8 +122,9 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
       setBeliefUpdates(beliefsRes.updates);
       setKnowledgeGaps(gapsRes.gaps);
       setLearningStatus(statusRes);
-    } catch {
-      // Silent fail - show empty state
+    } catch (e) {
+      console.warn('[YouScreen] Intelligence fetch failed:', e);
+      setIntelligenceError(true);
     } finally {
       setIntelligenceLoading(false);
     }
@@ -306,12 +309,21 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
         </View>
 
         {intelligenceLoading ? (
-          <ActivityIndicator color={theme.accent} style={{ padding: 24 }} />
+          <View style={styles.emptyCard}>
+            <ActivityIndicator color={theme.accent} />
+            <Text style={styles.emptyText}>Loading intelligence...</Text>
+          </View>
+        ) : intelligenceError ? (
+          <View style={styles.emptyCard}>
+            <Ionicons name="warning-outline" size={28} color={theme.textSecondary} />
+            <Text style={styles.emptyText}>Could not load intelligence data</Text>
+            <Text style={styles.emptyHint}>Pull down to retry</Text>
+          </View>
         ) : chains.length === 0 ? (
           <View style={styles.emptyCard}>
             <Ionicons name="search-outline" size={28} color={theme.textSecondary} />
-            <Text style={styles.emptyText}>Delta is still learning your patterns</Text>
-            <Text style={styles.emptyHint}>Keep logging data - patterns emerge after 7-14 days</Text>
+            <Text style={styles.emptyText}>Delta is still learning — keep logging data</Text>
+            <Text style={styles.emptyHint}>Patterns emerge after 7-14 days</Text>
           </View>
         ) : (
           chains.map((chain, index) => (
@@ -328,7 +340,15 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
         </View>
 
         {intelligenceLoading ? (
-          <ActivityIndicator color={theme.accent} style={{ padding: 24 }} />
+          <View style={styles.emptyCard}>
+            <ActivityIndicator color={theme.accent} />
+            <Text style={styles.emptyText}>Loading intelligence...</Text>
+          </View>
+        ) : intelligenceError ? (
+          <View style={styles.emptyCard}>
+            <Ionicons name="warning-outline" size={28} color={theme.textSecondary} />
+            <Text style={styles.emptyText}>Could not load intelligence data</Text>
+          </View>
         ) : (
           <DeltaBrain
             theme={theme}
