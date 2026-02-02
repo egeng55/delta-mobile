@@ -1672,9 +1672,11 @@ export const healthIntelligenceApi = {
    */
   getSummary: async (userId: string): Promise<IntelligenceSummaryResponse> => {
     try {
-      return await cachedRequest(`summary:${userId}`, () =>
+      const result = await cachedRequest(`summary:${userId}`, () =>
         request<IntelligenceSummaryResponse>(`/health-intelligence/${userId}/summary`)
       );
+      if (__DEV__) console.log('[Intelligence] getSummary result:', JSON.stringify({ chains: result?.chains?.chains?.length ?? 0, predictions: result?.predictions?.predictions?.length ?? 0 }));
+      return result;
     } catch (e) {
       console.warn('[Intelligence] getSummary failed, falling back to individual calls:', e);
       // Fallback: call individual endpoints

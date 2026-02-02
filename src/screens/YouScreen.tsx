@@ -114,6 +114,7 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
     setIntelligenceError(false);
     try {
       const summary = await healthIntelligenceApi.getSummary(user.id);
+      if (__DEV__) console.log('[YouScreen] summary.chains:', JSON.stringify(summary?.chains));
       setChains(summary.chains?.chains ?? []);
       setPredictions(summary.predictions?.predictions ?? []);
       setBeliefUpdates(summary.belief_updates?.updates ?? []);

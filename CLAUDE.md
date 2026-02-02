@@ -6,6 +6,10 @@
 >
 > **Round 2 changes:** body-based endpoint ownership verification added, XSS protection in support emails, URL-quoted user IDs in all Supabase queries, GDPR-compliant user data deletion (14+ tables), debug endpoints blocked in production, workout plan ownership verification, auth token added to healthSync, intelligence cache cleared on logout, serverIsWarm staleness reset, offline sync replay implemented.
 
+## Developer Info
+
+- **Eric's user ID:** `53c81b67-c1b6-494e-985e-48a5a218a248`
+
 ## Architecture Overview
 
 Delta is a React Native (Expo) health intelligence app. **Delta is not a dashboard — it's an AI scientist studying the user.** The chat IS the app, patterns are the product, transparency is the differentiator.
