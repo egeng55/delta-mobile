@@ -297,17 +297,25 @@ export function useInsightsData(): InsightsDataState {
         setAnalyticsLoading(false);
         loadedTabs.current.add('analytics');
 
-        // Still fetch modules in background — not cached
-        const defaultModulesCached: ModulesResponse = { user_id: userId, has_data: false, modules: [] };
-        setModulesLoading(true);
-        console.log('[useInsightsData] Cache hit — fetching modules in background');
-        withTimeout(healthIntelligenceApi.getModules(userId), 20000, defaultModulesCached)
-          .then((modulesData) => {
-            console.log('[useInsightsData] Modules arrived:', modulesData.modules?.length ?? 0);
-            setModules(modulesData.modules ?? []);
-            setModulesLoading(false);
-          })
-          .catch((err) => { console.log('[useInsightsData] Modules fetch failed:', err); setModulesLoading(false); });
+        // Check if modules were prefetched
+        const cachedModules = (cached as { modules?: DeltaModule[] }).modules;
+        if (cachedModules && cachedModules.length > 0) {
+          console.log('[useInsightsData] Cache hit with modules:', cachedModules.length);
+          setModules(cachedModules);
+          setModulesLoading(false);
+        } else {
+          // Fetch modules in background if not cached
+          const defaultModulesCached: ModulesResponse = { user_id: userId, has_data: false, modules: [] };
+          setModulesLoading(true);
+          console.log('[useInsightsData] Cache hit — fetching modules in background');
+          withTimeout(healthIntelligenceApi.getModules(userId), 20000, defaultModulesCached)
+            .then((modulesData) => {
+              console.log('[useInsightsData] Modules arrived:', modulesData.modules?.length ?? 0);
+              setModules(modulesData.modules ?? []);
+              setModulesLoading(false);
+            })
+            .catch((err) => { console.log('[useInsightsData] Modules fetch failed:', err); setModulesLoading(false); });
+        }
         return;
       }
     }

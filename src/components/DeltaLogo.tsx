@@ -97,6 +97,27 @@ export function DeltaLogoSimple({
   );
 }
 
+// Pull tab handle - solid, shorter, wider triangle pointing down
+export function PullTabHandle({
+  width = 44,
+  height = 16,
+  color = '#6366F1',
+}: {
+  width?: number;
+  height?: number;
+  color?: string;
+}): React.ReactNode {
+  // Triangle pointing down: wider base at top, point at bottom
+  return (
+    <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} fill="none">
+      <Path
+        d={`M0 0L${width} 0L${width / 2} ${height}Z`}
+        fill={color}
+      />
+    </Svg>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     justifyContent: 'center',

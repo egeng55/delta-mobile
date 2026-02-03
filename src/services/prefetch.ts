@@ -94,9 +94,14 @@ export async function prefetchAppData(userId: string): Promise<void> {
 
   const defaultHealthState = { has_data: false };
   const defaultWeekly = { weekly_summaries: [], days_count: 0 };
+  const defaultModules = { user_id: userId, has_data: false, modules: [] };
 
   try {
-    // Fetch all data in parallel
+    // Fire modules request early (LLM endpoint, takes 5-15s) - don't await
+    // This warms up the backend and starts generation while we fetch core data
+    const modulesPromise = healthIntelligenceApi.getModules(userId).catch(() => defaultModules);
+
+    // Fetch all core data in parallel (fast endpoints)
     const [insightsData, derivativesData, cardsData, weeklyData, dashboardData, healthStateData, workoutData] = await Promise.all([
       withTimeout(insightsApi.getInsights(userId), 6000, defaultInsights),
       withTimeout(derivativesApi.getDerivatives(userId, 30), 6000, defaultDerivatives),
@@ -106,6 +111,9 @@ export async function prefetchAppData(userId: string): Promise<void> {
       withTimeout(healthIntelligenceApi.getState(userId), 6000, defaultHealthState),
       withTimeout(workoutApi.getToday(userId), 6000, { workout: null }),
     ]);
+
+    // Also await modules if it finishes in time (15s timeout)
+    const modulesData = await withTimeout(modulesPromise, 15000, defaultModules);
 
     // Cache analytics data
     const isWorkoutDay = (dashboardData as { is_workout_day?: boolean }).is_workout_day === true;
@@ -145,6 +153,8 @@ export async function prefetchAppData(userId: string): Promise<void> {
       targetsInfo,
       healthState: healthStateData,
       causalChains: (healthStateData as { causal_chains?: unknown[] }).causal_chains ?? [],
+      // Include modules if prefetch succeeded
+      modules: (modulesData as { modules?: unknown[] }).modules ?? [],
     });
 
     // Cache workout data

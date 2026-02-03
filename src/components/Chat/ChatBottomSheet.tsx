@@ -53,7 +53,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useAccess } from '../../context/AccessContext';
 import { useUnits } from '../../context/UnitsContext';
 import { chatApi, conversationsApi, healthIntelligenceApi, AgentAction } from '../../services/api';
-import { DeltaLogoSimple } from '../DeltaLogo';
+import { DeltaLogoSimple, PullTabHandle } from '../DeltaLogo';
 import VizRenderer, { parseDeltaVizBlocks } from '../viz/VizRenderer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useInsightsData } from '../../hooks/useInsightsData';
@@ -73,7 +73,7 @@ const springConfig = {
 type SheetState = 'hidden' | 'peek' | 'full';
 
 const TAB_BAR_HEIGHT = 90;
-const PULL_TAB_HEIGHT = 50; // triangle bottom edge touches tab bar
+const PULL_TAB_HEIGHT = 24; // shorter, wider solid triangle
 const PEEK_HEIGHT = 56; // Just the input bar
 const FULL_OFFSET = SCREEN_HEIGHT * 0.05; // 95% of screen = 5% from top
 
@@ -552,7 +552,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
         >
           <GestureDetector gesture={panGesture}>
             <Animated.View style={[styles.pullTabWrapper, sheetState === 'hidden' ? pullTabAnimStyle : undefined]}>
-              <DeltaLogoSimple size={66} color={theme.mode === 'dark' ? '#4F46E5' : '#4338CA'} />
+              <PullTabHandle width={48} height={14} color={theme.mode === 'dark' ? '#4F46E5' : '#4338CA'} />
             </Animated.View>
           </GestureDetector>
 
@@ -729,9 +729,9 @@ function createStyles(theme: Theme, insets: { top: number; bottom: number }) {
     },
     pullTabWrapper: {
       alignItems: 'center',
-      justifyContent: 'flex-end',
+      justifyContent: 'center',
       height: PULL_TAB_HEIGHT,
-      marginBottom: 0,
+      paddingTop: 6,
     },
     sheetContent: {
       flex: 1,
