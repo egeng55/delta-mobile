@@ -65,9 +65,10 @@ import { useDeltaUI } from '../../context/DeltaUIContext';
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const springConfig = {
-  damping: 20,
-  stiffness: 200,
-  mass: 0.5,
+  damping: 28,
+  stiffness: 300,
+  mass: 0.8,
+  overshootClamping: true,
 };
 
 type SheetState = 'hidden' | 'peek' | 'full';
@@ -134,7 +135,6 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
 
     const translateY = useSharedValue(HIDDEN_Y);
     const [sheetState, setSheetState] = useState<SheetState>('hidden');
-    const [contentVisible, setContentVisible] = useState(false);
 
     // Ensure translateY is synced on mount (fixes hot reload desync)
     useEffect(() => {
@@ -181,7 +181,6 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
       const target = state === 'hidden' ? HIDDEN_Y : state === 'peek' ? PEEK_Y : FULL_Y;
       translateY.value = withSpring(target, springConfig);
       setSheetState(state);
-      setContentVisible(state !== 'hidden');
       setDeltaUIChatState(state);
       lastTransition.current = Date.now();
       if (state === 'hidden') {
@@ -191,7 +190,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
         setTimeout(() => {
           flatListRef.current?.scrollToEnd({ animated: false });
           inputRef.current?.focus();
-        }, 150);
+        }, 200);
       }
     }, [translateY, setDeltaUIChatState]);
 
@@ -249,14 +248,16 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
       let startY = 0;
       return Gesture.Pan()
         .onStart(() => {
+          'worklet';
           startY = translateY.value;
-          runOnJS(setContentVisible)(true);
         })
         .onUpdate((e) => {
+          'worklet';
           const newY = startY + e.translationY;
           translateY.value = Math.max(FULL_Y, Math.min(HIDDEN_Y, newY));
         })
         .onEnd((e) => {
+          'worklet';
           const currentY = translateY.value;
           const velocity = e.velocityY;
 
@@ -276,6 +277,16 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
 
     const sheetStyle = useAnimatedStyle(() => ({
       transform: [{ translateY: translateY.value }],
+    }));
+
+    // Content opacity: fade in as sheet rises
+    const contentOpacity = useAnimatedStyle(() => ({
+      opacity: interpolate(
+        translateY.value,
+        [HIDDEN_Y, HIDDEN_Y - 50, PEEK_Y],
+        [0, 0.5, 1],
+        'clamp',
+      ),
     }));
 
     // Blur intensity: 0 at HIDDEN_Y, max at FULL_Y
@@ -540,7 +551,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
         {/* Dark overlay — opacity driven continuously by translateY, stops above tab bar */}
         <Animated.View
           style={[StyleSheet.absoluteFill, blurOpacity, { zIndex: 50, backgroundColor: 'rgba(0,0,0,0.6)', bottom: TAB_BAR_HEIGHT }]}
-          pointerEvents={contentVisible ? 'auto' : 'none'}
+          pointerEvents={sheetState !== 'hidden' ? 'auto' : 'none'}
         >
           <Pressable style={StyleSheet.absoluteFill} onPress={() => animateTo('hidden')} />
         </Animated.View>
@@ -556,8 +567,8 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
             </Animated.View>
           </GestureDetector>
 
-          {/* Sheet content — only rendered when visible or dragging */}
-          {contentVisible && <View style={[styles.sheetContent, { maxHeight: SCREEN_HEIGHT - FULL_OFFSET - PULL_TAB_HEIGHT - TAB_BAR_HEIGHT }]}>
+          {/* Sheet content — always rendered, opacity controlled by animation */}
+          <Animated.View style={[styles.sheetContent, contentOpacity, { maxHeight: SCREEN_HEIGHT - FULL_OFFSET - PULL_TAB_HEIGHT - TAB_BAR_HEIGHT }]}>
             {/* Sidebar toggle + new chat */}
             {sheetState === 'full' && (
               <View style={styles.chatHeader}>
@@ -659,7 +670,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
                 </Pressable>
               )}
             </View>
-          </View>}
+          </Animated.View>
         </Animated.View>
 
         {/* Sidebar Modal */}
