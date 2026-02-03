@@ -47,6 +47,31 @@ const EVENT_LABELS: Record<string, string> = {
   calories_total: 'Calories',
   protein_grams: 'Protein',
   hydration_liters: 'Hydration',
+  resting_hr: 'Resting HR',
+  mood_rating: 'Mood',
+  water_oz: 'Hydration',
+  workout_minutes: 'Exercise',
+  rpe: 'Workout Intensity',
+  steps: 'Steps',
+};
+
+// User-friendly labels for physiology validation status
+const VALIDATION_LABELS: Record<string, { label: string; description: string; color: 'success' | 'warning' | 'accent' }> = {
+  aligned: {
+    label: 'Science-backed',
+    description: 'This matches known health research',
+    color: 'success',
+  },
+  novel: {
+    label: 'Unique to you',
+    description: 'A pattern specific to your body',
+    color: 'accent',
+  },
+  individual_variation: {
+    label: 'Your pattern',
+    description: 'Different from typical, but valid for you',
+    color: 'warning',
+  },
 };
 
 export default function PatternCard({
@@ -57,10 +82,15 @@ export default function PatternCard({
   const [expanded, setExpanded] = useState(false);
   const styles = useMemo(() => createStyles(theme), [theme]);
 
-  const causeLabel = EVENT_LABELS[chain.cause] || chain.cause;
-  const effectLabel = EVENT_LABELS[chain.effect] || chain.effect;
+  const causeLabel = EVENT_LABELS[chain.cause] || chain.cause.replace(/_/g, ' ');
+  const effectLabel = EVENT_LABELS[chain.effect] || chain.effect.replace(/_/g, ' ');
   const lagText = chain.lag_days === 0 ? 'Same day' : chain.lag_days === 1 ? 'Next day' : `+${chain.lag_days} days`;
   const confidencePct = Math.round(chain.confidence * 100);
+
+  // Physiology validation info
+  const validationInfo = chain.physiology_validation
+    ? VALIDATION_LABELS[chain.physiology_validation]
+    : null;
 
   // Confidence color
   const confidenceColor = chain.confidence >= 0.7
@@ -99,6 +129,13 @@ export default function PatternCard({
             <Ionicons name="arrow-forward" size={14} color={theme.textSecondary} />
           </View>
           <Text style={styles.effectText}>{effectLabel}</Text>
+          {validationInfo && (
+            <View style={[styles.validationBadge, { backgroundColor: theme[validationInfo.color] + '20' }]}>
+              <Text style={[styles.validationText, { color: theme[validationInfo.color] }]}>
+                {validationInfo.label}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Meta row */}
@@ -134,11 +171,33 @@ export default function PatternCard({
         {/* Expanded content */}
         {expanded && (
           <Animated.View entering={FadeIn.duration(200)} style={styles.expandedContent}>
+            {/* Validation description */}
+            {validationInfo && (
+              <View style={styles.validationDescRow}>
+                <Ionicons
+                  name={chain.physiology_validation === 'aligned' ? 'checkmark-circle' : 'person-circle'}
+                  size={14}
+                  color={theme[validationInfo.color]}
+                />
+                <Text style={[styles.validationDesc, { color: theme.textSecondary }]}>
+                  {validationInfo.description}
+                </Text>
+              </View>
+            )}
+
             {/* Narrative */}
             <Text style={styles.narrative}>{chain.narrative}</Text>
 
-            {/* Why this happens */}
-            {chain.why && (
+            {/* Physiological mechanism - shown if available */}
+            {chain.physiological_mechanism && (
+              <View style={styles.mechanismBox}>
+                <Text style={styles.explanationLabel}>The science</Text>
+                <Text style={styles.explanationText}>{chain.physiological_mechanism}</Text>
+              </View>
+            )}
+
+            {/* Why this happens - fallback if no mechanism */}
+            {chain.why && !chain.physiological_mechanism && (
               <View style={styles.explanationBox}>
                 <Text style={styles.explanationLabel}>Why this happens</Text>
                 <Text style={styles.explanationText}>{chain.why}</Text>
@@ -214,6 +273,36 @@ function createStyles(theme: Theme) {
       flexDirection: 'row',
       alignItems: 'center',
       marginBottom: 8,
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    validationBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 10,
+      marginLeft: 'auto',
+    },
+    validationText: {
+      fontSize: 10,
+      fontWeight: '600',
+    },
+    validationDescRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginBottom: 10,
+    },
+    validationDesc: {
+      fontSize: 12,
+      flex: 1,
+    },
+    mechanismBox: {
+      backgroundColor: theme.success + '10',
+      borderRadius: 8,
+      padding: 10,
+      marginBottom: 10,
+      borderLeftWidth: 3,
+      borderLeftColor: theme.success,
     },
     causeText: {
       fontSize: 14,

@@ -1862,6 +1862,12 @@ export interface LearnedChain {
   advice?: string;
   last_verified?: string;
   belief_history?: Array<{ date: string; confidence: number }>;
+  // Physiology validation fields (from causal discovery)
+  physiology_validation?: 'aligned' | 'novel' | 'individual_variation';
+  physiology_note?: string;
+  physiological_mechanism?: string;
+  causality_method?: 'pearson' | 'granger';
+  confounding_status?: string;
 }
 
 export interface LearnedChainsResponse {

@@ -21,7 +21,7 @@ import { WeeklySummary } from '../hooks/useInsightsData';
 import { VizTheme, VizLineData, VizBarData } from './viz/types';
 import VizLine from './viz/VizLine';
 import VizBar from './viz/VizBar';
-import { getToneColor, themeToVizTheme } from '../utils/themeUtils';
+import { getToneColor, themeToVizTheme, formatDateLabel } from '../utils/themeUtils';
 
 interface ModuleRendererProps {
   module: DeltaModule;
@@ -172,7 +172,7 @@ function renderVizChart(
   const values = data
     .map(w => (w[metric] as number | null) ?? 0)
     .filter(v => typeof v === 'number');
-  const labels = data.map(w => w.date.slice(5));
+  const labels = data.map(w => formatDateLabel(w.date));
 
   if (values.length === 0) return null;
 
