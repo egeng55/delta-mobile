@@ -10,6 +10,13 @@
  *   npx ts-node scripts/simulate.ts --personas   # Multiple persona simulations
  *   npx ts-node scripts/simulate.ts --all        # Both
  *
+ * Environment variables (from .env):
+ *   SUPABASE_URL - Supabase project URL
+ *   SUPABASE_ANON_KEY - Supabase anon key (for user auth)
+ *   API_BASE_URL - Delta backend URL
+ *   SIMULATE_EMAIL - Email for simulation user account
+ *   SIMULATE_PASSWORD - Password for simulation user account
+ *
  * Personas:
  *   1. College Athlete (M, 21) - high training load, good sleep, high protein
  *   2. Busy Mom (F, 34) - fragmented sleep, stress spikes, inconsistent meals
@@ -21,7 +28,43 @@
  *   8. Night Shift Nurse (F, 31) - circadian disruption, variable sleep
  */
 
-const BASE_URL = 'https://delta-80ht.onrender.com';
+import 'dotenv/config';
+import { createClient } from '@supabase/supabase-js';
+
+const BASE_URL = process.env.API_BASE_URL || 'https://delta-80ht.onrender.com';
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+
+// Auth token (populated after login)
+let authToken: string | null = null;
+
+// Initialize Supabase client for auth
+const supabase = SUPABASE_URL && SUPABASE_ANON_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+let authenticatedUserId: string | null = null;
+
+async function authenticate(email: string, password: string): Promise<string> {
+  if (!supabase) {
+    throw new Error('Supabase not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY in .env');
+  }
+
+  console.log(`\nAuthenticating as ${email}...`);
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    throw new Error(`Auth failed: ${error.message}`);
+  }
+
+  if (!data.session?.access_token) {
+    throw new Error('No access token in auth response');
+  }
+
+  authenticatedUserId = data.user?.id || null;
+  console.log(`✓ Authentication successful (user: ${authenticatedUserId})`);
+  return data.session.access_token;
+}
 
 // ============================================================
 // TYPES
@@ -89,10 +132,18 @@ function isWeekend(date: Date): boolean {
   return d === 0 || d === 6;
 }
 
+function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  return headers;
+}
+
 async function apiPut(path: string, body: unknown): Promise<unknown> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -103,7 +154,9 @@ async function apiPut(path: string, body: unknown): Promise<unknown> {
 }
 
 async function apiGet(path: string): Promise<unknown> {
-  const res = await fetch(`${BASE_URL}${path}`);
+  const res = await fetch(`${BASE_URL}${path}`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`GET ${path} → ${res.status}: ${text}`);
@@ -114,7 +167,7 @@ async function apiGet(path: string): Promise<unknown> {
 async function apiPost(path: string, body: unknown): Promise<unknown> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -795,6 +848,25 @@ async function main() {
   console.log('║       DELTA HEALTH INTELLIGENCE SIMULATOR               ║');
   console.log('╚══════════════════════════════════════════════════════════╝');
 
+  // Authenticate
+  const email = process.env.SIMULATE_EMAIL;
+  const password = process.env.SIMULATE_PASSWORD;
+
+  if (!email || !password) {
+    console.error('\n✗ Missing auth credentials. Set SIMULATE_EMAIL and SIMULATE_PASSWORD in .env');
+    console.error('  Example:');
+    console.error('    SIMULATE_EMAIL=your-email@example.com');
+    console.error('    SIMULATE_PASSWORD=your-password');
+    process.exit(1);
+  }
+
+  try {
+    authToken = await authenticate(email, password);
+  } catch (err: any) {
+    console.error(`\n✗ Authentication failed: ${err.message}`);
+    process.exit(1);
+  }
+
   // Warm up the server
   console.log('\nWarming up server...');
   try {
@@ -808,10 +880,13 @@ async function main() {
 
   // ===== YOUR PROFILE =====
   if (runProfile) {
-    // Use --user-id <id> to simulate on your real account, otherwise uses sim ID
-    const userIdIndex = args.indexOf('--user-id');
-    const ericUserId = (userIdIndex >= 0 && args[userIdIndex + 1]) ? args[userIdIndex + 1] : 'sim-eric-profile';
-    console.log(`\n  Using user ID: ${ericUserId}`);
+    // Use authenticated user's ID (from Supabase auth)
+    const ericUserId = authenticatedUserId;
+    if (!ericUserId) {
+      console.error('No user ID from authentication');
+      process.exit(1);
+    }
+    console.log(`\n  Using authenticated user ID: ${ericUserId}`);
     const eric = createEricProfile();
     await simulatePersona(ericUserId, eric, 90);
 
