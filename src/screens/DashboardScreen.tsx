@@ -63,18 +63,19 @@ export default function DashboardScreen({ theme }: DashboardScreenProps): React.
 
   const styles = useMemo(() => createStyles(theme, insets.top), [theme, insets.top]);
 
-  // Filter modules: viz modules for charts, interaction module for Delta's Take
-  const vizModules = modules.filter(m => m.viz != null);
+  // Separate modules: interaction module for Delta's Take, others for main content
   const interactionModule = modules.find(m => m.type === 'interaction');
+  // Show all non-interaction modules (both viz and non-viz)
+  const displayModules = modules.filter(m => m.type !== 'interaction');
 
   // Register visible charts with DeltaUIContext — use stable key to avoid loops
-  const vizIds = useMemo(() => vizModules.map(m => m.id), [vizModules]);
+  const vizIds = useMemo(() => displayModules.filter(m => m.viz != null).map(m => m.id), [displayModules]);
   const vizIdsKey = vizIds.join(',');
   useEffect(() => {
     deltaUI.registerVisibleCharts(vizIds);
   }, [vizIdsKey]);
 
-  const hasData = vizModules.length > 0;
+  const hasData = displayModules.length > 0;
 
   return (
     <View style={styles.container}>
@@ -108,10 +109,10 @@ export default function DashboardScreen({ theme }: DashboardScreenProps): React.
             <VizContainer title="" theme={vizTheme} loading>{null}</VizContainer>
           </>
         ) : hasData ? (
-          vizModules.map((mod, i) => (
+          displayModules.map((mod, i) => (
             <ModuleRenderer
               key={mod.id}
-              module={{ ...mod, layout: 'wide' }}
+              module={{ ...mod, layout: mod.viz ? 'wide' : 'standard' }}
               weeklySummaries={weeklySummaries}
               theme={theme}
               index={i}
