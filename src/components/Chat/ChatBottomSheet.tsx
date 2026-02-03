@@ -64,11 +64,8 @@ import { useDeltaUI } from '../../context/DeltaUIContext';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const springConfig = {
-  damping: 20,
-  stiffness: 200,
-  mass: 0.5,
-};
+// Smooth easing for sheet animation
+const ANIMATION_DURATION = 280;
 
 type SheetState = 'hidden' | 'peek' | 'full';
 
@@ -179,12 +176,12 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
     // Animate to a state
     const animateTo = useCallback((state: SheetState) => {
       const target = state === 'hidden' ? HIDDEN_Y : state === 'peek' ? PEEK_Y : FULL_Y;
-      translateY.value = withSpring(target, springConfig);
+      translateY.value = withTiming(target, { duration: ANIMATION_DURATION, easing: Easing.out(Easing.cubic) });
       setSheetState(state);
       setContentVisible(state !== 'hidden');
       setDeltaUIChatState(state);
       lastTransition.current = Date.now();
-      if (state === 'hidden') {
+      if (state === 'hidden' || state === 'peek') {
         Keyboard.dismiss();
       }
       if (state === 'full') {
@@ -251,6 +248,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
         .onStart(() => {
           startY = translateY.value;
           runOnJS(setContentVisible)(true);
+          runOnJS(Keyboard.dismiss)();
         })
         .onUpdate((e) => {
           const newY = startY + e.translationY;
@@ -542,7 +540,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
           style={[StyleSheet.absoluteFill, blurOpacity, { zIndex: 50, backgroundColor: 'rgba(0,0,0,0.6)', bottom: TAB_BAR_HEIGHT }]}
           pointerEvents={contentVisible ? 'auto' : 'none'}
         >
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => animateTo('hidden')} />
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => { Keyboard.dismiss(); animateTo('hidden'); }} />
         </Animated.View>
 
         {/* Pull-tab + sheet — above blur */}
@@ -552,7 +550,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
         >
           <GestureDetector gesture={panGesture}>
             <Animated.View style={[styles.pullTabWrapper, sheetState === 'hidden' ? pullTabAnimStyle : undefined]}>
-              <PullTabHandle width={48} height={14} color={theme.mode === 'dark' ? '#4F46E5' : '#4338CA'} />
+              <PullTabHandle width={48} height={12} color={theme.mode === 'dark' ? '#3730A3' : '#312E81'} />
             </Animated.View>
           </GestureDetector>
 
@@ -587,13 +585,13 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
               onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
             />
 
-            {/* Proactive cards */}
-            <ProactiveCardsList
+            {/* Proactive cards - disabled for now */}
+            {/* <ProactiveCardsList
               theme={theme}
               actions={proactiveActions}
               onActionPress={handleActionPress}
               onDismiss={(id) => setProactiveActions(prev => prev.filter(a => a.id !== id))}
-            />
+            /> */}
 
             {isLoading && (
               <View style={styles.loadingContainer}>
@@ -615,7 +613,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
             )}
 
             {/* Input bar */}
-            <View style={[styles.inputContainer, keyboardHeight > 0 && { paddingBottom: keyboardHeight - TAB_BAR_HEIGHT + 4 }]}>
+            <View style={[styles.inputContainer, keyboardHeight > 0 && { paddingBottom: keyboardHeight - TAB_BAR_HEIGHT + 16 }]}>
               {sheetState === 'full' && (
                 <Pressable onPress={showImageOptions} disabled={isLoading}>
                   <View style={[styles.iconButton, isLoading && { opacity: 0.4 }]}>

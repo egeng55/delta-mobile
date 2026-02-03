@@ -97,21 +97,21 @@ export function DeltaLogoSimple({
   );
 }
 
-// Pull tab handle - solid, shorter, wider triangle pointing down
+// Pull tab handle - solid, shorter, wider triangle pointing up
 export function PullTabHandle({
   width = 44,
   height = 16,
-  color = '#6366F1',
+  color = '#3730A3',
 }: {
   width?: number;
   height?: number;
   color?: string;
 }): React.ReactNode {
-  // Triangle pointing down: wider base at top, point at bottom
+  // Triangle pointing up: wider base at bottom, peak at top
   return (
     <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} fill="none">
       <Path
-        d={`M0 0L${width} 0L${width / 2} ${height}Z`}
+        d={`M0 ${height}L${width} ${height}L${width / 2} 0Z`}
         fill={color}
       />
     </Svg>
