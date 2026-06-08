@@ -21,6 +21,10 @@ web-build/
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+*.tmp
+*.log
+screenshots/
+supabase/.temp/
 
 # macOS
 .DS_Store
