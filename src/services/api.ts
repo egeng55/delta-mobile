@@ -476,6 +476,460 @@ export const dashboardApi = {
   },
 };
 
+// Behavioral OS API - event/memory/intervention pipeline, not chat
+export interface BehavioralEvent {
+  id?: string;
+  user_id?: string;
+  event_type: string;
+  timestamp?: string;
+  raw_text?: string;
+  source?: string;
+  speaker?: string;
+  audio_classification?: string;
+  details?: Record<string, unknown>;
+  confidence?: number;
+  importance?: number;
+  urgency?: number;
+  should_store?: boolean;
+}
+
+export interface BehavioralMemoryWrite {
+  id?: string;
+  user_id?: string;
+  memory_type: string;
+  content: string;
+  source_event_type?: string;
+  confidence?: number;
+  memory_id?: string;
+  created_at?: string;
+}
+
+export interface BehavioralIntervention {
+  id?: string;
+  intervention_id?: string;
+  user_id?: string;
+  action: 'speak' | 'notify' | 'store_silently' | 'defer' | 'ask_question';
+  channel: 'audio' | 'desktop' | 'mobile' | 'none' | string;
+  style: string;
+  message: string | null;
+  reasoning: string;
+  event_type?: string | null;
+  event_id?: string | null;
+  importance?: number;
+  urgency?: number;
+  should_intervene?: boolean;
+  feedback_outcome?: BehavioralFeedbackOutcome | null;
+  delivery_status?: string | null;
+  delivery_method?: string | null;
+  delivered_at?: string | null;
+  user_response?: string | null;
+  outcome_score?: number | null;
+  evaluation_label?: string | null;
+  receptiveness_score?: number | null;
+  cooldown_until?: string | null;
+  adaptation_applied?: Record<string, unknown>;
+  decision_explanation?: string[];
+  intervention_copy?: string | null;
+  adaptation_summary?: string[];
+  side_effect_status?: string;
+  context?: Record<string, unknown>;
+  created_at?: string;
+}
+
+export type BehavioralFeedbackOutcome =
+  | 'accepted'
+  | 'ignored'
+  | 'rejected'
+  | 'appreciated'
+  | 'good_call'
+  | 'too_much'
+  | 'not_useful'
+  | 'wrong_timing'
+  | 'remind_earlier'
+  | 'remind_later'
+  | 'misunderstood'
+  | 'dont_mention_again';
+
+export interface BehavioralFeedbackStats {
+  total: number;
+  success_rate: number | null;
+  by_event_type?: Record<string, { total: number; success: number; rejected: number }>;
+  by_time_bucket?: Record<string, { total: number; success: number; rejected: number }>;
+  timing_guidance?: Array<{
+    scope: string;
+    value: string;
+    recommendation: string;
+    reason: string;
+  }>;
+}
+
+export interface BehavioralLoopMetrics {
+  interventions_delivered?: number;
+  interventions_accepted?: number;
+  interventions_ignored?: number;
+  interventions_annoying?: number;
+  feedback_count?: number;
+  success_rate?: number | null;
+  current_receptiveness_score?: number;
+  current_cooldown_until?: string | null;
+  last_outcome?: string | null;
+}
+
+export interface BehavioralLoopState {
+  domain?: string;
+  state_source?: string;
+  state_persistence?: string;
+  state_is_simulated?: boolean;
+  adaptation?: Record<string, unknown>;
+  metrics?: BehavioralLoopMetrics;
+  learned_adaptations?: Array<{ type?: string; value?: unknown; reason?: string }>;
+  receptiveness_score?: number;
+  current_cooldown_until?: string | null;
+  last_outcome?: string | null;
+}
+
+export interface BehavioralStateProvenance {
+  source?: string;
+  persistence?: string;
+  is_simulated?: boolean;
+  freshness?: string;
+  status_age_seconds?: number | null;
+  warnings?: string[];
+}
+
+export interface ProductDemoScenario {
+  scenario?: string;
+  mode?: string;
+  product_point?: string;
+  proof_key?: string;
+  passed?: boolean;
+  status?: string;
+  transcript?: string | null;
+  input_source?: string;
+  transcription_status?: string;
+  event?: string;
+  decision?: string;
+  delivery_status?: string;
+  feedback?: string;
+  adaptation?: string;
+  dashboard_url?: string;
+  status_json_path?: string;
+}
+
+export interface ProductDemoSummary {
+  type?: string;
+  run_id?: string;
+  user_id?: string;
+  mode?: string;
+  started_at?: string;
+  completed_at?: string;
+  scenarios?: ProductDemoScenario[];
+  scenarios_run?: number;
+  scenarios_passed?: number;
+  scenarios_failed?: number;
+  proof_points?: Record<string, boolean>;
+  dashboard_url?: string;
+  status_json_path?: string;
+  state_provenance?: {
+    persistence?: string;
+    is_simulated?: boolean;
+    source?: string;
+  };
+  remaining_unproven_items?: string[];
+  final_demo_readiness_status?: string;
+}
+
+export interface FeedbackContractOption {
+  label: string;
+  explanation: string;
+  internal_outcome?: string;
+  internalOutcome?: string;
+  policy_effect?: string;
+  policyEffect?: string;
+  tone_effect?: string;
+  toneEffect?: string;
+  cooldown_effect?: string;
+  cooldownEffect?: string;
+  frequency_effect?: string;
+  frequencyEffect?: string;
+  suppression_effect?: string;
+  suppressionEffect?: string;
+  timing_offset_effect?: string;
+  timingOffsetEffect?: string;
+  example_adaptation_summary?: string;
+  exampleAdaptationSummary?: string;
+  reversible?: boolean;
+  availability?: string;
+}
+
+export interface PersistedStateStatus {
+  status?: string;
+  source?: string;
+  reason?: string;
+}
+
+export interface BehavioralDashboardState {
+  user_id: string;
+  live_audio_state: {
+    status: string;
+    classification: string;
+    latest_transcript: string | null;
+    raw_audio_retained: boolean;
+  };
+  recent_events: BehavioralEvent[];
+  memory_writes: BehavioralMemoryWrite[];
+  interventions: BehavioralIntervention[];
+  feedback_learning: BehavioralFeedbackStats;
+  behavioral_preferences?: BehavioralPreferences;
+  behavioral_loop?: Record<string, BehavioralLoopState>;
+  product_demo_summary?: ProductDemoSummary;
+  runtime_status?: BedroomRuntimeStatus;
+  system_status: Record<string, string>;
+}
+
+export interface BehavioralTranscriptResult {
+  user_id: string;
+  audio_state: {
+    source: string;
+    classification: string;
+    speaker: string;
+    raw_audio_retained: boolean;
+  };
+  events: BehavioralEvent[];
+  memory_writes: BehavioralMemoryWrite[];
+  context: Record<string, unknown>;
+  intervention: BehavioralIntervention;
+}
+
+export interface BedroomCopilotResult {
+  user_id: string;
+  live_audio_state: BedroomRuntimeAudioState;
+  observations: Array<{
+    user_id: string;
+    transcript: string;
+    timestamp: string;
+    speaker: string;
+    source: string;
+    audio_classification: string;
+    confidence: number;
+    raw_audio_retained: boolean;
+  }>;
+  events: BehavioralEvent[];
+  memory_writes: BehavioralMemoryWrite[];
+  interventions: BehavioralIntervention[];
+  feedback_learning: BehavioralFeedbackStats;
+  results: BehavioralTranscriptResult[];
+  system_status: Record<string, string>;
+}
+
+export interface BedroomRuntimeAudioState {
+  status: string;
+  classification: string;
+  latest_transcript: string | null;
+  speaker: string;
+  raw_audio_retained: boolean;
+  observation_count: number;
+  reason?: string;
+}
+
+export interface BedroomRuntimeStatus {
+  run_id?: string;
+  user_id?: string;
+  mode?: string;
+  demo_mode?: string;
+  scenario?: string;
+  started_at?: string;
+  completed_at?: string | null;
+  final_status?: string;
+  final_result?: string;
+  side_effects_enabled?: boolean;
+  status_log_path?: string;
+  dashboard_url?: string;
+  dashboard_available?: boolean;
+  backend_available?: boolean;
+  mic_state?: string;
+  pipeline_stage?: string;
+  current_stage?: string;
+  is_listening?: boolean;
+  speech_detected?: boolean;
+  last_audio_window?: Record<string, unknown> | null;
+  latest_transcript?: string | null;
+  last_transcript?: string | null;
+  extracted_events?: BehavioralEvent[];
+  decision?: BehavioralIntervention | null;
+  decision_explanation?: string[];
+  intervention_copy?: string | null;
+  delivery_status?: string | null;
+  feedback?: string | null;
+  feedback_submitted?: string | null;
+  adaptation_summary?: string[];
+  learned_state_before?: BehavioralLoopState | null;
+  learned_state_after?: BehavioralLoopState | null;
+  input_source?: string;
+  transcription_status?: string;
+  audio_source?: string;
+  behavioral_loop?: Record<string, BehavioralLoopState>;
+  product_demo_summary?: ProductDemoSummary;
+  feedback_contract?: FeedbackContractOption[];
+  late_caffeine_state?: BehavioralLoopState | null;
+  state_source?: string;
+  state_persistence?: string;
+  state_is_simulated?: boolean;
+  state_provenance?: BehavioralStateProvenance;
+  persisted_state_status?: PersistedStateStatus;
+  status_age_seconds?: number | null;
+  runner_config?: Record<string, unknown> | null;
+  preflight_checks?: Array<{ name?: string; status?: string; explanation?: string; side_effect_status?: string }>;
+  stages?: Array<Record<string, unknown>>;
+  pipeline_log?: Array<Record<string, unknown>>;
+  errors?: string[];
+  warnings?: string[];
+  last_detected_event?: BehavioralEvent | null;
+  last_intervention_decision?: BehavioralIntervention | null;
+  error_state?: string | null;
+  updated_at?: string;
+}
+
+export interface BedroomStatusResponse {
+  user_id: string;
+  runtime_status: BedroomRuntimeStatus;
+  late_caffeine_state?: BehavioralLoopState | null;
+  state_provenance?: BehavioralStateProvenance;
+  persisted_state_status?: PersistedStateStatus;
+  last_audio_window?: Record<string, unknown> | null;
+  last_transcript?: string | null;
+  last_detected_event?: BehavioralEvent | null;
+  last_intervention_decision?: BehavioralIntervention | null;
+  error_state?: string | null;
+  runner_config?: Record<string, unknown> | null;
+  status_age_seconds?: number | null;
+  recent_events: BehavioralEvent[];
+  recent_interventions: BehavioralIntervention[];
+}
+
+export interface BehavioralPreferences {
+  intervention_types: string[];
+  aggressiveness_level: 'low' | 'medium' | 'high';
+  allowed_hours: { start: string; end: string };
+  blocked_topics: string[];
+  preferred_tone: string;
+  feedback_history: Array<Record<string, unknown>>;
+}
+
+export const behavioralOsApi = {
+  processAudioWindow: async (
+    userId: string,
+    transcript: string,
+    options: {
+      timestamp?: string;
+      speaker?: string;
+      source?: string;
+      audioClassification?: string;
+      confidence?: number;
+    } = {}
+  ): Promise<BedroomCopilotResult> => {
+    const response = await request<BedroomCopilotResult>('/bedroom-copilot/audio/window', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        transcript,
+        timestamp: options.timestamp,
+        speaker: options.speaker ?? 'user',
+        source: options.source ?? 'mobile_microphone',
+        audio_classification: options.audioClassification ?? 'user_speech',
+        confidence: options.confidence ?? 0.8,
+      }),
+    });
+
+    const latestIntervention = response.interventions?.[0];
+    recordDecision({
+      timestamp: new Date().toISOString(),
+      source: 'behavioral-os',
+      decision: latestIntervention?.action ?? response.live_audio_state.status,
+      reasoning: latestIntervention?.reasoning ?? 'bedroom audio window processed',
+      raw: response,
+    });
+
+    return response;
+  },
+
+  ingestTranscript: async (
+    userId: string,
+    transcript: string,
+    options: {
+      timestamp?: string;
+      speaker?: string;
+      source?: string;
+      audioClassification?: string;
+      confidence?: number;
+    } = {}
+  ): Promise<BehavioralTranscriptResult> => {
+    const response = await request<BehavioralTranscriptResult>('/behavioral-os/events/from-transcript', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        transcript,
+        timestamp: options.timestamp,
+        speaker: options.speaker ?? 'user',
+        source: options.source ?? 'mobile',
+        audio_classification: options.audioClassification ?? 'user_speech',
+        confidence: options.confidence ?? 0.8,
+      }),
+    });
+
+    recordDecision({
+      timestamp: new Date().toISOString(),
+      source: 'behavioral-os',
+      decision: response.intervention?.action ?? 'store_silently',
+      reasoning: response.intervention?.reasoning ?? 'behavioral transcript processed',
+      raw: response,
+    });
+
+    return response;
+  },
+
+  getDashboard: async (userId: string): Promise<BehavioralDashboardState> => {
+    return request<BehavioralDashboardState>(`/behavioral-os/${userId}/dashboard`);
+  },
+
+  getBedroomStatus: async (userId: string): Promise<BedroomStatusResponse> => {
+    return request<BedroomStatusResponse>(`/bedroom-copilot/${userId}/status`);
+  },
+
+  getPreferences: async (userId: string): Promise<BehavioralPreferences> => {
+    return request<BehavioralPreferences>(`/behavioral-os/${userId}/preferences`);
+  },
+
+  updatePreferences: async (
+    userId: string,
+    updates: Partial<Omit<BehavioralPreferences, 'feedback_history'>>
+  ): Promise<BehavioralPreferences> => {
+    return request<BehavioralPreferences>(`/behavioral-os/${userId}/preferences`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  recordFeedback: async (
+    userId: string,
+    interventionId: string,
+    outcome: BehavioralFeedbackOutcome,
+    notes?: string
+  ): Promise<{ feedback: unknown; updated_stats: BehavioralFeedbackStats }> => {
+    return request<{ feedback: unknown; updated_stats: BehavioralFeedbackStats }>(
+      `/behavioral-os/interventions/${interventionId}/feedback`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: userId,
+          outcome,
+          notes,
+        }),
+      }
+    );
+  },
+};
+
 // Workout Types
 export interface Exercise {
   exercise_id: string;

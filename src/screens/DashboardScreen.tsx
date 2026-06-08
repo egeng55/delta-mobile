@@ -5,7 +5,7 @@
  * No hardcoded chart building — Delta controls which charts to show via viz directives.
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,8 @@ import { useInsightsData } from '../hooks/useInsightsData';
 import { useDeltaUI } from '../context/DeltaUIContext';
 import ModuleRenderer from '../components/ModuleRenderer';
 import { themeToVizTheme } from '../utils/themeUtils';
+import { behavioralOsApi, BehavioralDashboardState, BedroomStatusResponse } from '../services/api';
+import { buildBehavioralLoopPresentation } from '../utils/behavioralLoopPresenter';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -42,6 +44,10 @@ export default function DashboardScreen({ theme }: DashboardScreenProps): React.
   } = useInsightsData();
 
   const [refreshing, setRefreshing] = useState(false);
+  const [behavioralState, setBehavioralState] = useState<BehavioralDashboardState | null>(null);
+  const [bedroomStatus, setBedroomStatus] = useState<BedroomStatusResponse | null>(null);
+  const [behavioralLoading, setBehavioralLoading] = useState(false);
+  const [behavioralError, setBehavioralError] = useState(false);
   const vizTheme = useMemo(() => themeToVizTheme(theme), [theme]);
   const deltaUI = useDeltaUI();
   const chartWidth = SCREEN_WIDTH - 48;
@@ -55,9 +61,36 @@ export default function DashboardScreen({ theme }: DashboardScreenProps): React.
     fetchAnalyticsData();
   }, [fetchAnalyticsData]);
 
+  const fetchBehavioralState = useCallback(async () => {
+    if (!user?.id) return;
+    setBehavioralLoading(true);
+    setBehavioralError(false);
+    let nextState: BehavioralDashboardState | null = null;
+    let nextStatus: BedroomStatusResponse | null = null;
+    try {
+      nextState = await behavioralOsApi.getDashboard(user.id);
+    } catch (dashboardError) {
+      console.warn('[DashboardScreen] Behavioral OS dashboard fetch failed:', dashboardError);
+    }
+    try {
+      nextStatus = await behavioralOsApi.getBedroomStatus(user.id);
+    } catch (statusError) {
+      console.warn('[DashboardScreen] Bedroom Copilot status fetch failed:', statusError);
+    } finally {
+      setBehavioralState(nextState);
+      setBedroomStatus(nextStatus);
+      setBehavioralError(!nextState && !nextStatus);
+      setBehavioralLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchBehavioralState();
+  }, [fetchBehavioralState]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchAnalyticsData(true);
+    await Promise.all([fetchAnalyticsData(true), fetchBehavioralState()]);
     setRefreshing(false);
   };
 
@@ -103,6 +136,14 @@ export default function DashboardScreen({ theme }: DashboardScreenProps): React.
           </View>
         )}
 
+        <BehavioralOSStatus
+          theme={theme}
+          state={behavioralState}
+          status={bedroomStatus}
+          loading={behavioralLoading}
+          error={behavioralError}
+        />
+
         {modulesLoading ? (
           <>
             <VizContainer title="" theme={vizTheme} loading>{null}</VizContainer>
@@ -125,6 +166,185 @@ export default function DashboardScreen({ theme }: DashboardScreenProps): React.
 
         <View style={{ height: 32 }} />
       </ScrollView>
+    </View>
+  );
+}
+
+function BehavioralOSStatus({
+  theme,
+  state,
+  status,
+  loading,
+  error,
+}: {
+  theme: Theme;
+  state: BehavioralDashboardState | null;
+  status: BedroomStatusResponse | null;
+  loading: boolean;
+  error: boolean;
+}) {
+  const presentation = buildBehavioralLoopPresentation(state, status, {
+    backendUnavailable: error,
+    loading,
+  });
+  const systemEntries = Object.entries(state?.system_status ?? {}).slice(0, 4);
+
+  return (
+    <View style={{
+      backgroundColor: theme.surface,
+      borderRadius: 14,
+      padding: 14,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: theme.border,
+    }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{
+            width: 30,
+            height: 30,
+            borderRadius: 10,
+            backgroundColor: theme.accent + '16',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <Ionicons name="git-network-outline" size={16} color={theme.accent} />
+          </View>
+          <View>
+            <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '700' }}>
+              Bedroom Copilot
+            </Text>
+            <Text style={{ color: theme.textSecondary, fontSize: 11, marginTop: 1 }}>
+              {'Observation -> event -> decision -> adaptation'}
+            </Text>
+          </View>
+        </View>
+        <View style={{
+          paddingHorizontal: 8,
+          paddingVertical: 4,
+          borderRadius: 99,
+          backgroundColor: error ? '#EF444422' : theme.accent + '14',
+        }}>
+          <Text style={{ color: error ? '#EF4444' : theme.accent, fontSize: 11, fontWeight: '700' }}>
+            {presentation.statusLabel}
+          </Text>
+        </View>
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+        <BehaviorMetric theme={theme} label="Events" value={state?.recent_events?.length ?? 0} />
+        <BehaviorMetric theme={theme} label="Memory" value={state?.memory_writes?.length ?? 0} />
+        <BehaviorMetric theme={theme} label="Decisions" value={state?.interventions?.length ?? status?.recent_interventions?.length ?? 0} />
+      </View>
+
+      <View style={{ gap: 8 }}>
+        <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+          Product demo: {presentation.productDemoStatus}
+        </Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 12, lineHeight: 17 }}>
+          Proof point: {presentation.latestProofPoint}
+        </Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+          State: {presentation.statePersistence} / {presentation.stateSource}
+        </Text>
+        <Text style={{ color: theme.textPrimary, fontSize: 13, lineHeight: 18 }}>
+          Observation: {presentation.latestTranscript}
+        </Text>
+        <Text style={{ color: theme.textPrimary, fontSize: 13, lineHeight: 18 }}>
+          Event: {presentation.eventLabel} ({presentation.eventDetail})
+        </Text>
+        <Text style={{ color: theme.textPrimary, fontSize: 13, lineHeight: 18 }}>
+          Decision: {presentation.decisionLabel}
+        </Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 12, lineHeight: 17 }}>
+          Copy: {presentation.interventionCopy}
+        </Text>
+        <Text style={{ color: theme.accent, fontSize: 12, lineHeight: 17 }}>
+          Adaptation: {presentation.adaptationSummary}
+        </Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 12, lineHeight: 17 }}>
+          Feedback meaning: {presentation.feedbackExplanation}
+        </Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 11, lineHeight: 16 }}>
+          {presentation.feedbackOptionsSummary}
+        </Text>
+      </View>
+
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+        <StatePill theme={theme} label="tone" value={presentation.tone} />
+        <StatePill theme={theme} label="cooldown" value={presentation.cooldown} />
+        <StatePill theme={theme} label="timing" value={presentation.timingOffset} />
+        <StatePill theme={theme} label="reduction" value={presentation.reductionLevel} />
+        <StatePill theme={theme} label="feedback" value={presentation.feedbackLabel} />
+      </View>
+
+      <Text style={{ color: presentation.stateIsSimulated ? '#F59E0B' : theme.textSecondary, fontSize: 11, lineHeight: 16, marginTop: 10 }}>
+        {presentation.stateWarning}
+      </Text>
+      <Text style={{ color: theme.textSecondary, fontSize: 11, lineHeight: 16, marginTop: 4 }}>
+        {presentation.readinessLabel}
+      </Text>
+      <Text style={{ color: theme.textSecondary, fontSize: 11, lineHeight: 16, marginTop: 4 }}>
+        Read-only demo visibility. This panel does not start audio capture, notifications, TTS, or persistence mutation.
+      </Text>
+
+      {systemEntries.length > 0 && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+          {systemEntries.map(([layer, status]) => (
+            <View
+              key={layer}
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 8,
+                backgroundColor: theme.background,
+                borderWidth: 1,
+                borderColor: theme.border,
+              }}
+            >
+              <Text style={{ color: theme.textSecondary, fontSize: 10 }}>
+                {layer.replace(/_/g, ' ')}: {status}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function StatePill({ theme, label, value }: { theme: Theme; label: string; value: string }) {
+  return (
+    <View
+      style={{
+        paddingHorizontal: 8,
+        paddingVertical: 5,
+        borderRadius: 8,
+        backgroundColor: theme.background,
+        borderWidth: 1,
+        borderColor: theme.border,
+      }}
+    >
+      <Text style={{ color: theme.textSecondary, fontSize: 10 }}>
+        {label}: {value}
+      </Text>
+    </View>
+  );
+}
+
+function BehaviorMetric({ theme, label, value }: { theme: Theme; label: string; value: number }) {
+  return (
+    <View style={{
+      flex: 1,
+      backgroundColor: theme.background,
+      borderRadius: 10,
+      paddingVertical: 10,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: theme.border,
+    }}>
+      <Text style={{ color: theme.textPrimary, fontSize: 16, fontWeight: '800' }}>{value}</Text>
+      <Text style={{ color: theme.textSecondary, fontSize: 10, marginTop: 2 }}>{label}</Text>
     </View>
   );
 }

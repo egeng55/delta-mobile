@@ -1,0 +1,90 @@
+import type { BedroomStatusResponse } from '../services/api';
+
+export const MOBILE_DEMO_STATUS_FIXTURES: Record<string, BedroomStatusResponse> = {
+  ambient_filtered: {
+    user_id: 'eric-demo',
+    runtime_status: {
+      mode: 'dry-run',
+      scenario: 'ambient_noise',
+      final_status: 'passed',
+      final_result: 'filtered',
+      latest_transcript: 'TV chatter and music in the background.',
+      extracted_events: [],
+      decision: {
+        action: 'store_silently',
+        channel: 'none',
+        style: 'silent',
+        message: null,
+        reasoning: 'Input was classified as ambient/non-behavioral.',
+        should_intervene: false,
+        delivery_status: 'skipped',
+      },
+      state_persistence: 'simulated',
+      state_is_simulated: true,
+    },
+    last_detected_event: null,
+    last_intervention_decision: null,
+    error_state: null,
+    recent_events: [],
+    recent_interventions: [],
+  },
+  first_time_late_caffeine: {
+    user_id: 'eric-demo',
+    runtime_status: {
+      mode: 'dry-run',
+      scenario: 'late_caffeine_first_time',
+      final_status: 'passed',
+      latest_transcript: "I just drank a Monster and it's 10 PM.",
+      feedback: 'good_call',
+      adaptation_summary: ['Delta keeps this intervention eligible and may stay concise.'],
+      decision: {
+        action: 'notify',
+        channel: 'desktop',
+        style: 'concise',
+        message: 'Late caffeine logged. Probably make this the last one tonight.',
+        reasoning: 'Late caffeine event detected.',
+        should_intervene: true,
+        delivery_status: 'simulated',
+        intervention_copy: 'Late caffeine logged. Probably make this the last one tonight.',
+      },
+      late_caffeine_state: {
+        state_source: 'status JSON snapshot (simulated dry-run)',
+        state_persistence: 'simulated',
+        state_is_simulated: true,
+        adaptation: {
+          tone: 'concise',
+          cooldown_minutes: 120,
+          intervention_offset_minutes: 0,
+          reduction_level: 0,
+        },
+      },
+    },
+    last_detected_event: {
+      event_type: 'caffeine',
+      details: { source: 'Monster', time: '22:00' },
+    },
+    last_intervention_decision: null,
+    error_state: null,
+    recent_events: [],
+    recent_interventions: [],
+  },
+  supabase_unavailable: {
+    user_id: 'eric-demo',
+    runtime_status: {
+      final_status: 'idle',
+      persisted_state_status: {
+        status: 'paused-or-unreachable',
+        reason: 'Supabase is unavailable or paused. Dry-run mode remains available.',
+      },
+    },
+    persisted_state_status: {
+      status: 'paused-or-unreachable',
+      reason: 'Supabase is unavailable or paused. Dry-run mode remains available.',
+    },
+    last_detected_event: null,
+    last_intervention_decision: null,
+    error_state: null,
+    recent_events: [],
+    recent_interventions: [],
+  },
+};

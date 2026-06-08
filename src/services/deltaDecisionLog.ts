@@ -10,7 +10,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 export interface DeltaDecision {
   timestamp: string;
-  source: 'commentary' | 'generateInsight' | 'causalChains' | 'insights' | 'chart-insight';
+  source: 'commentary' | 'generateInsight' | 'causalChains' | 'insights' | 'chart-insight' | 'behavioral-os';
   decision: string;
   reasoning: string;
   uiContext?: Record<string, unknown>;
