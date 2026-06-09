@@ -68,6 +68,77 @@ export const MOBILE_DEMO_STATUS_FIXTURES: Record<string, BedroomStatusResponse> 
     recent_events: [],
     recent_interventions: [],
   },
+  persisted_negative_feedback: {
+    user_id: 'eric-demo-negative-test',
+    runtime_status: {
+      final_status: 'persisted_state_loaded',
+      backend_available: true,
+    },
+    late_caffeine_state: {
+      domain: 'late_caffeine',
+      state_source: 'Supabase persisted state',
+      state_persistence: 'persisted',
+      state_is_simulated: false,
+      adaptation: {
+        tone: 'soft',
+        cooldown_minutes: 180,
+        intervention_offset_minutes: 0,
+        reduction_level: 2,
+        suppress_until: '2026-06-10T03:22:04Z',
+        last_feedback_summary: [
+          'Increased cooldown for late-caffeine interventions.',
+          'Softened future intervention tone.',
+          'Reduced future intervention frequency.',
+          'May suppress similar interventions temporarily.',
+        ],
+      },
+      metrics: {
+        last_outcome: 'too_much',
+        success_rate: 0,
+        current_receptiveness_score: 0.07,
+        interventions_annoying: 1,
+      },
+      learned_adaptations: [
+        {
+          type: 'frequency_reduction',
+          value: 2,
+          reason: 'Higher values mean Delta learned to intervene less frequently.',
+        },
+        {
+          type: 'suppression',
+          value: '2026-06-10T03:22:04Z',
+          reason: 'Delta is temporarily suppressing late-caffeine interventions after negative feedback.',
+        },
+      ],
+    },
+    state_provenance: {
+      source: 'Supabase persisted state',
+      persistence: 'persisted',
+      is_simulated: false,
+      freshness: 'unknown',
+      warnings: [],
+    },
+    persisted_state_status: {
+      status: 'reachable',
+      source: 'Supabase persisted state',
+      reason: 'Supabase host resolved; persisted state is readable.',
+    },
+    last_detected_event: null,
+    last_intervention_decision: {
+      action: 'notify',
+      channel: 'desktop',
+      style: 'concise',
+      message: 'Late caffeine logged. Probably make this the last one tonight.',
+      reasoning: 'Late caffeine event detected.',
+      should_intervene: true,
+      delivery_status: 'disabled',
+      feedback_outcome: 'too_much',
+      intervention_copy: 'Late caffeine logged. Probably make this the last one tonight.',
+    },
+    error_state: null,
+    recent_events: [],
+    recent_interventions: [],
+  },
   supabase_unavailable: {
     user_id: 'eric-demo',
     runtime_status: {

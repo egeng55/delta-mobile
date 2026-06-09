@@ -224,4 +224,18 @@ describe('behavioral loop presenter', () => {
     expect(ambient.eventLabel).toBe('No behavioral event extracted');
     expect(ambient.decisionLabel).toBe('stay silent');
   });
+
+  it('renders persisted negative feedback as learned backoff behavior', () => {
+    const presentation = buildBehavioralLoopPresentation(null, MOBILE_DEMO_STATUS_FIXTURES.persisted_negative_feedback);
+
+    expect(presentation.stateSource).toBe('Supabase persisted state');
+    expect(presentation.statePersistence).toBe('persisted');
+    expect(presentation.stateIsSimulated).toBe(false);
+    expect(presentation.feedbackLabel).toBe('too_much');
+    expect(presentation.feedbackExplanation).toContain('Too much');
+    expect(presentation.adaptationSummary).toContain('Delta learned to back off');
+    expect(presentation.tone).toBe('soft');
+    expect(presentation.cooldown).toBe('180 min');
+    expect(presentation.reductionLevel).toBe('2');
+  });
 });

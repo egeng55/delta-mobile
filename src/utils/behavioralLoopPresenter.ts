@@ -158,9 +158,14 @@ export function buildBehavioralLoopPresentation(
     status?.last_transcript ||
     state?.live_audio_state?.latest_transcript ||
     'No observation has been processed yet.';
-  const adaptationSummary = runtimeSummary[0] || decisionSummary[0] || stateSummary[0] || 'No feedback adaptation has been recorded yet.';
+  const adaptationSummaryBase = runtimeSummary[0] || decisionSummary[0] || stateSummary[0] || 'No feedback adaptation has been recorded yet.';
   const feedbackLabel = compact(runtime?.feedback || runtime?.feedback_submitted || decision?.feedback_outcome, 'none');
   const feedbackOption = feedbackOptionForOutcome(feedbackLabel);
+  const hasBackoffLearning = !stateIsSimulated && (
+    ['too_much', 'not_useful', 'dont_mention_again'].includes(feedbackLabel) ||
+    Number(adaptation.reduction_level || 0) > 0 ||
+    Boolean(adaptation.suppress_until)
+  );
 
   return {
     statusLabel,
@@ -195,7 +200,9 @@ export function buildBehavioralLoopPresentation(
       ? `${feedbackOption.label}: ${feedbackOption.exampleAdaptationSummary}`
       : 'No feedback outcome has been applied. Feedback options are shown as read-only demo guidance.',
     feedbackOptionsSummary: `${FEEDBACK_CONTRACT.length} feedback options documented for the late-caffeine demo loop.`,
-    adaptationSummary,
+    adaptationSummary: hasBackoffLearning
+      ? `Delta learned to back off. ${adaptationSummaryBase}`
+      : adaptationSummaryBase,
     tone: compact(adaptation.tone),
     cooldown: `${compact(adaptation.cooldown_minutes)} min`,
     timingOffset: `${compact(adaptation.intervention_offset_minutes)} min`,
