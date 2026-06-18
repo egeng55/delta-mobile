@@ -11,6 +11,11 @@ delete local data, migrate storage, mutate Supabase, or add dependencies.
 `expo-secure-store` in `src/services/supabase.ts`. The remaining storage issue
 is non-auth data in `AsyncStorage`.
 
+Phase 71 added a SecureStore-backed helper for small sensitive values and moved
+menstrual settings plus HealthKit enabled/last-sync metadata. Large local
+payloads remain intentionally deferred. See
+`docs/MOBILE_SENSITIVE_CACHE_STRATEGY.md` for the cache-specific strategy.
+
 The highest-risk current uses are:
 
 - menstrual settings cache in `src/services/menstrualTracking.ts`
