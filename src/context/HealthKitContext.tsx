@@ -10,12 +10,17 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import healthKitService, { SleepSummary, HRVReading, RestingHeartRateReading } from '../services/healthKit';
 import healthSyncService from '../services/healthSync';
 import { useAuth } from './AuthContext';
+import {
+  createSensitiveKey,
+  getSensitiveItemWithLegacyFallback,
+  setSensitiveItemReplacingLegacy,
+} from '../services/storage/sensitiveStorage';
 
 const HEALTHKIT_ENABLED_KEY = '@delta_healthkit_enabled';
+const SECURE_HEALTHKIT_ENABLED_KEY = createSensitiveKey('healthkit_enabled');
 
 interface HealthData {
   sleep: SleepSummary | null;
@@ -82,7 +87,7 @@ export function HealthKitProvider({ children }: { children: ReactNode }): React.
     const loadState = async () => {
       try {
         const [enabledStr, authorized] = await Promise.all([
-          AsyncStorage.getItem(HEALTHKIT_ENABLED_KEY),
+          getSensitiveItemWithLegacyFallback(SECURE_HEALTHKIT_ENABLED_KEY, HEALTHKIT_ENABLED_KEY),
           isAvailable ? healthKitService.isAuthorized() : Promise.resolve(false),
         ]);
 
@@ -169,7 +174,7 @@ export function HealthKitProvider({ children }: { children: ReactNode }): React.
 
   const setEnabled = useCallback(async (enabled: boolean): Promise<void> => {
     setIsEnabledState(enabled);
-    await AsyncStorage.setItem(HEALTHKIT_ENABLED_KEY, enabled.toString());
+    await setSensitiveItemReplacingLegacy(SECURE_HEALTHKIT_ENABLED_KEY, enabled.toString(), HEALTHKIT_ENABLED_KEY);
 
     if (enabled && !isAuthorized) {
       await requestAuthorization();

@@ -9,12 +9,18 @@
  */
 
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import healthKitService, { SleepSummary, HRVReading, RestingHeartRateReading } from './healthKit';
 import { API_BASE_URL } from '../config/constants';
 import { supabase } from './supabase';
+import {
+  createSensitiveKey,
+  deleteSensitiveItemAndLegacy,
+  getSensitiveItemWithLegacyFallback,
+  setSensitiveItemReplacingLegacy,
+} from './storage/sensitiveStorage';
 
 const LAST_SYNC_KEY = '@delta_health_last_sync';
+const SECURE_LAST_SYNC_KEY = createSensitiveKey('health_last_sync');
 const SYNC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
 interface BiometricSyncPayload {
@@ -51,7 +57,7 @@ class HealthSyncService {
     if (Platform.OS !== 'ios') return false;
 
     try {
-      const lastSync = await AsyncStorage.getItem(LAST_SYNC_KEY);
+      const lastSync = await getSensitiveItemWithLegacyFallback(SECURE_LAST_SYNC_KEY, LAST_SYNC_KEY);
       if (!lastSync) return true;
 
       const lastSyncTime = parseInt(lastSync, 10);
@@ -168,7 +174,7 @@ class HealthSyncService {
       }
 
       // Update last sync time
-      await AsyncStorage.setItem(LAST_SYNC_KEY, Date.now().toString());
+      await setSensitiveItemReplacingLegacy(SECURE_LAST_SYNC_KEY, Date.now().toString(), LAST_SYNC_KEY);
 
       return { synced: true };
     } catch (error) {
@@ -182,7 +188,7 @@ class HealthSyncService {
    * Force immediate sync (ignores interval)
    */
   async forceSyncHealthData(userId: string): Promise<{ synced: boolean; error?: string }> {
-    await AsyncStorage.removeItem(LAST_SYNC_KEY);
+    await deleteSensitiveItemAndLegacy(SECURE_LAST_SYNC_KEY, LAST_SYNC_KEY);
     return this.syncHealthData(userId);
   }
 
@@ -191,7 +197,7 @@ class HealthSyncService {
    */
   async getLastSyncTime(): Promise<Date | null> {
     try {
-      const lastSync = await AsyncStorage.getItem(LAST_SYNC_KEY);
+      const lastSync = await getSensitiveItemWithLegacyFallback(SECURE_LAST_SYNC_KEY, LAST_SYNC_KEY);
       if (!lastSync) return null;
       return new Date(parseInt(lastSync, 10));
     } catch {

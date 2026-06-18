@@ -9,7 +9,6 @@
  */
 
 import { supabase } from './supabase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   MenstrualLog,
   MenstrualSettings,
@@ -19,6 +18,11 @@ import {
   MenstrualSymptom,
   CyclePhase,
 } from './api';
+import {
+  createSensitiveKey,
+  getSensitiveJsonWithLegacyFallback,
+  setSensitiveJsonReplacingLegacy,
+} from './storage/sensitiveStorage';
 
 const SETTINGS_KEY = 'menstrual_settings';
 const LOGS_CACHE_KEY = 'menstrual_logs_cache';
@@ -31,6 +35,29 @@ const DEFAULT_SETTINGS: Omit<MenstrualSettings, 'user_id' | 'created_at' | 'upda
   last_period_start: null,
   notifications_enabled: true,
 };
+
+function settingsLegacyKey(userId: string): string {
+  return `${SETTINGS_KEY}_${userId}`;
+}
+
+function settingsSecureKey(userId: string): string {
+  return createSensitiveKey(SETTINGS_KEY, userId);
+}
+
+async function cacheSettings(userId: string, settings: MenstrualSettings): Promise<void> {
+  try {
+    await setSensitiveJsonReplacingLegacy(settingsSecureKey(userId), settings, settingsLegacyKey(userId));
+  } catch {
+    console.warn('[MenstrualTracking] Secure settings cache failed');
+  }
+}
+
+async function getCachedSettings(userId: string): Promise<MenstrualSettings | null> {
+  return getSensitiveJsonWithLegacyFallback<MenstrualSettings>(
+    settingsSecureKey(userId),
+    settingsLegacyKey(userId)
+  );
+}
 
 /**
  * Get menstrual settings for a user.
@@ -50,14 +77,14 @@ export async function getSettings(userId: string): Promise<MenstrualSettings> {
 
     if (data !== null) {
       // Cache locally
-      await AsyncStorage.setItem(`${SETTINGS_KEY}_${userId}`, JSON.stringify(data));
+      await cacheSettings(userId, data as MenstrualSettings);
       return data as MenstrualSettings;
     }
 
     // Fall back to local cache
-    const cached = await AsyncStorage.getItem(`${SETTINGS_KEY}_${userId}`);
+    const cached = await getCachedSettings(userId);
     if (cached !== null) {
-      return JSON.parse(cached) as MenstrualSettings;
+      return cached;
     }
 
     // Return defaults
@@ -103,17 +130,17 @@ export async function updateSettings(
       // Fall back to local storage
       const current = await getSettings(userId);
       const updated = { ...current, ...settings, updated_at: now };
-      await AsyncStorage.setItem(`${SETTINGS_KEY}_${userId}`, JSON.stringify(updated));
+      await cacheSettings(userId, updated);
       return updated;
     }
 
     // Cache locally
-    await AsyncStorage.setItem(`${SETTINGS_KEY}_${userId}`, JSON.stringify(data));
+    await cacheSettings(userId, data as MenstrualSettings);
     return data as MenstrualSettings;
   } catch {
     const current = await getSettings(userId);
     const updated = { ...current, ...settings, updated_at: now };
-    await AsyncStorage.setItem(`${SETTINGS_KEY}_${userId}`, JSON.stringify(updated));
+    await cacheSettings(userId, updated);
     return updated;
   }
 }
