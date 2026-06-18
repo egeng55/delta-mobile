@@ -6,6 +6,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createCacheEnvelope } from './storage/cachePolicy';
 import {
   insightsApi,
   workoutApi,
@@ -17,14 +18,12 @@ import {
 const CACHE_PREFIX = '@delta_insights_';
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
-interface CachedData<T> {
-  data: T;
-  timestamp: number;
-}
-
 const setCache = async <T,>(key: string, data: T): Promise<void> => {
   try {
-    const cached: CachedData<T> = { data, timestamp: Date.now() };
+    const cached = createCacheEnvelope(data, CACHE_DURATION_MS, {
+      category: 'prefetch_insights_cache',
+      key,
+    });
     await AsyncStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(cached));
   } catch {
     // Ignore cache errors
@@ -32,10 +31,14 @@ const setCache = async <T,>(key: string, data: T): Promise<void> => {
 };
 
 const withTimeout = <T,>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
-  return Promise.race([
-    promise,
-    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
-  ]);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), ms);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
 };
 
 /**
