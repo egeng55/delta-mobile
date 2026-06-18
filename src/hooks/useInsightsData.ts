@@ -7,6 +7,11 @@
 
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  createCacheEnvelope,
+  readCacheEnvelope,
+  trimArrayToLimit,
+} from '../services/storage/cachePolicy';
 import { useAuth } from '../context/AuthContext';
 import {
   insightsApi,
@@ -47,14 +52,52 @@ interface CachedData<T> {
   timestamp: number;
 }
 
+interface AnalyticsCachePayload {
+  insights: InsightsData;
+  derivatives: DerivativesData;
+  cards: DerivativeCard[];
+  weekly: WeeklySummary[];
+  today: WeeklySummary | null;
+  targets: DisplayTargets;
+  targetsPersonalized: boolean;
+  targetsInfo: TargetsInfo;
+  healthState: HealthStateResponse | null;
+  causalChains: CausalChain[];
+  deltaInsights: DeltaInsightsResponse | null;
+  modules?: DeltaModule[];
+}
+
+const MAX_CACHED_INSIGHT_CARDS = 10;
+const MAX_CACHED_WEEKLY_SUMMARIES = 14;
+const MAX_CACHED_CAUSAL_CHAINS = 10;
+const MAX_CACHED_MODULES = 10;
+
+const minimizeAnalyticsCache = (data: AnalyticsCachePayload): AnalyticsCachePayload => ({
+  ...data,
+  cards: trimArrayToLimit(data.cards ?? [], MAX_CACHED_INSIGHT_CARDS),
+  weekly: trimArrayToLimit(data.weekly ?? [], MAX_CACHED_WEEKLY_SUMMARIES),
+  causalChains: trimArrayToLimit(data.causalChains ?? [], MAX_CACHED_CAUSAL_CHAINS),
+  ...(data.modules ? { modules: trimArrayToLimit(data.modules, MAX_CACHED_MODULES) } : {}),
+});
+
 const getCached = async <T,>(key: string): Promise<T | null> => {
   try {
     const cached = await AsyncStorage.getItem(`${CACHE_PREFIX}${key}`);
     if (cached) {
+      const envelope = readCacheEnvelope<T>(cached);
+      if (envelope.status === 'hit') {
+        return envelope.value;
+      }
+      if (envelope.status === 'expired') {
+        await AsyncStorage.removeItem(`${CACHE_PREFIX}${key}`);
+        return null;
+      }
+
       const parsed: CachedData<T> = JSON.parse(cached);
       if (Date.now() - parsed.timestamp < CACHE_DURATION_MS) {
         return parsed.data;
       }
+      await AsyncStorage.removeItem(`${CACHE_PREFIX}${key}`);
     }
   } catch {
     // Ignore cache errors
@@ -64,7 +107,10 @@ const getCached = async <T,>(key: string): Promise<T | null> => {
 
 const setCache = async <T,>(key: string, data: T): Promise<void> => {
   try {
-    const cached: CachedData<T> = { data, timestamp: Date.now() };
+    const cached = createCacheEnvelope(data, CACHE_DURATION_MS, {
+      category: 'insights_cache',
+      key,
+    });
     await AsyncStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(cached));
   } catch {
     // Ignore cache errors
@@ -267,19 +313,7 @@ export function useInsightsData(): InsightsDataState {
     console.log('[useInsightsData] fetchAnalyticsData called, forceRefresh:', forceRefresh, 'userId:', userId);
 
     if (!forceRefresh) {
-      const cached = await getCached<{
-        insights: InsightsData;
-        derivatives: DerivativesData;
-        cards: DerivativeCard[];
-        weekly: WeeklySummary[];
-        today: WeeklySummary | null;
-        targets: DisplayTargets;
-        targetsPersonalized: boolean;
-        targetsInfo: TargetsInfo;
-        healthState: HealthStateResponse | null;
-        causalChains: CausalChain[];
-        deltaInsights: DeltaInsightsResponse | null;
-      }>(cacheKey);
+      const cached = await getCached<AnalyticsCachePayload>(cacheKey);
 
       if (cached) {
         setInsights(cached.insights);
@@ -432,7 +466,7 @@ export function useInsightsData(): InsightsDataState {
         setModulesLoading(false);
 
         // Update cache with complete data
-        setCache(cacheKey, {
+        setCache(cacheKey, minimizeAnalyticsCache({
           insights: insightsData,
           derivatives: derivativesData,
           cards: cardsData.cards,
@@ -444,7 +478,7 @@ export function useInsightsData(): InsightsDataState {
           healthState: healthStateData,
           causalChains: healthStateData.causal_chains ?? [],
           deltaInsights: deltaInsightsData,
-        });
+        }));
       }).catch((err) => {
         if (!mountedRef.current) return;
         console.log('[useInsightsData] LLM fetch failed:', err);

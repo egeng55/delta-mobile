@@ -61,6 +61,11 @@ import { getWeather, formatWeatherForContext, WeatherData } from '../../services
 import VoiceChatModal from './VoiceChatModal';
 import { ProactiveCardsList } from '../ProactiveCard';
 import { useDeltaUI } from '../../context/DeltaUIContext';
+import {
+  createChatTranscriptCache,
+  minimizeSavedConversationsForCache,
+  readChatTranscriptCache,
+} from '../../services/storage/chatTranscriptCache';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -102,8 +107,6 @@ export interface ChatBottomSheetRef {
   close: () => void;
 }
 
-// NOTE: Conversation storage in AsyncStorage is unbounded. Consider pruning
-// old conversations (e.g., keep only the most recent 50) to prevent storage bloat.
 const CONVERSATIONS_STORAGE_KEY = '@delta_conversations';
 const CURRENT_CONVERSATION_KEY = '@delta_current_conversation';
 
@@ -290,19 +293,35 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
 
     const loadConversations = async () => {
       try {
-        const saved = await AsyncStorage.getItem(`${CONVERSATIONS_STORAGE_KEY}_${user?.id}`);
+        const conversationsKey = `${CONVERSATIONS_STORAGE_KEY}_${user?.id}`;
+        const currentKey = `${CURRENT_CONVERSATION_KEY}_${user?.id}`;
+        const saved = await AsyncStorage.getItem(conversationsKey);
+        let parsed: SavedConversation[] = [];
+
         if (saved) {
-          let parsed: SavedConversation[];
-          try { parsed = JSON.parse(saved) as SavedConversation[]; } catch { parsed = []; }
+          const cache = readChatTranscriptCache<SavedConversation>(saved);
+          if (cache.expired) {
+            await AsyncStorage.removeItem(conversationsKey);
+            await AsyncStorage.removeItem(currentKey);
+            setConversations([]);
+            setCurrentConversationId(null);
+            return;
+          }
+
+          parsed = cache.conversations;
           setConversations(parsed.sort((a, b) => b.updatedAt - a.updatedAt));
+
+          if (cache.fromLegacy && parsed.length > 0) {
+            await AsyncStorage.setItem(conversationsKey, createChatTranscriptCache(parsed));
+          }
         }
-        const currentId = await AsyncStorage.getItem(`${CURRENT_CONVERSATION_KEY}_${user?.id}`);
-        if (currentId && saved) {
+
+        const currentId = await AsyncStorage.getItem(currentKey);
+        if (currentId && parsed.length > 0) {
           setCurrentConversationId(currentId);
-          let allConvs: SavedConversation[];
-          try { allConvs = JSON.parse(saved) as SavedConversation[]; } catch { allConvs = []; }
-          const conv = allConvs.find((c: SavedConversation) => c.id === currentId);
+          const conv = parsed.find((c: SavedConversation) => c.id === currentId);
           if (conv) setMessages(conv.messages);
+          else await AsyncStorage.removeItem(currentKey);
         }
       } catch {}
     };
@@ -341,10 +360,11 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
         if (existingIndex >= 0) updatedConversations[existingIndex] = conversation;
         else updatedConversations.unshift(conversation);
 
-        setConversations(updatedConversations.sort((a, b) => b.updatedAt - a.updatedAt));
+        const minimizedConversations = minimizeSavedConversationsForCache(updatedConversations);
+        setConversations(minimizedConversations);
         await AsyncStorage.setItem(
           `${CONVERSATIONS_STORAGE_KEY}_${user?.id}`,
-          JSON.stringify(updatedConversations)
+          createChatTranscriptCache(minimizedConversations)
         );
         if (user?.id && convId) {
           conversationsApi.create(user.id, convId, title).catch(() => {});
@@ -367,9 +387,9 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
     };
 
     const deleteConversation = async (convId: string) => {
-      const updated = conversations.filter(c => c.id !== convId);
+      const updated = minimizeSavedConversationsForCache(conversations.filter(c => c.id !== convId));
       setConversations(updated);
-      await AsyncStorage.setItem(`${CONVERSATIONS_STORAGE_KEY}_${user?.id}`, JSON.stringify(updated));
+      await AsyncStorage.setItem(`${CONVERSATIONS_STORAGE_KEY}_${user?.id}`, createChatTranscriptCache(updated));
       if (user?.id) conversationsApi.delete(user.id, convId).catch(() => {});
       if (convId === currentConversationId) startNewConversation();
     };

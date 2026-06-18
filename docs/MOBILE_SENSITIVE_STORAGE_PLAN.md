@@ -2,8 +2,9 @@
 
 Last inspected: 2026-06-18.
 
-This is a planning document only. It does not change mobile runtime behavior,
-delete local data, migrate storage, mutate Supabase, or add dependencies.
+This document tracks the mobile sensitive storage plan and the implementation
+steps completed so far. It does not contain secrets and should not include raw
+cached payload values, tokens, health data, or transcript content.
 
 ## 1. Executive Summary
 
@@ -15,6 +16,20 @@ Phase 71 added a SecureStore-backed helper for small sensitive values and moved
 menstrual settings plus HealthKit enabled/last-sync metadata. Large local
 payloads remain intentionally deferred. See
 `docs/MOBILE_SENSITIVE_CACHE_STRATEGY.md` for the cache-specific strategy.
+
+Phase 78 added a small TTL envelope helper for larger sensitive or
+health-adjacent caches where `SecureStore` is not appropriate. Chat transcript
+persistence now uses a 14-day TTL, keeps at most 10 conversations, and keeps at
+most 50 messages per conversation. Legacy raw transcript arrays are still read
+and are rewritten into the TTL format on the next successful load/save path;
+expired transcript caches are ignored and removed.
+
+Phase 78 also moved the generated insights/dashboard cache writers onto the
+shared TTL envelope. The existing 5-minute insights TTL is preserved, analytics
+cache payloads are trimmed to conservative array limits, and prefetch writes use
+the same envelope format. This is minimization and expiry only; large
+transcripts, generated insights, offline caches, and pending sync payloads were
+not moved to `SecureStore`.
 
 The highest-risk current uses are:
 
@@ -152,9 +167,12 @@ Phase 71B: Small high-sensitivity settings.
 
 Phase 71C: Chat and generated insight persistence.
 
-- Decide encrypted large-storage mechanism before implementation.
-- Cap chat history, add TTL or explicit user controls.
-- Avoid SecureStore for large transcripts unless payload size is proven small.
+- Phase 78 added TTL/minimization for local chat transcripts and generated
+  insights cache writes.
+- A later phase should decide whether encrypted large storage, server-backed
+  history, explicit user controls, or stricter deletion is required.
+- Continue avoiding SecureStore for large transcripts unless payload size is
+  proven small.
 
 Phase 71D: Generic cache and pending sync hardening.
 
