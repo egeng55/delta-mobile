@@ -1249,7 +1249,7 @@ export default function AvatarScanScreen({
   };
 
   const handleRPMComplete = (result: RPMAvatarResult) => {
-    console.log('[RPM] Avatar created:', result);
+    console.log('[RPM] Avatar created');
     setRpmResult(result);
   };
 
@@ -1268,7 +1268,7 @@ export default function AvatarScanScreen({
 
     // Save to local storage AND sync to cloud
     await avatarService.saveAvatar(user.id, updatedAvatar);
-    console.log('[RPM] Avatar saved:', updatedAvatar.rpmAvatarUrl);
+    console.log('[RPM] Avatar saved');
     onComplete(updatedAvatar);
   };
 

@@ -19,7 +19,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import AnimatedAvatar from '../components/Avatar/AnimatedAvatar';
@@ -32,6 +31,7 @@ import {
   DEFAULT_AVATAR,
 } from '../types/avatar';
 import { avatarService } from '../services/avatarService';
+import { getBodyScanEnabledSetting } from '../services/storage/avatarBodyScanStorage';
 
 // Lazy load scan screen to avoid expo-camera issues
 const AvatarScanScreen = React.lazy(() => import('./AvatarScanScreen'));
@@ -78,8 +78,7 @@ export default function AvatarCustomizeScreen({
   useEffect(() => {
     const loadBodyScanSetting = async () => {
       try {
-        const saved = await AsyncStorage.getItem('@delta:bodyScanEnabled');
-        setBodyScanEnabled(saved === 'true');
+        setBodyScanEnabled(await getBodyScanEnabledSetting());
       } catch {
         // Default to false
       }

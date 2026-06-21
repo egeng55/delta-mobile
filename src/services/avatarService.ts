@@ -2,10 +2,9 @@
  * Avatar Service - Storage and management for user avatars
  *
  * Stores avatar configuration locally and optionally syncs to cloud.
- * No images or body data are stored - only abstract parameters.
+ * Local avatar/body-scan metadata is TTL-bound and minimized before storage.
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import {
   UserAvatar,
@@ -15,8 +14,11 @@ import {
   InsightCategory,
   CATEGORY_TO_REGION,
 } from '../types/avatar';
-
-const AVATAR_STORAGE_KEY = '@delta_user_avatar';
+import {
+  clearAvatarBodyScanMetadata,
+  readAvatarBodyScanMetadata,
+  writeAvatarBodyScanMetadata,
+} from './storage/avatarBodyScanStorage';
 
 class AvatarService {
   private cachedAvatar: UserAvatar | null = null;
@@ -32,9 +34,9 @@ class AvatarService {
 
     try {
       // Try local storage first
-      const localData = await AsyncStorage.getItem(`${AVATAR_STORAGE_KEY}_${userId}`);
-      if (localData) {
-        this.cachedAvatar = JSON.parse(localData);
+      const localData = await readAvatarBodyScanMetadata(userId);
+      if (localData.avatar) {
+        this.cachedAvatar = localData.avatar;
         return this.cachedAvatar!;
       }
 
@@ -48,10 +50,7 @@ class AvatarService {
       if (profile?.avatar_config) {
         this.cachedAvatar = profile.avatar_config as UserAvatar;
         // Cache locally
-        await AsyncStorage.setItem(
-          `${AVATAR_STORAGE_KEY}_${userId}`,
-          JSON.stringify(this.cachedAvatar)
-        );
+        await writeAvatarBodyScanMetadata(userId, this.cachedAvatar);
         return this.cachedAvatar;
       }
     } catch (error) {
@@ -74,11 +73,8 @@ class AvatarService {
     // Update cache
     this.cachedAvatar = updatedAvatar;
 
-    // Save locally
-    await AsyncStorage.setItem(
-      `${AVATAR_STORAGE_KEY}_${userId}`,
-      JSON.stringify(updatedAvatar)
-    );
+    // Save locally with TTL/minimization before any future reads use it.
+    await writeAvatarBodyScanMetadata(userId, updatedAvatar);
 
     // Sync to cloud (non-blocking)
     this.syncToCloud(userId, updatedAvatar).catch(console.log);
@@ -104,7 +100,7 @@ class AvatarService {
   async deleteAvatar(userId: string): Promise<void> {
     this.cachedAvatar = null;
 
-    await AsyncStorage.removeItem(`${AVATAR_STORAGE_KEY}_${userId}`);
+    await clearAvatarBodyScanMetadata(userId);
 
     try {
       await supabase

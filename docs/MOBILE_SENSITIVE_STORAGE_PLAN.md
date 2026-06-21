@@ -57,7 +57,8 @@ strategy or be minimized/expired instead of persisted.
 | --- | --- | --- | --- |
 | `expo-secure-store` | Supabase auth session via `src/services/supabase.ts` | high | Appropriate for auth tokens. |
 | `AsyncStorage` | Theme, units, onboarding, design preferences | low | Acceptable if values stay non-health and non-sensitive. |
-| `AsyncStorage` | Notification preferences, body scan enabled flag, avatar config, weather cache | medium | May reveal preferences, location, or body-related metadata. |
+| `AsyncStorage` | Notification preferences, TTL-bound/minimized avatar config, weather cache | medium | May reveal preferences, location, or body-related metadata. |
+| `SecureStore` | Body scan enabled flag | medium | Phase 116 moved the small body-scan capability flag behind the sensitive storage helper with legacy fallback. |
 | `AsyncStorage` | Menstrual settings, chat transcripts, insights, dashboard/cache payloads, pending sync | high | Should not remain unencrypted long term. |
 | Component state only | transient HealthKit readings in `HealthKitContext` | high | Not persisted directly, but sync timestamps are persisted. |
 
@@ -74,10 +75,10 @@ strategy or be minimized/expired instead of persisted.
 | `src/components/Chat/ChatBottomSheet.tsx` | `@delta_conversations_${userId}` | local chat transcripts and conversation titles | high |
 | `src/components/Chat/ChatBottomSheet.tsx` | `@delta_current_conversation_${userId}` | selected conversation id | medium |
 | `src/services/weather.ts` | `@delta_weather_cache` | city/location name, weather, air quality, timestamp | medium |
-| `src/services/avatarService.ts` | `@delta_user_avatar_${userId}` | avatar configuration and possible scan/body metadata fields | medium to high |
-| `src/components/Dashboard/PullDownDashboard.tsx` | `@delta_user_avatar_${userId}` | reads same avatar payload | medium to high |
-| `src/screens/AvatarCustomizeScreen.tsx` | `@delta:bodyScanEnabled` | body scan feature flag | medium |
-| `src/screens/SettingsScreen.tsx` | `@delta:bodyScanEnabled` | body scan feature flag | medium |
+| `src/services/avatarService.ts` | `@delta_user_avatar_${userId}` | avatar configuration and possible scan/body metadata fields | medium to high; Phase 116 adds a 30-day TTL envelope and minimization |
+| `src/components/Dashboard/PullDownDashboard.tsx` | `@delta_user_avatar_${userId}` | reads same avatar payload | medium to high; Phase 116 reads through the avatar/body-scan storage helper |
+| `src/screens/AvatarCustomizeScreen.tsx` | `@delta:bodyScanEnabled` legacy, `delta_sensitive_body_scan_enabled` current | body scan feature flag | medium; Phase 116 migrates the small flag to SecureStore |
+| `src/screens/SettingsScreen.tsx` | `@delta:bodyScanEnabled` legacy, `delta_sensitive_body_scan_enabled` current | body scan feature flag | medium; Phase 116 writes the small flag through SecureStore |
 | `src/services/notifications.ts` | `notification_settings` | reminder toggles, daily reminder time, period reminder setting | medium |
 | `src/services/healthSync.ts` | `@delta_health_last_sync` | HealthKit sync timestamp | medium |
 | `src/context/HealthKitContext.tsx` | `@delta_healthkit_enabled` | HealthKit enabled flag | medium |
@@ -267,6 +268,8 @@ Move to `SecureStore` or encrypted small-preference storage:
 - HealthKit enabled flag
 - HealthKit last sync timestamp
 - period reminder preference if it reveals menstrual tracking
+- body scan enabled flag; Phase 116 stores this in SecureStore with legacy
+  fallback
 
 Move to encrypted large storage, not raw `SecureStore`:
 
@@ -276,7 +279,8 @@ Move to encrypted large storage, not raw `SecureStore`:
 - offline high-risk resource caches
 - pending sync payloads if a future encrypted large-queue storage strategy is
   explicitly approved; Phase 115 currently uses TTL/minimization instead
-- scan-derived avatar/body metadata
+- scan-derived avatar/body metadata if encrypted large storage is later
+  approved; Phase 116 currently uses TTL/minimization for local metadata
 
 ## 13. What Requires A Migration Fallback
 
@@ -288,7 +292,11 @@ Move to encrypted large storage, not raw `SecureStore`:
 - `delta-greeting-${userId}-${date}`
 - `@delta_healthkit_enabled`
 - `@delta_health_last_sync`
-- `@delta_user_avatar_${userId}` if schema includes body or scan metadata
+- `@delta_user_avatar_${userId}` if schema includes body or scan metadata;
+  Phase 116 reads legacy raw avatar objects and rewrites valid metadata into a
+  TTL envelope
+- `@delta:bodyScanEnabled`; Phase 116 migrates this small flag to
+  `delta_sensitive_body_scan_enabled`
 
 Migration fallback should keep reading legacy AsyncStorage until secure storage
 is populated and verified.
@@ -300,6 +308,8 @@ is populated and verified.
 - Expired insights/dashboard cache older than its TTL.
 - Malformed cache entries.
 - Expired or malformed pending sync entries under the Phase 115 TTL envelope.
+- Expired or malformed avatar/body-scan metadata under the Phase 116 TTL
+  envelope.
 - Unknown pending sync types that cannot be safely replayed by the existing
   sync logic.
 - Generated greeting cache after its daily usefulness expires.

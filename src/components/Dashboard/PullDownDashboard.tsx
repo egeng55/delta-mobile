@@ -30,9 +30,9 @@ import { WeatherData } from '../../services/weather';
 import AnimatedAvatar from '../Avatar/AnimatedAvatar';
 import { UserAvatar, DEFAULT_AVATAR } from '../../types/avatar';
 import DeltaLogo from '../DeltaLogo';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../context/AuthContext';
 import Avatar3DViewer from '../Avatar/Avatar3DViewer';
+import { readAvatarBodyScanMetadata } from '../../services/storage/avatarBodyScanStorage';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const TAB_BAR_HEIGHT = 85; // Bottom tab bar height including safe area
@@ -314,15 +314,14 @@ export default function PullDownDashboard({
 
     const loadAvatar = async (): Promise<void> => {
       try {
-        // Use the same key as avatarService: @delta_user_avatar_${userId}
-        const saved = await AsyncStorage.getItem(`@delta_user_avatar_${user?.id}`);
-        if (saved) {
-          const parsed = JSON.parse(saved);
+        if (user?.id) {
+          const result = await readAvatarBodyScanMetadata(user.id);
+          const parsed = result.avatar;
+          if (!parsed) return;
           console.log('[Dashboard] Loaded avatar:', {
             hasRpmUrl: !!parsed.rpmAvatarUrl,
             hasMeshUri: !!parsed.meshFileUri,
             scanMethod: parsed.scanMethod,
-            rpmUrl: parsed.rpmAvatarUrl,
           });
           setAvatar(parsed);
         }

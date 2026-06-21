@@ -25,7 +25,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Theme } from '../theme/colors';
@@ -41,6 +40,10 @@ import * as notificationService from '../services/notifications';
 import SupportScreen from './SupportScreen';
 import { API_BASE_URL, LEGAL_URLS } from '../config/constants';
 import { supabase } from '../services/supabase';
+import {
+  getBodyScanEnabledSetting,
+  setBodyScanEnabledSetting,
+} from '../services/storage/avatarBodyScanStorage';
 
 // Lazy load AvatarScanScreen to avoid expo-camera issues
 const AvatarScanScreen = React.lazy(() => import('./AvatarScanScreen'));
@@ -128,8 +131,7 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
   useEffect(() => {
     const loadBodyScanSetting = async (): Promise<void> => {
       try {
-        const saved = await AsyncStorage.getItem('@delta:bodyScanEnabled');
-        setBodyScanEnabled(saved === 'true');
+        setBodyScanEnabled(await getBodyScanEnabledSetting());
       } catch {
         // Silent fail - use defaults
       } finally {
@@ -193,7 +195,7 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
   const handleBodyScanToggle = useCallback(async (value: boolean): Promise<void> => {
     setBodyScanEnabled(value);
     try {
-      await AsyncStorage.setItem('@delta:bodyScanEnabled', value.toString());
+      await setBodyScanEnabledSetting(value);
     } catch {
       setBodyScanEnabled(!value);
       Alert.alert('Error', 'Could not update setting.');
