@@ -1,6 +1,6 @@
 # Mobile Sensitive Storage Remediation Plan
 
-Last inspected: 2026-06-18.
+Last inspected: 2026-06-21.
 
 This document tracks the mobile sensitive storage plan and the implementation
 steps completed so far. It does not contain secrets and should not include raw
@@ -31,6 +31,13 @@ the same envelope format. This is minimization and expiry only; large
 transcripts, generated insights, offline caches, and pending sync payloads were
 not moved to `SecureStore`.
 
+Phase 115 hardened pending sync payload persistence for `delta_pending_sync`.
+The queue remains in `AsyncStorage` because high-volume replay queues are not a
+good fit for `SecureStore`, but it now uses a schema-versioned TTL envelope,
+per-item expiry metadata, token-like field minimization, legacy array handling,
+malformed queue cleanup, and synced item pruning. See
+`docs/MOBILE_PENDING_SYNC_STORAGE.md`.
+
 The highest-risk current uses are:
 
 - menstrual settings cache in `src/services/menstrualTracking.ts`
@@ -60,7 +67,7 @@ strategy or be minimized/expired instead of persisted.
 | --- | --- | --- | --- |
 | `src/services/menstrualTracking.ts` | `menstrual_settings_${userId}` | menstrual tracking settings, last period start, notification preference | high |
 | `src/services/offlineCache.ts` | `delta_cache_${resource}_${userId}` | generic API cache for insights, workout, calendar, derivatives, profile, menstrual | high for health/profile/menstrual resources |
-| `src/services/offlineCache.ts` | `delta_pending_sync` | queued payloads for replay, including tracking data and endpoint/body content | high |
+| `src/services/offlineCache.ts` | `delta_pending_sync` | queued payloads for replay, including tracking data and endpoint/body content | high; Phase 115 adds 14-day TTL envelope and token-like field minimization |
 | `src/services/prefetch.ts` | `@delta_insights_analytics_${userId}` | dashboard, targets, health state, causal chains, modules, insights | high |
 | `src/services/prefetch.ts` | `@delta_insights_workout_${userId}` | workout payload | medium to high |
 | `src/hooks/useInsightsData.ts` | `@delta_insights_${tab}_${userId}` | analytics, workout, calendar, menstrual calendar/settings/cycle phase | high |
@@ -119,7 +126,7 @@ High sensitivity:
 | HealthKit enabled and last sync | Move to `SecureStore` or encrypted preferences because it reveals health integration usage. |
 | Menstrual settings | Move to `SecureStore` if small; otherwise encrypted storage. Remove old AsyncStorage key after verified migration. |
 | Chat transcripts | Do not blindly move to `SecureStore`; use encrypted database/file storage or reduce to server-backed history with local TTL. |
-| Offline cache / pending sync | Split by resource sensitivity. Keep low-risk cache in `AsyncStorage`; encrypt high-risk resources and pending sync; expire or drop unknown payloads. |
+| Offline cache / pending sync | Phase 115 adds TTL/minimization for pending sync. Generic offline caches still need resource sensitivity classification. Keep low-risk cache in `AsyncStorage`; use encrypted large storage or stricter expiry for high-risk resources after a separate strategy phase. |
 | Insights and dashboard caches | Prefer encrypted cache with TTL, or minimize and refetch instead of persisting full payloads. |
 | Avatar config | Audit schema first. Keep abstract non-body config in `AsyncStorage`; move scan-derived/body metadata or mesh/file URIs to encrypted storage or delete local copy. |
 | Daily generated greeting | Treat as high sensitivity; move to encrypted short-lived cache or avoid persistence. |
@@ -176,9 +183,11 @@ Phase 71C: Chat and generated insight persistence.
 
 Phase 71D: Generic cache and pending sync hardening.
 
-- Add resource classification to `offlineCache`.
-- Encrypt high-risk resources and pending sync payloads.
-- Drop or expire unknown/high-risk cache entries if encryption is unavailable.
+- Phase 115 added TTL envelope, token-like field minimization, legacy handling,
+  malformed cleanup, and synced item pruning for `delta_pending_sync`.
+- Add resource classification to generic `offlineCache` caches.
+- Encrypt high-risk resource caches or expire/minimize them if encrypted large
+  storage is unavailable.
 
 Phase 71E: Avatar/body-scan review.
 
@@ -226,7 +235,7 @@ Possibly touched later:
 
 Risks:
 
-- Losing unsynced pending sync payloads.
+- Losing unsynced pending sync payloads after expiry or malformed queue cleanup.
 - Losing local chat conversations.
 - Losing menstrual tracking preferences when offline.
 - Losing cached insights users expect to see on cold start.
@@ -235,8 +244,9 @@ Mitigations:
 
 - Preserve old AsyncStorage values until secure write and read-back succeed.
 - Keep migration idempotent.
-- Avoid deleting pending sync payloads unless they are expired, malformed, or
-  impossible to protect.
+- Avoid deleting pending sync payloads unless they are expired under policy,
+  malformed, successfully synced, or impossible for the existing replay logic to
+  handle.
 - Add a one-time migration status marker that does not include sensitive data.
 - Keep user-facing fallbacks for missing cache data.
 
@@ -264,7 +274,8 @@ Move to encrypted large storage, not raw `SecureStore`:
 - generated insights/greetings
 - dashboard/analytics/calendar caches
 - offline high-risk resource caches
-- pending sync payloads
+- pending sync payloads if a future encrypted large-queue storage strategy is
+  explicitly approved; Phase 115 currently uses TTL/minimization instead
 - scan-derived avatar/body metadata
 
 ## 13. What Requires A Migration Fallback
@@ -288,7 +299,9 @@ is populated and verified.
 - Stale weather cache older than 30 minutes.
 - Expired insights/dashboard cache older than its TTL.
 - Malformed cache entries.
-- Unknown pending sync types that cannot be safely replayed or encrypted.
+- Expired or malformed pending sync entries under the Phase 115 TTL envelope.
+- Unknown pending sync types that cannot be safely replayed by the existing
+  sync logic.
 - Generated greeting cache after its daily usefulness expires.
 
 Do not delete unsynced user-entered payloads without a migration or explicit

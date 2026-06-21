@@ -11,10 +11,16 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
+import {
+  appendPendingSyncItem,
+  loadPendingSyncItems,
+  removePendingSyncItem,
+  savePendingSyncItems,
+  type PendingSyncItem,
+} from './storage/pendingSyncStorage';
 
 const CACHE_PREFIX = 'delta_cache_';
 const CACHE_EXPIRY_PREFIX = 'delta_cache_expiry_';
-const PENDING_SYNC_KEY = 'delta_pending_sync';
 
 // Default cache duration: 24 hours
 const DEFAULT_CACHE_DURATION_MS = 24 * 60 * 60 * 1000;
@@ -35,13 +41,7 @@ export interface CachedData<T> {
   expiresAt: number;
 }
 
-export interface PendingSyncItem {
-  id: string;
-  type: string;
-  data: unknown;
-  timestamp: number;
-  attempts: number;
-}
+export type { PendingSyncItem };
 
 let isOnline = true;
 let connectionListeners: Array<(isOnline: boolean) => void> = [];
@@ -179,16 +179,7 @@ export async function addToPendingSync(
   data: unknown
 ): Promise<void> {
   try {
-    const pending = await getPendingSync();
-    const item: PendingSyncItem = {
-      id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      type,
-      data,
-      timestamp: Date.now(),
-      attempts: 0,
-    };
-    pending.push(item);
-    await AsyncStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(pending));
+    await appendPendingSyncItem(type, data);
   } catch {
     // Silent fail
   }
@@ -199,8 +190,8 @@ export async function addToPendingSync(
  */
 export async function getPendingSync(): Promise<PendingSyncItem[]> {
   try {
-    const stored = await AsyncStorage.getItem(PENDING_SYNC_KEY);
-    return stored !== null ? JSON.parse(stored) : [];
+    const result = await loadPendingSyncItems();
+    return result.items;
   } catch {
     return [];
   }
@@ -211,9 +202,7 @@ export async function getPendingSync(): Promise<PendingSyncItem[]> {
  */
 export async function removeFromPendingSync(id: string): Promise<void> {
   try {
-    const pending = await getPendingSync();
-    const filtered = pending.filter(item => item.id !== id);
-    await AsyncStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(filtered));
+    await removePendingSyncItem(id);
   } catch {
     // Silent fail
   }
@@ -268,7 +257,7 @@ async function syncPendingData(): Promise<void> {
       // Update the pending item with new attempt count
       const all = await getPendingSync();
       const updated = all.map(p => p.id === item.id ? { ...p, attempts: item.attempts } : p);
-      await AsyncStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(updated));
+      await savePendingSyncItems(updated);
     }
   }
 }
