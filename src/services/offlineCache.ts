@@ -18,14 +18,20 @@ import {
   savePendingSyncItems,
   type PendingSyncItem,
 } from './storage/pendingSyncStorage';
+import {
+  OFFLINE_HEALTH_CACHE_PREFIX,
+  clearOfflineHealthCache,
+  readOfflineHealthCache,
+  saveOfflineHealthCache,
+} from './storage/offlineHealthCacheStorage';
 
-const CACHE_PREFIX = 'delta_cache_';
-const CACHE_EXPIRY_PREFIX = 'delta_cache_expiry_';
+const CACHE_PREFIX = OFFLINE_HEALTH_CACHE_PREFIX;
 
-// Default cache duration: 24 hours
+// Default cache duration: 24 hours.
 const DEFAULT_CACHE_DURATION_MS = 24 * 60 * 60 * 1000;
 
-// Cache durations for different data types (in milliseconds)
+// Cache durations for different data types (in milliseconds). The storage
+// helper caps high-risk resources to these values and adds schema metadata.
 const CACHE_DURATIONS: Record<string, number> = {
   insights: 30 * 60 * 1000, // 30 minutes
   workout: 60 * 60 * 1000, // 1 hour
@@ -84,13 +90,6 @@ export function addConnectionListener(listener: (isOnline: boolean) => void): ()
 }
 
 /**
- * Get cache key for a resource.
- */
-function getCacheKey(resource: string, userId?: string): string {
-  return userId ? `${CACHE_PREFIX}${resource}_${userId}` : `${CACHE_PREFIX}${resource}`;
-}
-
-/**
  * Cache data.
  */
 export async function cacheData<T>(
@@ -100,17 +99,8 @@ export async function cacheData<T>(
   customDuration?: number
 ): Promise<void> {
   try {
-    const key = getCacheKey(resource, userId);
     const duration = customDuration ?? CACHE_DURATIONS[resource] ?? DEFAULT_CACHE_DURATION_MS;
-    const now = Date.now();
-
-    const cachedData: CachedData<T> = {
-      data,
-      timestamp: now,
-      expiresAt: now + duration,
-    };
-
-    await AsyncStorage.setItem(key, JSON.stringify(cachedData));
+    await saveOfflineHealthCache(resource, data, userId, duration);
   } catch (error) {
     console.error('Error caching data:', error);
   }
@@ -124,22 +114,7 @@ export async function getCachedData<T>(
   userId?: string
 ): Promise<T | null> {
   try {
-    const key = getCacheKey(resource, userId);
-    const stored = await AsyncStorage.getItem(key);
-
-    if (stored === null) {
-      return null;
-    }
-
-    const cached: CachedData<T> = JSON.parse(stored);
-
-    // Check if cache is still valid
-    if (Date.now() > cached.expiresAt) {
-      // Cache expired, remove it
-      await AsyncStorage.removeItem(key);
-      return null;
-    }
-
+    const cached = await readOfflineHealthCache<T>(resource, userId);
     return cached.data;
   } catch {
     return null;
@@ -151,8 +126,7 @@ export async function getCachedData<T>(
  */
 export async function clearCache(resource: string, userId?: string): Promise<void> {
   try {
-    const key = getCacheKey(resource, userId);
-    await AsyncStorage.removeItem(key);
+    await clearOfflineHealthCache(resource, userId);
   } catch {
     // Silent fail
   }

@@ -61,12 +61,12 @@ describe('prefetchAppData', () => {
       recovery_patterns: {},
     });
     mockedDerivativesApi.getCards.mockResolvedValue({
-      cards: [{ id: 'card-1' }],
-      count: 1,
+      cards: Array.from({ length: 12 }, (_, index) => ({ id: `card-${index + 1}` })),
+      count: 12,
     });
     mockedDashboardApi.getWeekly.mockResolvedValue({
-      weekly_summaries: [{ date: '2026-06-18' }],
-      days_count: 1,
+      weekly_summaries: Array.from({ length: 16 }, (_, index) => ({ date: `2026-06-${String(index + 1).padStart(2, '0')}` })),
+      days_count: 16,
     });
     mockedDashboardApi.getDashboard.mockResolvedValue({
       today: { date: '2026-06-18' },
@@ -84,12 +84,12 @@ describe('prefetchAppData', () => {
     });
     mockedHealthIntelligenceApi.getState.mockResolvedValue({
       has_data: true,
-      causal_chains: [{ id: 'chain-1' }],
+      causal_chains: Array.from({ length: 12 }, (_, index) => ({ id: `chain-${index + 1}` })),
     });
     mockedHealthIntelligenceApi.getModules.mockResolvedValue({
       user_id: 'user-1',
       has_data: true,
-      modules: [{ id: 'module-1' }],
+      modules: Array.from({ length: 12 }, (_, index) => ({ id: `module-${index + 1}` })),
     });
     mockedWorkoutApi.getToday.mockResolvedValue({
       workout: { title: 'Easy run' },
@@ -114,8 +114,10 @@ describe('prefetchAppData', () => {
     expect(result.envelope?.expiresAt).toBeGreaterThan(result.envelope?.createdAt ?? 0);
     expect(result.value).toMatchObject({
       targetsPersonalized: true,
-      cards: [{ id: 'card-1' }],
-      modules: [{ id: 'module-1' }],
     });
+    expect(result.value?.cards).toHaveLength(10);
+    expect(result.value?.weekly).toHaveLength(14);
+    expect(result.value?.causalChains).toHaveLength(10);
+    expect(result.value?.modules).toHaveLength(10);
   });
 });

@@ -38,11 +38,19 @@ per-item expiry metadata, token-like field minimization, legacy array handling,
 malformed queue cleanup, and synced item pruning. See
 `docs/MOBILE_PENDING_SYNC_STORAGE.md`.
 
+Phase 117 hardened generic offline health cache persistence for
+`delta_cache_${resource}_${userId}`. Known health-derived resources now use a
+schema-versioned TTL envelope with resource-level sensitivity metadata,
+token-like field stripping, raw image/blob-like field stripping, conservative
+array caps, legacy cache handling, and malformed/expired cleanup. Phase 117
+also added a TTL envelope for generated daily greetings and explicit
+minimization for prefetch analytics arrays. See
+`docs/MOBILE_OFFLINE_HEALTH_CACHE.md`.
+
 The highest-risk current uses are:
 
 - menstrual settings cache in `src/services/menstrualTracking.ts`
 - local chat transcripts in `src/components/Chat/ChatBottomSheet.tsx`
-- generic offline cache and pending sync payloads in `src/services/offlineCache.ts`
 - insights/dashboard/workout/calendar caches in `src/services/prefetch.ts` and
   `src/hooks/useInsightsData.ts`
 - HealthKit sync timestamps and enablement flags adjacent to biometric data
@@ -59,7 +67,7 @@ strategy or be minimized/expired instead of persisted.
 | `AsyncStorage` | Theme, units, onboarding, design preferences | low | Acceptable if values stay non-health and non-sensitive. |
 | `AsyncStorage` | Notification preferences, TTL-bound/minimized avatar config, weather cache | medium | May reveal preferences, location, or body-related metadata. |
 | `SecureStore` | Body scan enabled flag | medium | Phase 116 moved the small body-scan capability flag behind the sensitive storage helper with legacy fallback. |
-| `AsyncStorage` | Menstrual settings, chat transcripts, insights, dashboard/cache payloads, pending sync | high | Should not remain unencrypted long term. |
+| `AsyncStorage` | TTL-bound/minimized chat transcripts, insights, dashboard/cache payloads, generic offline cache, pending sync | high | Large/high-volume payloads remain in AsyncStorage only with TTL/minimization until encrypted large-cache storage is explicitly approved. |
 | Component state only | transient HealthKit readings in `HealthKitContext` | high | Not persisted directly, but sync timestamps are persisted. |
 
 ## 3. AsyncStorage Usage Inventory
@@ -67,9 +75,9 @@ strategy or be minimized/expired instead of persisted.
 | File | Key or pattern | Data stored | Sensitivity |
 | --- | --- | --- | --- |
 | `src/services/menstrualTracking.ts` | `menstrual_settings_${userId}` | menstrual tracking settings, last period start, notification preference | high |
-| `src/services/offlineCache.ts` | `delta_cache_${resource}_${userId}` | generic API cache for insights, workout, calendar, derivatives, profile, menstrual | high for health/profile/menstrual resources |
+| `src/services/offlineCache.ts` | `delta_cache_${resource}_${userId}` | generic API cache for insights, workout, calendar, derivatives, profile, menstrual | high for health/profile/menstrual resources; Phase 117 adds a schema-versioned TTL envelope, resource policy, token/blob stripping, array caps, and malformed cleanup |
 | `src/services/offlineCache.ts` | `delta_pending_sync` | queued payloads for replay, including tracking data and endpoint/body content | high; Phase 115 adds 14-day TTL envelope and token-like field minimization |
-| `src/services/prefetch.ts` | `@delta_insights_analytics_${userId}` | dashboard, targets, health state, causal chains, modules, insights | high |
+| `src/services/prefetch.ts` | `@delta_insights_analytics_${userId}` | dashboard, targets, health state, causal chains, modules, insights | high; Phase 117 adds explicit prefetch array minimization before writing the existing TTL envelope |
 | `src/services/prefetch.ts` | `@delta_insights_workout_${userId}` | workout payload | medium to high |
 | `src/hooks/useInsightsData.ts` | `@delta_insights_${tab}_${userId}` | analytics, workout, calendar, menstrual calendar/settings/cycle phase | high |
 | `src/components/Chat/ChatBottomSheet.tsx` | `@delta_conversations_${userId}` | local chat transcripts and conversation titles | high |
@@ -82,7 +90,7 @@ strategy or be minimized/expired instead of persisted.
 | `src/services/notifications.ts` | `notification_settings` | reminder toggles, daily reminder time, period reminder setting | medium |
 | `src/services/healthSync.ts` | `@delta_health_last_sync` | HealthKit sync timestamp | medium |
 | `src/context/HealthKitContext.tsx` | `@delta_healthkit_enabled` | HealthKit enabled flag | medium |
-| `src/screens/DailyInsightsScreen.tsx` | `delta-greeting-${userId}-${date}` | generated health greeting/insight fallback text | high |
+| `src/screens/DailyInsightsScreen.tsx` | `delta-greeting-${userId}-${date}` | generated health greeting/insight fallback text | high; Phase 117 adds a 24-hour TTL envelope and legacy raw string handling |
 | `src/context/DeltaUIContext.tsx` | `delta-ui-prefs-${userId}` | behavioral UI preferences derived from taps/dismissals | medium |
 | `src/context/ThemeContext.tsx` | `@delta_theme_preference` | theme preference | low |
 | `src/context/ThemeContext.tsx` | `@delta_fitness_goal` | goal tint preference | medium because it can imply health goal |
@@ -127,10 +135,10 @@ High sensitivity:
 | HealthKit enabled and last sync | Move to `SecureStore` or encrypted preferences because it reveals health integration usage. |
 | Menstrual settings | Move to `SecureStore` if small; otherwise encrypted storage. Remove old AsyncStorage key after verified migration. |
 | Chat transcripts | Do not blindly move to `SecureStore`; use encrypted database/file storage or reduce to server-backed history with local TTL. |
-| Offline cache / pending sync | Phase 115 adds TTL/minimization for pending sync. Generic offline caches still need resource sensitivity classification. Keep low-risk cache in `AsyncStorage`; use encrypted large storage or stricter expiry for high-risk resources after a separate strategy phase. |
-| Insights and dashboard caches | Prefer encrypted cache with TTL, or minimize and refetch instead of persisting full payloads. |
+| Offline cache / pending sync | Phase 117 adds resource sensitivity classification plus TTL/minimization for generic offline cache entries. Phase 115 adds TTL/minimization for pending sync. Use encrypted large storage only after a separate approved strategy phase. |
+| Insights and dashboard caches | Phase 78 added TTL envelopes. Phase 117 adds explicit prefetch array minimization and generic offline cache resource policy. Encrypted large-cache storage remains deferred. |
 | Avatar config | Audit schema first. Keep abstract non-body config in `AsyncStorage`; move scan-derived/body metadata or mesh/file URIs to encrypted storage or delete local copy. |
-| Daily generated greeting | Treat as high sensitivity; move to encrypted short-lived cache or avoid persistence. |
+| Daily generated greeting | Phase 117 adds a 24-hour TTL envelope and legacy raw string fallback. |
 | Delta UI preferences | Keep non-health display preferences in `AsyncStorage`; avoid storing behavioral inferences that reveal health context. |
 
 ## 6. Migration Risk Analysis
@@ -186,9 +194,11 @@ Phase 71D: Generic cache and pending sync hardening.
 
 - Phase 115 added TTL envelope, token-like field minimization, legacy handling,
   malformed cleanup, and synced item pruning for `delta_pending_sync`.
-- Add resource classification to generic `offlineCache` caches.
-- Encrypt high-risk resource caches or expire/minimize them if encrypted large
-  storage is unavailable.
+- Phase 117 added resource classification, TTL envelope, token-like field
+  minimization, raw blob-like field stripping, array caps, legacy handling, and
+  malformed cleanup to generic `offlineCache` caches.
+- Encrypt high-risk resource caches later only if encrypted large storage is
+  explicitly approved.
 
 Phase 71E: Avatar/body-scan review.
 
@@ -204,6 +214,8 @@ Likely implementation files:
 - `src/services/secureStorage.ts` or similar new abstraction
 - `src/services/menstrualTracking.ts`
 - `src/services/offlineCache.ts`
+- `src/services/storage/offlineHealthCacheStorage.ts`
+- `src/services/storage/dailyGreetingCache.ts`
 - `src/components/Chat/ChatBottomSheet.tsx`
 - `src/services/prefetch.ts`
 - `src/hooks/useInsightsData.ts`
@@ -227,7 +239,8 @@ Possibly touched later:
   - successful migration
   - secure write failure leaves old key intact
 - HealthKit flag/timestamp migration tests.
-- Offline cache resource-classification tests.
+- Offline cache resource-classification tests; Phase 117 added these for the
+  generic `delta_cache_*` layer.
 - Pending sync encryption/drop behavior tests.
 - Chat transcript cap/TTL tests once large encrypted storage is chosen.
 - Regression test confirming Supabase auth still uses SecureStore.
@@ -289,7 +302,8 @@ Move to encrypted large storage, not raw `SecureStore`:
 - `@delta_current_conversation_${userId}`
 - `delta_pending_sync`
 - `@delta_insights_*`
-- `delta-greeting-${userId}-${date}`
+- `delta-greeting-${userId}-${date}`; Phase 117 reads valid legacy raw strings
+  and rewrites them into a 24-hour TTL envelope
 - `@delta_healthkit_enabled`
 - `@delta_health_last_sync`
 - `@delta_user_avatar_${userId}` if schema includes body or scan metadata;
@@ -310,6 +324,10 @@ is populated and verified.
 - Expired or malformed pending sync entries under the Phase 115 TTL envelope.
 - Expired or malformed avatar/body-scan metadata under the Phase 116 TTL
   envelope.
+- Expired or malformed generic offline health cache entries under the Phase 117
+  TTL envelope.
+- Expired or malformed generated daily greeting cache entries under the Phase
+  117 TTL envelope.
 - Unknown pending sync types that cannot be safely replayed by the existing
   sync logic.
 - Generated greeting cache after its daily usefulness expires.

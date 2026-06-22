@@ -40,6 +40,11 @@ import { useUnits } from '../context/UnitsContext';
 import { logDeltaDecision, logModulePriority, logUIContext, getSessionDecisions, logError } from '../services/deltaDecisionLog';
 import { validateDeltaIntent } from '../utils/deltaValidator';
 import ModuleRenderer, { CompactModuleRow } from '../components/ModuleRenderer';
+import {
+  createDailyGreetingCache,
+  dailyGreetingCacheKey,
+  readDailyGreetingCache,
+} from '../services/storage/dailyGreetingCache';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -154,14 +159,21 @@ export default function DailyInsightsScreen({ theme, onOpenChat }: DailyInsights
   useEffect(() => {
     if (!analyticsLoading && !modulesLoading && modules.length === 0 && !deltaCommentary?.headline && user?.id) {
       const today = new Date().toISOString().slice(0, 10);
-      const cacheKey = `delta-greeting-${user.id}-${today}`;
+      const cacheKey = dailyGreetingCacheKey(user.id, today);
 
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       AsyncStorage.getItem(cacheKey).then(cached => {
-        if (cached) {
-          setFallbackMessage(cached);
+        const cachedGreeting = readDailyGreetingCache(cached);
+        if (cachedGreeting.message) {
+          if (cachedGreeting.fromLegacy) {
+            AsyncStorage.setItem(cacheKey, createDailyGreetingCache(cachedGreeting.message)).catch(() => {});
+          }
+          setFallbackMessage(cachedGreeting.message);
           setLlmLoading(false);
           return;
+        }
+        if (cachedGreeting.expired || cachedGreeting.invalid) {
+          AsyncStorage.removeItem(cacheKey).catch(() => {});
         }
 
         timeoutId = setTimeout(() => setLlmLoading(false), 8000);
@@ -172,7 +184,7 @@ export default function DailyInsightsScreen({ theme, onOpenChat }: DailyInsights
             timeoutId = null;
             setFallbackMessage(res.message);
             setLlmLoading(false);
-            AsyncStorage.setItem(cacheKey, res.message).catch(() => {});
+            AsyncStorage.setItem(cacheKey, createDailyGreetingCache(res.message)).catch(() => {});
             logDeltaDecision({
               timestamp: new Date().toISOString(),
               source: 'generateInsight',

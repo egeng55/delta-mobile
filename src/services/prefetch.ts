@@ -6,7 +6,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createCacheEnvelope } from './storage/cachePolicy';
+import { createCacheEnvelope, trimArrayToLimit } from './storage/cachePolicy';
 import {
   insightsApi,
   workoutApi,
@@ -17,6 +17,10 @@ import {
 
 const CACHE_PREFIX = '@delta_insights_';
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_PREFETCH_CARDS = 10;
+const MAX_PREFETCH_WEEKLY_SUMMARIES = 14;
+const MAX_PREFETCH_CAUSAL_CHAINS = 10;
+const MAX_PREFETCH_MODULES = 10;
 
 const setCache = async <T,>(key: string, data: T): Promise<void> => {
   try {
@@ -40,6 +44,19 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number, fallback: T): Promise<
     if (timeoutId) clearTimeout(timeoutId);
   });
 };
+
+function minimizePrefetchAnalyticsPayload(data: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...data,
+    cards: trimArrayToLimit(Array.isArray(data.cards) ? data.cards : [], MAX_PREFETCH_CARDS),
+    weekly: trimArrayToLimit(Array.isArray(data.weekly) ? data.weekly : [], MAX_PREFETCH_WEEKLY_SUMMARIES),
+    causalChains: trimArrayToLimit(
+      Array.isArray(data.causalChains) ? data.causalChains : [],
+      MAX_PREFETCH_CAUSAL_CHAINS
+    ),
+    modules: trimArrayToLimit(Array.isArray(data.modules) ? data.modules : [], MAX_PREFETCH_MODULES),
+  };
+}
 
 /**
  * Prefetch all initial app data for a user.
@@ -145,7 +162,7 @@ export async function prefetchAppData(userId: string): Promise<void> {
       tdee: (dashboardData as { tdee?: number }).tdee ?? null,
     };
 
-    await setCache(`analytics_${userId}`, {
+    await setCache(`analytics_${userId}`, minimizePrefetchAnalyticsPayload({
       insights: insightsData,
       derivatives: derivativesData,
       cards: (cardsData as { cards: unknown[] }).cards,
@@ -158,7 +175,7 @@ export async function prefetchAppData(userId: string): Promise<void> {
       causalChains: (healthStateData as { causal_chains?: unknown[] }).causal_chains ?? [],
       // Include modules if prefetch succeeded
       modules: (modulesData as { modules?: unknown[] }).modules ?? [],
-    });
+    }));
 
     // Cache workout data
     await setCache(`workout_${userId}`, {
