@@ -47,6 +47,15 @@ also added a TTL envelope for generated daily greetings and explicit
 minimization for prefetch analytics arrays. See
 `docs/MOBILE_OFFLINE_HEALTH_CACHE.md`.
 
+Phase 133 hardened the weather/location cache at `@delta_weather_cache`.
+Weather remains in `AsyncStorage` because it is a short-lived display cache
+rather than a small preference for `SecureStore`, but it now uses a
+schema-versioned 30-minute TTL envelope, malformed/expired cleanup, fresh
+legacy `{ data, timestamp }` handling, token-like field stripping, and
+defensive coordinate rounding if coordinate fields are ever present. The
+current payload stores city-level location and weather conditions, not precise
+coordinates or location history. See `docs/MOBILE_WEATHER_LOCATION_CACHE.md`.
+
 The highest-risk current uses are:
 
 - menstrual settings cache in `src/services/menstrualTracking.ts`
@@ -65,7 +74,7 @@ strategy or be minimized/expired instead of persisted.
 | --- | --- | --- | --- |
 | `expo-secure-store` | Supabase auth session via `src/services/supabase.ts` | high | Appropriate for auth tokens. |
 | `AsyncStorage` | Theme, units, onboarding, design preferences | low | Acceptable if values stay non-health and non-sensitive. |
-| `AsyncStorage` | Notification preferences, TTL-bound/minimized avatar config, weather cache | medium | May reveal preferences, location, or body-related metadata. |
+| `AsyncStorage` | Notification preferences, TTL-bound/minimized avatar config, TTL-bound/minimized weather cache | medium | May reveal preferences, city-level location, or body-related metadata. |
 | `SecureStore` | Body scan enabled flag | medium | Phase 116 moved the small body-scan capability flag behind the sensitive storage helper with legacy fallback. |
 | `AsyncStorage` | TTL-bound/minimized chat transcripts, insights, dashboard/cache payloads, generic offline cache, pending sync | high | Large/high-volume payloads remain in AsyncStorage only with TTL/minimization until encrypted large-cache storage is explicitly approved. |
 | Component state only | transient HealthKit readings in `HealthKitContext` | high | Not persisted directly, but sync timestamps are persisted. |
@@ -82,7 +91,7 @@ strategy or be minimized/expired instead of persisted.
 | `src/hooks/useInsightsData.ts` | `@delta_insights_${tab}_${userId}` | analytics, workout, calendar, menstrual calendar/settings/cycle phase | high |
 | `src/components/Chat/ChatBottomSheet.tsx` | `@delta_conversations_${userId}` | local chat transcripts and conversation titles | high |
 | `src/components/Chat/ChatBottomSheet.tsx` | `@delta_current_conversation_${userId}` | selected conversation id | medium |
-| `src/services/weather.ts` | `@delta_weather_cache` | city/location name, weather, air quality, timestamp | medium |
+| `src/services/weather.ts` | `@delta_weather_cache` | city-level location name, weather, air quality, timestamp | medium; Phase 133 adds a 30-minute TTL envelope, token-like field stripping, legacy handling, malformed/expired cleanup, and defensive coordinate rounding |
 | `src/services/avatarService.ts` | `@delta_user_avatar_${userId}` | avatar configuration and possible scan/body metadata fields | medium to high; Phase 116 adds a 30-day TTL envelope and minimization |
 | `src/components/Dashboard/PullDownDashboard.tsx` | `@delta_user_avatar_${userId}` | reads same avatar payload | medium to high; Phase 116 reads through the avatar/body-scan storage helper |
 | `src/screens/AvatarCustomizeScreen.tsx` | `@delta:bodyScanEnabled` legacy, `delta_sensitive_body_scan_enabled` current | body scan feature flag | medium; Phase 116 migrates the small flag to SecureStore |
@@ -131,7 +140,7 @@ High sensitivity:
 | Supabase auth session | Keep in `SecureStore`; already correct. |
 | Theme, onboarding, units | Keep in `AsyncStorage`. |
 | Notification settings | Keep in `AsyncStorage` only if limited to generic toggles; move period-reminder preference to secure storage if it implies cycle tracking. |
-| Weather cache | Keep short-lived or expire aggressively; consider storing coarse location/weather only. |
+| Weather cache | Phase 133 keeps the 30-minute TTL, stores city-level weather only, strips token-like fields, and rounds accidental coordinate fields. Broader location strategy remains deferred. |
 | HealthKit enabled and last sync | Move to `SecureStore` or encrypted preferences because it reveals health integration usage. |
 | Menstrual settings | Move to `SecureStore` if small; otherwise encrypted storage. Remove old AsyncStorage key after verified migration. |
 | Chat transcripts | Do not blindly move to `SecureStore`; use encrypted database/file storage or reduce to server-backed history with local TTL. |
@@ -200,6 +209,16 @@ Phase 71D: Generic cache and pending sync hardening.
 - Encrypt high-risk resource caches later only if encrypted large storage is
   explicitly approved.
 
+Phase 71D.1: Weather/location cache hardening.
+
+- Phase 133 added a schema-versioned TTL envelope and cleanup behavior for
+  `@delta_weather_cache`.
+- Provider tokens are stripped if accidentally present.
+- Precise coordinates are not intentionally cached; accidental coordinate
+  fields are rounded to two decimal places before storage or return.
+- No location permission behavior, provider behavior, or location history was
+  added.
+
 Phase 71E: Avatar/body-scan review.
 
 - Audit `UserAvatar` fields and scan-derived payloads.
@@ -216,6 +235,7 @@ Likely implementation files:
 - `src/services/offlineCache.ts`
 - `src/services/storage/offlineHealthCacheStorage.ts`
 - `src/services/storage/dailyGreetingCache.ts`
+- `src/services/storage/weatherLocationCache.ts`
 - `src/components/Chat/ChatBottomSheet.tsx`
 - `src/services/prefetch.ts`
 - `src/hooks/useInsightsData.ts`

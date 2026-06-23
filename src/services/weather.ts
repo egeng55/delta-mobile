@@ -9,15 +9,17 @@
  */
 
 import * as Location from 'expo-location';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import Constants from 'expo-constants';
+import {
+  clearWeatherLocationCache,
+  readWeatherLocationCache,
+  writeWeatherLocationCache,
+} from './storage/weatherLocationCache';
 
 const API_KEY: string = Constants.expoConfig?.extra?.openWeatherMapApiKey ?? '';
 const BASE_URL = 'https://api.openweathermap.org/data/2.5';
 const ONE_CALL_URL = 'https://api.openweathermap.org/data/3.0/onecall';
-const CACHE_KEY = '@delta_weather_cache';
-const CACHE_DURATION_MS = 30 * 60 * 1000; // 30 minutes
 
 export interface WeatherData {
   temperature: number; // Fahrenheit
@@ -42,11 +44,6 @@ export interface AirQualityData {
   label: string;
   pm25: number;
   pm10: number;
-}
-
-interface CachedWeather {
-  data: WeatherData;
-  timestamp: number;
 }
 
 /**
@@ -327,13 +324,8 @@ async function fetchWeatherData(lat: number, lon: number): Promise<WeatherData |
  */
 async function getCachedWeather(): Promise<WeatherData | null> {
   try {
-    const cached = await AsyncStorage.getItem(CACHE_KEY);
-    if (cached) {
-      const parsed: CachedWeather = JSON.parse(cached);
-      if (Date.now() - parsed.timestamp < CACHE_DURATION_MS) {
-        return parsed.data;
-      }
-    }
+    const cached = await readWeatherLocationCache<WeatherData>();
+    return cached.data;
   } catch {
     // Ignore cache errors
   }
@@ -345,11 +337,7 @@ async function getCachedWeather(): Promise<WeatherData | null> {
  */
 async function cacheWeather(data: WeatherData): Promise<void> {
   try {
-    const cached: CachedWeather = {
-      data,
-      timestamp: Date.now(),
-    };
-    await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cached));
+    await writeWeatherLocationCache(data);
   } catch {
     // Ignore cache errors
   }
@@ -389,7 +377,7 @@ export async function getWeather(forceRefresh: boolean = false): Promise<Weather
  */
 export async function clearWeatherCache(): Promise<void> {
   try {
-    await AsyncStorage.removeItem(CACHE_KEY);
+    await clearWeatherLocationCache();
   } catch {
     // Ignore
   }
