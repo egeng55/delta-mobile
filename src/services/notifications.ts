@@ -12,9 +12,15 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  createSensitiveKey,
+  deleteSensitiveItem,
+  getSensitiveItem,
+  setSensitiveJsonReplacingLegacy,
+} from './storage/sensitiveStorage';
 
-const NOTIFICATION_SETTINGS_KEY = 'notification_settings';
-const PUSH_TOKEN_KEY = 'expo_push_token';
+export const NOTIFICATION_SETTINGS_LEGACY_KEY = 'notification_settings';
+export const NOTIFICATION_SETTINGS_SECURE_KEY = createSensitiveKey('notification_settings');
 
 // Configure notification handling
 Notifications.setNotificationHandler({
@@ -42,6 +48,66 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   workoutReminders: true,
   periodReminders: true,
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isReminderTime(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{2}:\d{2}$/.test(value);
+}
+
+export function normalizeNotificationSettings(value: unknown): NotificationSettings {
+  if (!isRecord(value)) return { ...DEFAULT_SETTINGS };
+
+  return {
+    enabled: typeof value.enabled === 'boolean' ? value.enabled : DEFAULT_SETTINGS.enabled,
+    dailyReminder: typeof value.dailyReminder === 'boolean' ? value.dailyReminder : DEFAULT_SETTINGS.dailyReminder,
+    dailyReminderTime: isReminderTime(value.dailyReminderTime) ? value.dailyReminderTime : DEFAULT_SETTINGS.dailyReminderTime,
+    workoutReminders: typeof value.workoutReminders === 'boolean' ? value.workoutReminders : DEFAULT_SETTINGS.workoutReminders,
+    periodReminders: typeof value.periodReminders === 'boolean' ? value.periodReminders : DEFAULT_SETTINGS.periodReminders,
+  };
+}
+
+async function getStoredNotificationSettings(): Promise<NotificationSettings | null> {
+  const secureValue = await getSensitiveItem(NOTIFICATION_SETTINGS_SECURE_KEY);
+  if (secureValue !== null) {
+    try {
+      return normalizeNotificationSettings(JSON.parse(secureValue));
+    } catch {
+      await deleteSensitiveItem(NOTIFICATION_SETTINGS_SECURE_KEY);
+    }
+  }
+
+  let legacyValue: string | null = null;
+  try {
+    legacyValue = await AsyncStorage.getItem(NOTIFICATION_SETTINGS_LEGACY_KEY);
+  } catch {
+    return null;
+  }
+
+  if (legacyValue === null) return null;
+
+  let settings: NotificationSettings;
+  try {
+    settings = normalizeNotificationSettings(JSON.parse(legacyValue));
+  } catch {
+    await AsyncStorage.removeItem(NOTIFICATION_SETTINGS_LEGACY_KEY);
+    return null;
+  }
+
+  try {
+    await setSensitiveJsonReplacingLegacy(
+      NOTIFICATION_SETTINGS_SECURE_KEY,
+      settings,
+      NOTIFICATION_SETTINGS_LEGACY_KEY
+    );
+  } catch {
+    console.warn('[Notifications] Secure settings migration failed; keeping legacy value');
+  }
+
+  return settings;
+}
 
 /**
  * Request notification permissions.
@@ -90,14 +156,11 @@ export async function requestPermissions(): Promise<boolean> {
  */
 export async function getSettings(): Promise<NotificationSettings> {
   try {
-    const stored = await AsyncStorage.getItem(NOTIFICATION_SETTINGS_KEY);
-    if (stored !== null) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
-    }
+    return await getStoredNotificationSettings() ?? { ...DEFAULT_SETTINGS };
   } catch {
     // Return defaults
   }
-  return DEFAULT_SETTINGS;
+  return { ...DEFAULT_SETTINGS };
 }
 
 /**
@@ -105,9 +168,13 @@ export async function getSettings(): Promise<NotificationSettings> {
  */
 export async function saveSettings(settings: Partial<NotificationSettings>): Promise<NotificationSettings> {
   const current = await getSettings();
-  const updated = { ...current, ...settings };
+  const updated = normalizeNotificationSettings({ ...current, ...settings });
   try {
-    await AsyncStorage.setItem(NOTIFICATION_SETTINGS_KEY, JSON.stringify(updated));
+    await setSensitiveJsonReplacingLegacy(
+      NOTIFICATION_SETTINGS_SECURE_KEY,
+      updated,
+      NOTIFICATION_SETTINGS_LEGACY_KEY
+    );
 
     // Update scheduled notifications based on new settings
     if (updated.dailyReminder === true) {
