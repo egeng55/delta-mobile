@@ -56,6 +56,13 @@ defensive coordinate rounding if coordinate fields are ever present. The
 current payload stores city-level location and weather conditions, not precise
 coordinates or location history. See `docs/MOBILE_WEATHER_LOCATION_CACHE.md`.
 
+Phase 135 moved the small notification preference payload from AsyncStorage to
+SecureStore. The legacy `notification_settings` key is still read for
+migration, then removed after verified SecureStore write. Notification
+permission prompts, delivery behavior, push-token behavior, and scheduled
+notification runtime behavior were not changed. See
+`docs/MOBILE_NOTIFICATION_PREFERENCES_STORAGE.md`.
+
 The highest-risk current uses are:
 
 - menstrual settings cache in `src/services/menstrualTracking.ts`
@@ -74,7 +81,8 @@ strategy or be minimized/expired instead of persisted.
 | --- | --- | --- | --- |
 | `expo-secure-store` | Supabase auth session via `src/services/supabase.ts` | high | Appropriate for auth tokens. |
 | `AsyncStorage` | Theme, units, onboarding, design preferences | low | Acceptable if values stay non-health and non-sensitive. |
-| `AsyncStorage` | Notification preferences, TTL-bound/minimized avatar config, TTL-bound/minimized weather cache | medium | May reveal preferences, city-level location, or body-related metadata. |
+| `AsyncStorage` | TTL-bound/minimized avatar config, TTL-bound/minimized weather cache | medium | May reveal city-level location or body-related metadata. |
+| `SecureStore` | Notification preferences | medium | Phase 135 moved small reminder settings to SecureStore with legacy AsyncStorage fallback. |
 | `SecureStore` | Body scan enabled flag | medium | Phase 116 moved the small body-scan capability flag behind the sensitive storage helper with legacy fallback. |
 | `AsyncStorage` | TTL-bound/minimized chat transcripts, insights, dashboard/cache payloads, generic offline cache, pending sync | high | Large/high-volume payloads remain in AsyncStorage only with TTL/minimization until encrypted large-cache storage is explicitly approved. |
 | Component state only | transient HealthKit readings in `HealthKitContext` | high | Not persisted directly, but sync timestamps are persisted. |
@@ -96,7 +104,7 @@ strategy or be minimized/expired instead of persisted.
 | `src/components/Dashboard/PullDownDashboard.tsx` | `@delta_user_avatar_${userId}` | reads same avatar payload | medium to high; Phase 116 reads through the avatar/body-scan storage helper |
 | `src/screens/AvatarCustomizeScreen.tsx` | `@delta:bodyScanEnabled` legacy, `delta_sensitive_body_scan_enabled` current | body scan feature flag | medium; Phase 116 migrates the small flag to SecureStore |
 | `src/screens/SettingsScreen.tsx` | `@delta:bodyScanEnabled` legacy, `delta_sensitive_body_scan_enabled` current | body scan feature flag | medium; Phase 116 writes the small flag through SecureStore |
-| `src/services/notifications.ts` | `notification_settings` | reminder toggles, daily reminder time, period reminder setting | medium |
+| `src/services/notifications.ts` | `notification_settings` legacy, `delta_sensitive_notification_settings` current | reminder toggles, daily reminder time, period reminder setting | medium; Phase 135 migrates the small preference payload to SecureStore and removes legacy storage after verified write |
 | `src/services/healthSync.ts` | `@delta_health_last_sync` | HealthKit sync timestamp | medium |
 | `src/context/HealthKitContext.tsx` | `@delta_healthkit_enabled` | HealthKit enabled flag | medium |
 | `src/screens/DailyInsightsScreen.tsx` | `delta-greeting-${userId}-${date}` | generated health greeting/insight fallback text | high; Phase 117 adds a 24-hour TTL envelope and legacy raw string handling |
@@ -139,7 +147,7 @@ High sensitivity:
 | --- | --- |
 | Supabase auth session | Keep in `SecureStore`; already correct. |
 | Theme, onboarding, units | Keep in `AsyncStorage`. |
-| Notification settings | Keep in `AsyncStorage` only if limited to generic toggles; move period-reminder preference to secure storage if it implies cycle tracking. |
+| Notification settings | Phase 135 stores the small settings object in `SecureStore` because reminder timing and period reminder preferences can imply health routines. Do not use SecureStore for high-volume notification history or queues. |
 | Weather cache | Phase 133 keeps the 30-minute TTL, stores city-level weather only, strips token-like fields, and rounds accidental coordinate fields. Broader location strategy remains deferred. |
 | HealthKit enabled and last sync | Move to `SecureStore` or encrypted preferences because it reveals health integration usage. |
 | Menstrual settings | Move to `SecureStore` if small; otherwise encrypted storage. Remove old AsyncStorage key after verified migration. |
@@ -219,6 +227,17 @@ Phase 71D.1: Weather/location cache hardening.
 - No location permission behavior, provider behavior, or location history was
   added.
 
+Phase 71D.2: Notification preference storage hardening.
+
+- Phase 135 moved `notification_settings` to
+  `delta_sensitive_notification_settings` in SecureStore.
+- Legacy AsyncStorage settings are read, normalized, and migrated only after a
+  verified SecureStore write.
+- Malformed SecureStore or legacy JSON is cleaned up safely and defaults are
+  used.
+- Notification permission prompts, scheduled notification delivery behavior,
+  provider calls, and push-token storage were not changed.
+
 Phase 71E: Avatar/body-scan review.
 
 - Audit `UserAvatar` fields and scan-derived payloads.
@@ -236,6 +255,7 @@ Likely implementation files:
 - `src/services/storage/offlineHealthCacheStorage.ts`
 - `src/services/storage/dailyGreetingCache.ts`
 - `src/services/storage/weatherLocationCache.ts`
+- `src/services/notifications.ts`
 - `src/components/Chat/ChatBottomSheet.tsx`
 - `src/services/prefetch.ts`
 - `src/hooks/useInsightsData.ts`
@@ -290,8 +310,8 @@ Mitigations:
 - Onboarding completion flag.
 - Unit system.
 - Non-health display preferences.
-- Possibly generic notification toggles if not tied to reproductive or health
-  status.
+- No notification settings remain intentionally in AsyncStorage after Phase
+  135, except the legacy `notification_settings` key during one-time migration.
 
 ## 12. What Should Move To SecureStore Or Encrypted Storage
 
@@ -300,7 +320,10 @@ Move to `SecureStore` or encrypted small-preference storage:
 - menstrual settings if payload remains small
 - HealthKit enabled flag
 - HealthKit last sync timestamp
-- period reminder preference if it reveals menstrual tracking
+- notification reminder preferences; Phase 135 stores the small settings object
+  in SecureStore with legacy fallback
+- period reminder preference if it reveals menstrual tracking; covered by
+  Phase 135 notification settings and Phase 71 menstrual settings
 - body scan enabled flag; Phase 116 stores this in SecureStore with legacy
   fallback
 
