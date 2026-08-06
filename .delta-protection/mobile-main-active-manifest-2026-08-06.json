@@ -1,0 +1,51 @@
+{
+  "duplicate_exact_paths_already_represented": [],
+  "excluded_local_only_artifacts": [],
+  "generated_at": "2026-08-06T00:00:00-04:00",
+  "ignored_local_only_entries": [
+    ".claude/",
+    ".env",
+    ".vscode/",
+    "_archived/screens/",
+    "ios/.xcode.env.local",
+    "ios/Delta.xcodeproj/project.xcworkspace/",
+    "ios/Delta.xcworkspace/xcuserdata/",
+    "ios/Pods/",
+    "node_modules/"
+  ],
+  "protected_paths": [
+    {
+      "artifact_type": "implementation",
+      "bytes": 29124,
+      "classification": "uniquely valuable uncommitted implementation",
+      "conflict_risk": "medium",
+      "future_target": "delta-mobile/main after backend shared context contracts",
+      "initiative": "Mobile shared-substrate / Career Intelligence surface",
+      "kind": "tracked_modified",
+      "likely_owner": "Mobile + Career Intelligence",
+      "path": "src/screens/YouScreen.tsx",
+      "sha256": "7e560b5746d17cc91bba820896fc5b96b3cea8e59e25e51b78f96b3e4571236a",
+      "status": " M"
+    },
+    {
+      "artifact_type": "implementation",
+      "bytes": 76066,
+      "classification": "uniquely valuable uncommitted implementation",
+      "conflict_risk": "medium",
+      "future_target": "delta-mobile/main after backend shared context contracts",
+      "initiative": "Mobile shared-substrate / Career Intelligence surface",
+      "kind": "tracked_modified",
+      "likely_owner": "Mobile + Career Intelligence",
+      "path": "src/services/api.ts",
+      "sha256": "0fc37988f6077a5f63b3cc458ba56f967d3a2607ce18fe115e3cbf7e610b656a",
+      "status": " M"
+    }
+  ],
+  "protection_branch": "protection/delta-mobile-main-active-work-2026-08-06",
+  "purpose": "read-only active-work protection manifest",
+  "scan_hits_nonblocking": [],
+  "source_branch": "main",
+  "source_head": "fc13a21aca1a95c832b4c77dbc46e1226f2b5cbf",
+  "source_repository": "delta-mobile",
+  "source_worktree": "/Users/egeng/delta/delta-mobile"
+}
