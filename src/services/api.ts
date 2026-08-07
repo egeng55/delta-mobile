@@ -452,6 +452,36 @@ export interface TargetsResponse {
   recommendations: string[];
 }
 
+export interface CalorieEstimateRequest {
+  sex: string;
+  age: number;
+  height_cm: number;
+  weight_kg: number;
+  activity_level: 'sedentary' | 'lightly_active' | 'moderately_active' | 'very_active' | 'extra_active';
+  goal_phase?: 'cut' | 'maintain' | 'bulk';
+}
+
+export interface CalorieEstimateResponse {
+  source: string;
+  sex: string;
+  age: number;
+  height_cm: number;
+  weight_kg: number;
+  activity_level: string;
+  goal_phase: string;
+  bmr: number;
+  tdee: number;
+  recommended_calories: number;
+  workout_day_calories: number;
+  macros: {
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+  };
+  water_oz: number;
+  assumptions: string[];
+}
+
 // Dashboard API
 export const dashboardApi = {
   getDashboard: async (userId: string): Promise<DashboardResponse> => {
@@ -473,6 +503,15 @@ export const dashboardApi = {
 
   getTargets: async (userId: string): Promise<TargetsResponse> => {
     return request<TargetsResponse>(`/targets/${userId}`);
+  },
+};
+
+export const healthToolsApi = {
+  estimateCalories: async (payload: CalorieEstimateRequest): Promise<CalorieEstimateResponse> => {
+    return request<CalorieEstimateResponse>('/health-tools/calorie-estimate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 };
 

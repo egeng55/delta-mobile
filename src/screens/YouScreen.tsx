@@ -444,6 +444,41 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
           )}
         </View>
 
+        {dashboardData?.bmr != null && dashboardData?.tdee != null && (
+          <View style={styles.metabolicCard}>
+            <View style={styles.metabolicHeader}>
+              <Ionicons name="flame-outline" size={18} color={theme.accent} />
+              <Text style={styles.metabolicTitle}>Metabolic Baseline</Text>
+            </View>
+            <Text style={styles.metabolicDescription}>
+              Profile-derived energy targets Delta can use as a starting point for coaching and planning.
+            </Text>
+            <View style={styles.overviewGrid}>
+              <View style={styles.overviewItem}>
+                <Text style={styles.overviewValue}>{dashboardData.bmr}</Text>
+                <Text style={styles.overviewLabel}>BMR</Text>
+              </View>
+              <View style={styles.overviewItem}>
+                <Text style={styles.overviewValue}>{dashboardData.tdee}</Text>
+                <Text style={styles.overviewLabel}>TDEE</Text>
+              </View>
+              <View style={styles.overviewItem}>
+                <Text style={styles.overviewValue}>{dashboardData.targets.calories}</Text>
+                <Text style={styles.overviewLabel}>Daily Calories</Text>
+              </View>
+              <View style={styles.overviewItem}>
+                <Text style={styles.overviewValue}>
+                  {(dashboardData.activity_level ?? 'unknown').replace(/_/g, ' ')}
+                </Text>
+                <Text style={styles.overviewLabel}>Activity</Text>
+              </View>
+            </View>
+            <Text style={styles.metabolicSource}>
+              Source: {dashboardData.targets_source.replace(/_/g, ' ')}
+            </Text>
+          </View>
+        )}
+
       </View>
 
       <View style={{ height: 32 }} />
@@ -711,6 +746,36 @@ function createStyles(theme: Theme, topInset: number) {
       fontSize: 11,
       color: theme.textSecondary,
       marginTop: 2,
+    },
+    metabolicCard: {
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+      padding: 14,
+      borderWidth: 1,
+      borderColor: theme.border,
+      marginBottom: 12,
+    },
+    metabolicHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 8,
+    },
+    metabolicTitle: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: theme.textPrimary,
+    },
+    metabolicDescription: {
+      fontSize: 13,
+      lineHeight: 18,
+      color: theme.textSecondary,
+      marginBottom: 12,
+    },
+    metabolicSource: {
+      fontSize: 12,
+      color: theme.textSecondary,
+      marginTop: -4,
     },
     // Modal
     modalContainer: { flex: 1 },
