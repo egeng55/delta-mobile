@@ -25,11 +25,13 @@ import Animated, {
   Easing,
   cancelAnimation,
 } from 'react-native-reanimated';
-import Voice, {
-  SpeechResultsEvent,
-  SpeechErrorEvent,
-} from '@react-native-voice/voice';
 import { Theme } from '../../theme/colors';
+import {
+  createSpeechRecognitionAdapter,
+  SpeechRecognitionAdapter,
+  SpeechRecognitionPermissionDeniedError,
+  SpeechRecognitionUnavailableError,
+} from '../../services/speechRecognition';
 import DeltaLogo from '../DeltaLogo';
 
 interface VoiceChatModalProps {
@@ -47,11 +49,11 @@ export default function VoiceChatModal({
 }: VoiceChatModalProps): React.ReactElement {
   const insets = useSafeAreaInsets();
   const [isListening, setIsListening] = useState(false);
-  const [currentPartial, setCurrentPartial] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // Store accumulated text from multiple listening sessions
   const accumulatedText = useRef<string>('');
+  const currentPartial = useRef<string>('');
+  const recognition = useRef<SpeechRecognitionAdapter | null>(null);
   const [displayText, setDisplayText] = useState('');
 
   // Pulsing animation
@@ -89,91 +91,97 @@ export default function VoiceChatModal({
     }
   }, [isListening]);
 
-  // Voice event handlers
-  const onSpeechResults = useCallback((e: SpeechResultsEvent) => {
-    if (e.value && e.value.length > 0) {
-      const result = e.value[0];
-      setCurrentPartial(result);
-      // Update display with accumulated + current
-      const full = accumulatedText.current
-        ? `${accumulatedText.current} ${result}`
-        : result;
-      setDisplayText(full);
-    }
+  const commitCurrentResult = useCallback(() => {
+    if (!currentPartial.current) return;
+    accumulatedText.current = accumulatedText.current
+      ? `${accumulatedText.current} ${currentPartial.current}`
+      : currentPartial.current;
+    currentPartial.current = '';
+    setDisplayText(accumulatedText.current);
   }, []);
 
-  const onSpeechError = useCallback((e: SpeechErrorEvent) => {
-    console.log('[Voice] Error:', e.error);
+  const onSpeechResult = useCallback((transcript: string, isFinal: boolean) => {
+    currentPartial.current = transcript;
+    setDisplayText(
+      accumulatedText.current
+        ? `${accumulatedText.current} ${transcript}`
+        : transcript
+    );
+    if (isFinal) commitCurrentResult();
+  }, [commitCurrentResult]);
+
+  const onSpeechError = useCallback((failure: { code: string; message: string }) => {
+    console.log('[Voice] Error:', failure);
     setIsListening(false);
-    // Save current partial to accumulated on error
-    if (currentPartial) {
-      accumulatedText.current = accumulatedText.current
-        ? `${accumulatedText.current} ${currentPartial}`
-        : currentPartial;
-      setCurrentPartial('');
+    commitCurrentResult();
+    if (failure.code !== 'no-speech' && failure.code !== 'speech-timeout') {
+      setError('Speech recognition stopped. Tap mic to retry.');
     }
-  }, [currentPartial]);
+  }, [commitCurrentResult]);
 
   const onSpeechEnd = useCallback(() => {
     console.log('[Voice] Speech ended');
     setIsListening(false);
-    // Save current partial to accumulated
-    if (currentPartial) {
-      accumulatedText.current = accumulatedText.current
-        ? `${accumulatedText.current} ${currentPartial}`
-        : currentPartial;
-      setDisplayText(accumulatedText.current);
-      setCurrentPartial('');
-    }
-  }, [currentPartial]);
+    commitCurrentResult();
+  }, [commitCurrentResult]);
 
-  // Set up voice listeners
   useEffect(() => {
-    Voice.onSpeechResults = onSpeechResults;
-    Voice.onSpeechError = onSpeechError;
-    Voice.onSpeechEnd = onSpeechEnd;
+    const adapter = createSpeechRecognitionAdapter({
+      onResult: onSpeechResult,
+      onError: onSpeechError,
+      onEnd: onSpeechEnd,
+    });
+    recognition.current = adapter;
 
     return () => {
-      Voice.destroy().then(Voice.removeAllListeners);
+      recognition.current = null;
+      adapter.destroy();
     };
-  }, [onSpeechResults, onSpeechError, onSpeechEnd]);
+  }, [onSpeechResult, onSpeechError, onSpeechEnd]);
 
-  // Reset when modal opens/closes
+  const startListening = useCallback(async () => {
+    try {
+      setError(null);
+      setIsListening(true);
+      const adapter = recognition.current;
+      if (!adapter) throw new Error('Speech recognition is not initialized.');
+      await adapter.start('en-US');
+    } catch (startError) {
+      console.log('[Voice] Start error:', startError);
+      if (startError instanceof SpeechRecognitionPermissionDeniedError) {
+        setError('Microphone and speech permissions are required.');
+      } else if (startError instanceof SpeechRecognitionUnavailableError) {
+        setError('Speech recognition is unavailable on this device.');
+      } else {
+        setError('Failed to start. Tap mic to retry.');
+      }
+      setIsListening(false);
+    }
+  }, []);
+
+  const stopListening = useCallback(() => {
+    try {
+      recognition.current?.stop();
+      setIsListening(false);
+    } catch (stopError) {
+      console.log('[Voice] Stop error:', stopError);
+    }
+  }, []);
+
   useEffect(() => {
     if (visible) {
       accumulatedText.current = '';
       setDisplayText('');
-      setCurrentPartial('');
+      currentPartial.current = '';
       setError(null);
       startListening();
     } else {
       stopListening();
       accumulatedText.current = '';
       setDisplayText('');
-      setCurrentPartial('');
+      currentPartial.current = '';
     }
-  }, [visible]);
-
-  const startListening = async () => {
-    try {
-      setError(null);
-      setIsListening(true);
-      await Voice.start('en-US');
-    } catch (e) {
-      console.log('[Voice] Start error:', e);
-      setError('Failed to start. Tap mic to retry.');
-      setIsListening(false);
-    }
-  };
-
-  const stopListening = async () => {
-    try {
-      await Voice.stop();
-      setIsListening(false);
-    } catch (e) {
-      console.log('[Voice] Stop error:', e);
-    }
-  };
+  }, [visible, startListening, stopListening]);
 
   const handleMicPress = () => {
     if (isListening) {
@@ -195,15 +203,15 @@ export default function VoiceChatModal({
   };
 
   const handleCancel = () => {
-    stopListening();
-    Voice.destroy().catch(() => {});
+    recognition.current?.cancel();
+    setIsListening(false);
     onClose();
   };
 
   const handleClear = () => {
     accumulatedText.current = '';
+    currentPartial.current = '';
     setDisplayText('');
-    setCurrentPartial('');
   };
 
   const hasText = displayText.trim().length > 0;

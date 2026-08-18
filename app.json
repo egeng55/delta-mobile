@@ -23,7 +23,8 @@
         "NSHealthUpdateUsageDescription": "Delta can log your workouts and health metrics to Apple Health.",
         "NSPhotoLibraryUsageDescription": "Delta needs access to your photo library to set a profile picture.",
         "NSCameraUsageDescription": "Delta uses the camera for body scanning and progress photos.",
-        "NSMicrophoneUsageDescription": "Delta uses the microphone for voice input.",
+        "NSMicrophoneUsageDescription": "Delta uses the microphone for voice chat with your AI health assistant.",
+        "NSSpeechRecognitionUsageDescription": "Delta uses speech recognition to convert your voice to text for chatting with your AI health assistant.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "config": {
@@ -61,7 +62,14 @@
         }
       ],
       "expo-font",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Delta uses the microphone for voice chat with your AI health assistant.",
+          "speechRecognitionPermission": "Delta uses speech recognition to convert your voice to text for chatting with your AI health assistant."
+        }
+      ]
     ]
   }
 }
