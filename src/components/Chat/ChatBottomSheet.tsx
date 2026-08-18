@@ -47,7 +47,6 @@ import Animated, {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import Markdown from 'react-native-markdown-display';
 import { Theme } from '../../theme/colors';
 import { useAuth } from '../../context/AuthContext';
 import { useAccess } from '../../context/AccessContext';
@@ -59,6 +58,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useInsightsData } from '../../hooks/useInsightsData';
 import { getWeather, formatWeatherForContext, WeatherData } from '../../services/weather';
 import VoiceChatModal from './VoiceChatModal';
+import SafeMarkdown from './SafeMarkdown';
+import { boundUntrustedMarkdown } from './safeMarkdownParser';
 import { ProactiveCardsList } from '../ProactiveCard';
 import { useDeltaUI } from '../../context/DeltaUIContext';
 import {
@@ -530,7 +531,8 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
         );
       }
 
-      const segments = parseDeltaVizBlocks(item.text);
+      const safeMessage = boundUntrustedMarkdown(item.text);
+      const segments = parseDeltaVizBlocks(safeMessage);
       const hasViz = segments.some(s => s.type === 'viz');
 
       return (
@@ -539,10 +541,10 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
             {hasViz
               ? segments.map((seg, idx) =>
                   seg.type === 'text'
-                    ? seg.content.trim() ? <Markdown key={idx} style={markdownStyles}>{seg.content}</Markdown> : null
+                    ? seg.content.trim() ? <SafeMarkdown key={idx} source={seg.content} style={markdownStyles} /> : null
                     : <VizRenderer key={idx} json={seg.json} />
                 )
-              : <Markdown style={markdownStyles}>{item.text}</Markdown>
+              : <SafeMarkdown source={safeMessage} style={markdownStyles} />
             }
           </View>
         </Animated.View>
