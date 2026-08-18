@@ -22,7 +22,7 @@ jest.mock('./supabase', () => ({
   },
 }));
 
-const mockedSupabase = supabase as { from: jest.Mock };
+const mockedSupabase = supabase as unknown as { from: jest.Mock };
 
 const baseAvatar: UserAvatar = {
   templateId: 'average',

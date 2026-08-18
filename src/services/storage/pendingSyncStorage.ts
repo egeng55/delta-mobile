@@ -187,9 +187,10 @@ function parsePendingSyncQueue(
     };
   }
 
-  const fromLegacy = Array.isArray(parsed);
-  const rawItems = fromLegacy
-    ? parsed
+  const legacyItems = Array.isArray(parsed) ? parsed : null;
+  const fromLegacy = legacyItems !== null;
+  const rawItems: unknown[] | null = legacyItems
+    ? legacyItems
     : isRecord(parsed) &&
         parsed.schemaVersion === PENDING_SYNC_SCHEMA_VERSION &&
         parsed.kind === PENDING_SYNC_QUEUE_KIND &&

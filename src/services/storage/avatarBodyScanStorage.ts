@@ -84,6 +84,10 @@ interface AvatarBodyScanEnvelope {
   avatar: UserAvatar;
 }
 
+type StoredAvatarBodyScanEnvelope = Record<string, unknown> & {
+  avatar: Record<string, unknown>;
+};
+
 export type AvatarBodyScanReadStatus = 'empty' | 'hit' | 'expired' | 'legacy' | 'malformed';
 
 export interface AvatarBodyScanReadResult {
@@ -95,6 +99,13 @@ export interface AvatarBodyScanReadResult {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStoredAvatarBodyScanEnvelope(value: unknown): value is StoredAvatarBodyScanEnvelope {
+  return isRecord(value) &&
+    value.schemaVersion === AVATAR_BODY_SCAN_SCHEMA_VERSION &&
+    value.kind === AVATAR_BODY_SCAN_KIND &&
+    isRecord(value.avatar);
 }
 
 function normalizeKey(key: string): string {
@@ -292,12 +303,7 @@ function parseStoredAvatar(
     };
   }
 
-  const isEnvelope = isRecord(parsed) &&
-    parsed.schemaVersion === AVATAR_BODY_SCAN_SCHEMA_VERSION &&
-    parsed.kind === AVATAR_BODY_SCAN_KIND &&
-    isRecord(parsed.avatar);
-
-  if (isEnvelope) {
+  if (isStoredAvatarBodyScanEnvelope(parsed)) {
     if (typeof parsed.expiresAt !== 'number' || now >= parsed.expiresAt) {
       return {
         avatar: null,
