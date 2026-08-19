@@ -120,8 +120,19 @@ export interface OfflineHealthCacheEnvelope<T> {
   data: T;
 }
 
+type StoredOfflineHealthCacheEnvelope = Record<string, unknown> & {
+  data: unknown;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStoredOfflineHealthCacheEnvelope(value: unknown): value is StoredOfflineHealthCacheEnvelope {
+  return isRecord(value) &&
+    value.schemaVersion === OFFLINE_HEALTH_CACHE_SCHEMA_VERSION &&
+    value.kind === OFFLINE_HEALTH_CACHE_KIND &&
+    Object.prototype.hasOwnProperty.call(value, 'data');
 }
 
 function normalizeKey(key: string): string {
@@ -254,12 +265,7 @@ function parseStoredCache<T>(
   }
 
   const policy = getOfflineHealthCachePolicy(resource);
-  const isEnvelope = isRecord(parsed) &&
-    parsed.schemaVersion === OFFLINE_HEALTH_CACHE_SCHEMA_VERSION &&
-    parsed.kind === OFFLINE_HEALTH_CACHE_KIND &&
-    Object.prototype.hasOwnProperty.call(parsed, 'data');
-
-  if (isEnvelope) {
+  if (isStoredOfflineHealthCacheEnvelope(parsed)) {
     if (typeof parsed.expiresAt !== 'number' || now >= parsed.expiresAt) {
       return {
         data: null,

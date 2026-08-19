@@ -7,6 +7,14 @@ import {
   insightsApi,
   workoutApi,
 } from './api';
+import type {
+  CausalChain,
+  DashboardResponse,
+  DeltaModule,
+  DerivativesData,
+  InsightCard,
+  WorkoutPlan,
+} from './api';
 import { readCacheEnvelope } from './storage/cachePolicy';
 
 jest.mock('./api', () => ({
@@ -36,6 +44,49 @@ const mockedDerivativesApi = derivativesApi as jest.Mocked<typeof derivativesApi
 const mockedDashboardApi = dashboardApi as jest.Mocked<typeof dashboardApi>;
 const mockedHealthIntelligenceApi = healthIntelligenceApi as jest.Mocked<typeof healthIntelligenceApi>;
 
+const insightCard = (id: string): InsightCard => ({
+  id,
+  title: `Card ${id}`,
+  value: 'steady',
+  subtitle: 'Fixture insight',
+  trend: null,
+  confidence: 0.8,
+});
+
+const causalChain = (id: string): CausalChain => ({
+  chain_type: id,
+  cause_event: 'sleep_logged',
+  effect_event: 'energy_stable',
+  occurrences: 2,
+  co_occurrences: 2,
+  confidence: 0.7,
+  lag_days: 1,
+  narrative: 'Fixture causal chain.',
+});
+
+const deltaModule = (id: string): DeltaModule => ({
+  id,
+  type: 'insight',
+  layout: 'standard',
+  priority: 1,
+  brief: `Module ${id}`,
+  detail: 'Fixture module.',
+  tone: 'neutral',
+  icon: 'sparkles',
+});
+
+const workoutPlan: WorkoutPlan = {
+  plan_id: 'workout-1',
+  user_id: 'user-1',
+  name: 'Easy run',
+  workout_type: 'run',
+  scheduled_date: '2026-06-18',
+  exercises: [],
+  status: 'pending',
+  created_at: '2026-06-18T00:00:00.000Z',
+  completed_at: null,
+};
+
 describe('prefetchAppData', () => {
   let logSpy: jest.SpyInstance;
 
@@ -57,42 +108,84 @@ describe('prefetchAppData', () => {
       data_points: 12,
       date_range: { start: '2026-06-01', end: '2026-06-07' },
       metrics: {},
-      composite: {},
-      recovery_patterns: {},
-    });
+      composite: {
+        physiological_momentum: {
+          score: 72,
+          label: 'steady',
+          symbol: '→',
+          confidence: 0.8,
+          signals_analyzed: 3,
+        },
+      },
+      recovery_patterns: {
+        pattern: 'steady_recovery',
+        description: 'Recovery is stable in the fixture data.',
+      },
+    } satisfies DerivativesData);
     mockedDerivativesApi.getCards.mockResolvedValue({
-      cards: Array.from({ length: 12 }, (_, index) => ({ id: `card-${index + 1}` })),
+      cards: Array.from({ length: 12 }, (_, index) => insightCard(`card-${index + 1}`)),
       count: 12,
     });
     mockedDashboardApi.getWeekly.mockResolvedValue({
-      weekly_summaries: Array.from({ length: 16 }, (_, index) => ({ date: `2026-06-${String(index + 1).padStart(2, '0')}` })),
+      weekly_summaries: Array.from({ length: 16 }, (_, index) => ({
+        date: `2026-06-${String(index + 1).padStart(2, '0')}`,
+        meals: 3,
+        calories: 2100,
+        protein: 140,
+        carbs: 220,
+        fat: 70,
+        workouts: 1,
+        workout_minutes: 35,
+        sleep_hours: 8,
+        sleep_quality: 82,
+        mood_avg: 4,
+        water_oz: 80,
+        weight: null,
+      })),
       days_count: 16,
     });
     mockedDashboardApi.getDashboard.mockResolvedValue({
-      today: { date: '2026-06-18' },
+      today: {
+        date: '2026-06-18',
+        meals: 3,
+        calories: 2100,
+        protein: 140,
+        carbs: 220,
+        fat: 70,
+        workouts: 1,
+        workout_minutes: 35,
+        sleep_hours: 8,
+        sleep_quality: 82,
+        mood_avg: 4,
+        water_oz: 80,
+        weight: null,
+      },
       streak: { current_streak: 1, longest_streak: 2, last_active_date: '2026-06-18' },
       recent_entries: [],
       targets: {
         calories: 2100,
         protein_g: 140,
+        carbs_g: 220,
+        fat_g: 70,
         water_oz: 80,
         sleep_hours: 8,
+        workouts_per_week: 3,
       },
       targets_calculated: true,
-      targets_source: 'personalized',
+      targets_source: 'profile',
       is_workout_day: false,
-    });
+    } satisfies DashboardResponse);
     mockedHealthIntelligenceApi.getState.mockResolvedValue({
       has_data: true,
-      causal_chains: Array.from({ length: 12 }, (_, index) => ({ id: `chain-${index + 1}` })),
+      causal_chains: Array.from({ length: 12 }, (_, index) => causalChain(`chain-${index + 1}`)),
     });
     mockedHealthIntelligenceApi.getModules.mockResolvedValue({
       user_id: 'user-1',
       has_data: true,
-      modules: Array.from({ length: 12 }, (_, index) => ({ id: `module-${index + 1}` })),
+      modules: Array.from({ length: 12 }, (_, index) => deltaModule(`module-${index + 1}`)),
     });
     mockedWorkoutApi.getToday.mockResolvedValue({
-      workout: { title: 'Easy run' },
+      workout: workoutPlan,
     });
   });
 

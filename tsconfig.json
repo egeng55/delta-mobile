@@ -4,6 +4,12 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
+      "expo-modules-core": [
+        "node_modules/expo/node_modules/expo-modules-core"
+      ],
+      "expo-modules-core/*": [
+        "node_modules/expo/node_modules/expo-modules-core/*"
+      ],
       "@/*": [
         "src/*"
       ]
@@ -16,6 +22,7 @@
   "exclude": [
     "node_modules",
     "modules",
+    "_archived",
     "**/__tests__/**"
   ]
 }
