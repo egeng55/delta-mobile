@@ -88,6 +88,9 @@ function validateDirectRuntimeChains(audit) {
     if (!isPlainObject(finding)) {
       fail(`audit.vulnerabilities.${name} must be a plain object`);
     }
+    if (typeof finding.isDirect !== "boolean") {
+      fail(`audit.vulnerabilities.${name}.isDirect must be a boolean`);
+    }
     if (finding.isDirect === true) {
       if (typeof finding.name !== "string" || finding.name.length === 0) {
         fail(`audit.vulnerabilities.${name}.name must be a non-empty string`);
