@@ -1,0 +1,59 @@
+name: Mobile CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: delta-mobile-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verify:
+    name: Verify mobile
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Enforce production audit non-regression
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --json > /tmp/mobile-audit.json || true
+          npm run ci:audit:guard -- /tmp/mobile-audit.json
+
+      - name: Run TypeScript
+        run: npm run typecheck
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Run full test command
+        run: npm test
+
+      - name: Check Expo dependency compatibility
+        run: npx expo install --check
+
+      - name: Run pinned Expo Doctor
+        run: npm run ci:expo-doctor
