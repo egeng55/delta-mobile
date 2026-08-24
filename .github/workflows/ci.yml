@@ -1,0 +1,109 @@
+name: Mobile CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: delta-mobile-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verify:
+    name: Verify mobile
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 25.2.1
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Enforce production audit non-regression
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --json > /tmp/mobile-audit.json || true
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const audit = JSON.parse(readFileSync("/tmp/mobile-audit.json", "utf8"));
+          const counts = audit.metadata?.vulnerabilities ?? {};
+          const baseline = { info: 0, low: 0, moderate: 11, high: 11, critical: 0 };
+          const normalized = Object.fromEntries(
+            Object.keys(baseline).map((key) => [key, Number(counts[key] ?? 0)])
+          );
+          const directRuntimeFindings = Object.values(audit.vulnerabilities ?? {})
+            .filter((finding) => finding?.isDirect === true);
+          const baselineDirectRuntimeChains = new Set([
+            "expo",
+            "expo-dev-client",
+            "expo-notifications",
+          ]);
+          const newDirectRuntimeFindings = directRuntimeFindings
+            .filter((finding) => !baselineDirectRuntimeChains.has(finding.name));
+          const failures = [];
+          for (const [severity, limit] of Object.entries(baseline)) {
+            if (normalized[severity] > limit) {
+              failures.push(`${severity} findings increased from ${limit} to ${normalized[severity]}`);
+            }
+          }
+          if (normalized.critical > 0) {
+            failures.push("critical production vulnerability findings are not allowed");
+          }
+          if (newDirectRuntimeFindings.length > 0) {
+            failures.push(`new direct runtime vulnerable chains detected: ${newDirectRuntimeFindings.map((item) => item.name).join(", ")}`);
+          }
+          console.log(`production audit baseline: critical=${baseline.critical}, high=${baseline.high}, moderate=${baseline.moderate}, low=${baseline.low}, info=${baseline.info}`);
+          console.log(`production audit current: critical=${normalized.critical}, high=${normalized.high}, moderate=${normalized.moderate}, low=${normalized.low}, info=${normalized.info}`);
+          console.log(`documented direct runtime chains: ${[...baselineDirectRuntimeChains].join(", ")}`);
+          if (failures.length > 0) {
+            throw new Error(failures.join("; "));
+          }
+          NODE
+
+      - name: Run TypeScript
+        run: npm run typecheck
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Run full test command
+        run: npm test
+
+      - name: Check Expo dependency compatibility
+        run: npx expo install --check
+
+      - name: Run Expo Doctor when locally available
+        run: |
+          set -euo pipefail
+          if npx --no-install expo-doctor --version >/tmp/expo-doctor-version.txt 2>&1; then
+            cat /tmp/expo-doctor-version.txt
+            set +e
+            npx --no-install expo-doctor 2>&1 | tee /tmp/expo-doctor.txt
+            doctor_status=${PIPESTATUS[0]}
+            set -e
+            if [ "$doctor_status" -ne 0 ]; then
+              grep -q "17/18 checks passed" /tmp/expo-doctor.txt
+              grep -q "Check for app config fields that may not be synced in a non-CNG project" /tmp/expo-doctor.txt
+              echo "Expo Doctor reported only the documented Expo 54 non-CNG native-folder advisory."
+            fi
+          else
+            echo "expo-doctor is not installed in the repository dependency graph; skipping deterministic doctor execution."
+          fi
