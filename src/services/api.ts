@@ -163,7 +163,7 @@ async function request<T>(
     if (isRetryableError) {
       serverIsWarm = false;
 
-      if (retries > 0) {
+      if (retries > 0 && ['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase()) && !options.signal?.aborted) {
         // Wait before retrying (exponential backoff)
         const backoffMs = 1000 * (MAX_RETRIES - retries + 1);
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
@@ -1495,7 +1495,7 @@ async function fetchWithRetry(
     if (isRetryableError) {
       serverIsWarm = false;
 
-      if (retries > 0) {
+      if (retries > 0 && ['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase()) && !options.signal?.aborted) {
         const backoffMs = 1000 * (MAX_RETRIES - retries + 1);
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
         return fetchWithRetry(url, options, retries - 1);
