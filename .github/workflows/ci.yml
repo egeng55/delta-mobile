@@ -49,9 +49,6 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit
 
-      - name: Run full test command
-        run: npm test
-
       - name: Check Expo dependency compatibility
         run: npx expo install --check
 
