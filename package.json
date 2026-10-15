@@ -66,5 +66,10 @@
     "sharp": "^0.34.5",
     "typescript": "~5.9.2"
   },
+  "overrides": {
+    "@expo/metro-config": {
+      "postcss": "8.5.30"
+    }
+  },
   "private": true
 }
