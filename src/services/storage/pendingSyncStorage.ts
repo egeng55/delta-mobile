@@ -29,6 +29,7 @@ const TOKEN_LIKE_KEYS = new Set([
 ]);
 
 export interface PendingSyncItem {
+  ownerUserId?: string;
   id: string;
   type: string;
   data: unknown;
@@ -102,9 +103,11 @@ export function createPendingSyncItem(
   type: string,
   data: unknown,
   now: number = Date.now(),
-  id: string = `${now}_${Math.random().toString(36).slice(2, 11)}`
+  id: string = `${now}_${Math.random().toString(36).slice(2, 11)}`,
+  ownerUserId?: string
 ): PendingSyncItem {
   return {
+    ownerUserId,
     id,
     type,
     data: sanitizePendingSyncPayload(data),
@@ -143,6 +146,7 @@ function normalizePendingSyncItem(
 
   return {
     item: {
+      ownerUserId: typeof value.ownerUserId === 'string' ? value.ownerUserId : undefined,
       id,
       type,
       data: sanitizePendingSyncPayload(value.data),
@@ -297,10 +301,11 @@ export async function loadPendingSyncItems(
 export async function appendPendingSyncItem(
   type: string,
   data: unknown,
-  now: number = Date.now()
+  now: number = Date.now(),
+  ownerUserId?: string
 ): Promise<PendingSyncItem> {
   const current = await loadPendingSyncItems(now);
-  const item = createPendingSyncItem(type, data, now);
+  const item = createPendingSyncItem(type, data, now, undefined, ownerUserId);
   await savePendingSyncItems([...current.items, item], now);
   return item;
 }

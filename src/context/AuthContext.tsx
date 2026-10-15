@@ -13,12 +13,14 @@ import React, {
   useContext,
   useEffect,
   useState,
+  useRef,
   ReactNode,
 } from 'react';
 import { supabase } from '../services/supabase';
 import { invalidateIntelligenceCache } from '../services/api';
 import { avatarService } from '../services/avatarService';
 import { Session, User as SupabaseUser } from '@supabase/supabase-js';
+import { accountIsApproved } from '../services/accountAdmission';
 
 // User type for our app
 export interface User {
@@ -84,9 +86,20 @@ interface AuthProviderProps {
  */
 export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
   const [state, setState] = useState<AuthState>(initialState);
+  const authRevision = useRef(0);
 
   // Initialize and listen to auth state changes
   useEffect(() => {
+    let disposed = false;
+    const initialRevision = authRevision.current;
+    const acceptSession = async (session: Session | null) => {
+      const current = ++authRevision.current;
+      setState({ ...initialState, isLoading: session !== null });
+      const approved = session && !session.user.is_anonymous && session.user.email_confirmed_at
+        ? await accountIsApproved(session.access_token, session.user.id) : false;
+      if (disposed || current !== authRevision.current) return;
+      setState({ isLoading: false, isAuthenticated: Boolean(approved), user: approved ? toUser(session!.user) : null, session: approved ? session : null });
+    };
     // Get initial session
     const initSession = async (): Promise<void> => {
       try {
@@ -103,12 +116,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
           return;
         }
 
-        setState({
-          isLoading: false,
-          isAuthenticated: session !== null,
-          user: toUser(session?.user ?? null),
-          session: session,
-        });
+        if (authRevision.current === initialRevision && !disposed) await acceptSession(session);
       } catch {
         setState({
           isLoading: false,
@@ -124,16 +132,13 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
-        setState({
-          isLoading: false,
-          isAuthenticated: session !== null,
-          user: toUser(session?.user ?? null),
-          session: session,
-        });
+        void acceptSession(session);
       }
     );
 
     return () => {
+      disposed = true;
+      authRevision.current += 1;
       subscription?.unsubscribe?.();
     };
   }, []);
@@ -146,58 +151,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
     age?: number,
     gender?: string
   ): Promise<{ success: boolean; error?: string }> => {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name: name,
-            username: username,
-            age: age,
-            gender: gender,
-          },
-        },
-      });
-
-      if (error !== null) {
-        return { success: false, error: error.message };
-      }
-
-      if (data.user === null) {
-        return { success: false, error: 'Signup failed' };
-      }
-
-      // Create profile row in Supabase (upsert to handle race conditions with triggers)
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .upsert({
-          id: data.user.id,
-          email: email,
-          name: name,
-          username: username ?? null,
-          age: age ?? null,
-          gender: gender ?? null,
-          role: 'user',
-        }, {
-          onConflict: 'id',
-        });
-
-      if (profileError !== null) {
-        console.error('Error creating profile:', profileError.message);
-        // Don't fail signup if profile creation fails - user can still use the app
-      }
-
-      // Check if email confirmation is required
-      if (data.session === null) {
-        return { success: true };
-      }
-
-      return { success: true };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Signup failed';
-      return { success: false, error: message };
-    }
+    return { success: false, error: 'An approved Delta invitation is required. Request access on the Delta website.' };
   }, []);
 
   const login = useCallback(async (
@@ -218,6 +172,11 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
         return { success: false, error: 'Login failed' };
       }
 
+      if (!await accountIsApproved(data.session.access_token, data.session.user.id)) {
+        await supabase.auth.signOut({ scope: 'local' });
+        return { success: false, error: 'Approved access could not be verified. Try again when connected or contact your administrator.' };
+      }
+
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
@@ -226,12 +185,14 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
   }, []);
 
   const logout = useCallback(async (): Promise<void> => {
+    authRevision.current += 1;
+    setState({ ...initialState, isLoading: false });
     try {
       invalidateIntelligenceCache();
       avatarService.clearCache();
       await supabase.auth.signOut();
     } catch {
-      // Ignore errors, state will be reset by listener
+      // Local UI stays signed out even if remote revocation is unavailable.
     }
   }, []);
 

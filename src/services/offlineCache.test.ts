@@ -5,6 +5,8 @@ import {
   getCachedData,
   getPendingSync,
   removeFromPendingSync,
+  initNetworkMonitoring,
+  pendingSyncPolicy,
 } from './offlineCache';
 import {
   PENDING_SYNC_STORAGE_KEY,
@@ -14,6 +16,9 @@ import {
   OFFLINE_HEALTH_CACHE_TTLS_MS,
   offlineHealthCacheStorageKey,
 } from './storage/offlineHealthCacheStorage';
+import NetInfo from '@react-native-community/netinfo';
+const mockSession = jest.fn();
+jest.mock('./supabase', () => ({ supabase: { auth: { getSession: () => mockSession() } } }));
 
 jest.mock('@react-native-community/netinfo', () => ({
   __esModule: true,
@@ -26,6 +31,7 @@ describe('offlineCache health cache storage', () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
     jest.clearAllMocks();
+    mockSession.mockResolvedValue({ data: { session: { user: { id: 'account-a' }, access_token: 'fixture' } }, error: null });
   });
 
   it('stores generic health cache data through the TTL/minimization helper', async () => {
@@ -103,5 +109,31 @@ describe('offlineCache health cache storage', () => {
     const remaining = await getPendingSync();
     expect(remaining).toHaveLength(1);
     expect(remaining[0].data).toEqual({ item: 2 });
+  });
+
+  it('does not expose or remove another account pending work', async () => {
+    await addToPendingSync('tracking', { item: 1 });
+    const [first] = await getPendingSync();
+    mockSession.mockResolvedValue({ data: { session: { user: { id: 'account-b' } } }, error: null });
+    expect(await getPendingSync()).toEqual([]);
+    await removeFromPendingSync(first.id);
+    expect(await AsyncStorage.getItem(PENDING_SYNC_STORAGE_KEY)).toContain(first.id);
+    await expect(addToPendingSync('tracking', { user_id: 'account-a' })).rejects.toThrow('another account');
+  });
+
+  it.each([401, 429, 500])('reconnect never dispatches unsafe replay or loses work (%s)', async status => {
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status });
+    try {
+      await addToPendingSync('tracking', { _endpoint: '/track/water', amount: 1 });
+      const before = await AsyncStorage.getItem(PENDING_SYNC_STORAGE_KEY);
+      initNetworkMonitoring();
+      const callback = jest.mocked(NetInfo.addEventListener).mock.calls[0][0];
+      callback({ isConnected: false } as never);
+      callback({ isConnected: true, isInternetReachable: true } as never);
+      expect(pendingSyncPolicy.automaticReplay).toBe(false);
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(await AsyncStorage.getItem(PENDING_SYNC_STORAGE_KEY)).toBe(before);
+    } finally { global.fetch = originalFetch; }
   });
 });

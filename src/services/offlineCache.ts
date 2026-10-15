@@ -5,17 +5,17 @@
  * - Cache API responses in AsyncStorage
  * - Detect network connectivity
  * - Serve cached data when offline
- * - Auto-sync when back online
+ * - Preserve pending work until safe, idempotent replay is supported
  * - Cache expiration management
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
+import { supabase } from './supabase';
 import {
   appendPendingSyncItem,
   loadPendingSyncItems,
   removePendingSyncItem,
-  savePendingSyncItems,
   type PendingSyncItem,
 } from './storage/pendingSyncStorage';
 import {
@@ -57,16 +57,13 @@ let connectionListeners: Array<(isOnline: boolean) => void> = [];
  */
 export function initNetworkMonitoring(): () => void {
   const unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
-    const wasOnline = isOnline;
     isOnline = state.isConnected === true && state.isInternetReachable !== false;
 
     // Notify listeners
     connectionListeners.forEach(listener => listener(isOnline));
 
-    // If we just came back online, try to sync pending data
-    if (isOnline && !wasOnline) {
-      syncPendingData();
-    }
+    // Connectivity alone cannot authorize a mutation. Legacy tracking APIs do
+    // not provide an idempotency receipt, so automatic replay stays disabled.
   });
 
   return unsubscribe;
@@ -152,20 +149,28 @@ export async function addToPendingSync(
   type: string,
   data: unknown
 ): Promise<void> {
-  try {
-    await appendPendingSyncItem(type, data);
-  } catch {
-    // Silent fail
-  }
+  const owner = await pendingOwner();
+  if (!owner) throw new Error('Sign in before saving pending work');
+  if (data && typeof data === 'object' && 'user_id' in data && data.user_id !== owner) throw new Error('Pending work belongs to another account');
+  await appendPendingSyncItem(type, data, Date.now(), owner);
 }
+
+async function pendingOwner(): Promise<string | null> {
+  const { data, error } = await supabase.auth.getSession();
+  return error ? null : data.session?.user?.id ?? null;
+}
+
+export const pendingSyncPolicy = Object.freeze({ automaticReplay: false, reason: 'server_idempotency_required' });
 
 /**
  * Get pending sync items.
  */
 export async function getPendingSync(): Promise<PendingSyncItem[]> {
   try {
+    const owner = await pendingOwner();
+    if (!owner) return [];
     const result = await loadPendingSyncItems();
-    return result.items;
+    return result.items.filter(item => item.ownerUserId === owner);
   } catch {
     return [];
   }
@@ -176,63 +181,10 @@ export async function getPendingSync(): Promise<PendingSyncItem[]> {
  */
 export async function removeFromPendingSync(id: string): Promise<void> {
   try {
+    if (!(await getPendingSync()).some(item => item.id === id)) throw new Error('Pending item unavailable');
     await removePendingSyncItem(id);
   } catch {
     // Silent fail
-  }
-}
-
-/**
- * Sync pending data when back online.
- * This is a placeholder - actual sync logic depends on API structure.
- */
-async function syncPendingData(): Promise<void> {
-  const pending = await getPendingSync();
-
-  for (const item of pending) {
-    try {
-      item.attempts += 1;
-
-      if (item.attempts > 3) {
-        console.warn('[OfflineCache] Dropping item after 3 failed sync attempts:', item.type);
-        await removeFromPendingSync(item.id);
-        continue;
-      }
-
-      // Attempt to replay the pending operation
-      const { API_BASE_URL } = await import('../config/constants');
-      const { supabase } = await import('./supabase');
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-
-      if (item.type === 'tracking' && typeof item.data === 'object' && item.data !== null) {
-        const trackingData = item.data as Record<string, unknown>;
-        const endpoint = trackingData._endpoint as string | undefined;
-        if (endpoint) {
-          const { _endpoint, ...body } = trackingData;
-          const resp = await fetch(`${API_BASE_URL}${endpoint}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify(body),
-          });
-          if (resp.ok) {
-            await removeFromPendingSync(item.id);
-            continue;
-          }
-        }
-      }
-
-      // If we don't know how to sync this type, drop it
-      await removeFromPendingSync(item.id);
-    } catch {
-      // Update the pending item with new attempt count
-      const all = await getPendingSync();
-      const updated = all.map(p => p.id === item.id ? { ...p, attempts: item.attempts } : p);
-      await savePendingSyncItems(updated);
-    }
   }
 }
 
