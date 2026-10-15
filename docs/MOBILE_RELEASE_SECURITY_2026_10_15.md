@@ -5,6 +5,9 @@
 Blocked. Do not publish a store build or increase the audit baseline to pass.
 The application tests and JS/Hermes exports pass, but the existing production
 audit gate still fails. Exports are not signed native builds or device tests.
+Latest follow-up: 145 tests pass; production audit is 0 critical, 21 high,
+0 moderate. The two remaining root advisories are braces and node-forge.
+See the follow-up section below for the superseding dependency state.
 
 Base: `a4040b7f5f0edb77327281b73dc57f3c74ac8032`.
 Expo remains 54.0.37 and React Native remains 0.81.5 in the lockfile.
@@ -25,7 +28,7 @@ CI thresholds, or store configuration changed.
   and continued rejection of critical findings, high-count regressions, and
   newly vulnerable direct runtime chains.
 
-## Audit readback
+## Initial repair audit readback
 
 These are npm package-chain counts, not counts of independently exploitable
 mobile runtime defects. A single advisory propagates to its dependents.
@@ -88,3 +91,83 @@ of residual risk is a release-policy decision, not a silent baseline refresh.
 
 No EAS build, TestFlight/App Store/Play submission, cloud deployment, application
 data write, provider inference, or live account login was performed.
+
+## Follow-up: remaining dependency chains
+
+Follow-up base: `77c1ad77b2a8a0b59ebef45c6dfb6e7b45aea0a0`.
+Expo and React Native remain unchanged. No native, application, audit-guard,
+signing, or CI configuration changes were made.
+
+- Pin the Metro package family to 0.83.8, the official patch release replacing
+  image-size with maintained parsers. Keep all 14 Expo-pinned Metro components
+  aligned; this is an explicit override of Expo's 0.83.3 toolchain pin.
+- Pin xcode's uuid dependency to 11.1.1, retaining CommonJS and v4 support.
+  Tests parse the existing native project and generate 100 unique Xcode IDs
+  in memory without modifying the project.
+- Pin @istanbuljs/load-nyc-config's js-yaml dependency to 4.3.2. Its used load()
+  interface remains compatible. This removes argparse 1.x and sprintf-js,
+  rather than patching or suppressing the vulnerable formatter.
+- Add nine regression cases (20 dependency/security cases in total), including
+  real Metro buffer and file-path asset APIs, YAML inheritance, Xcode ID
+  generation, aligned Metro versions, and absence of removed dependencies.
+
+An initial direct image-size 2.0.4 override was rejected by full export testing:
+Metro 0.83.3 also uses the removed synchronous file-path API. That override is
+not retained. The official Metro patch avoids a custom compatibility shim.
+
+Official Metro patch:
+https://github.com/facebook/metro/releases/tag/v0.83.8
+
+| Severity | Initial repair | Follow-up |
+| --- | ---: | ---: |
+| Critical | 0 | 0 |
+| High | 22 | 21 |
+| Moderate | 16 | 0 |
+| Total | 38 | 21 |
+
+These are production dependency-chain counts. They are not 21 distinct bugs.
+All remaining entries originate in braces 3.0.3 or node-forge 1.4.0; both are
+still the latest registry releases and neither has a published patched release
+for its remaining advisory as checked on October 15, 2026. The braces advisory
+is disputed upstream, but it remains active in npm audit. A dispute is not a
+withdrawal or authorization to suppress it.
+
+- https://github.com/github/advisory-database/pull/10132
+- https://github.com/micromatch/braces/issues/73
+- https://github.com/advisories/GHSA-86w9-cpqp-85rv
+
+Lockfile reachability: braces is pulled through micromatch by Metro's file map
+and Jest tooling. node-forge is pulled by Expo CLI and its code-signing package.
+Neither library, nor micromatch, image-size or sprintf-js, appears in either
+exported mobile JavaScript source map. This is bundle-specific evidence, not
+proof that build-time certificate verification is safe. No signing credentials
+were loaded and no signing flow was exercised. The dev-only ngrok dependency's
+older uuid is outside this production-audit scope and remains unchanged.
+
+### Follow-up verification
+
+- Clean npm ci succeeded from the new lockfile.
+- TypeScript passed; Jest passed 19 suites / 145 tests.
+- expo install --check passed. Pinned Expo Doctor remained 17/18; the unchanged
+  guard accepted only the documented non-CNG native-folder advisory.
+- iOS and Android Hermes exports with source maps succeeded, including the
+  normal repository Metro configuration. Export output is under
+  `/tmp/delta-mobile-followup-default-export-20261015`.
+- Source-map inventories: 1,702 iOS / 1,703 Android source entries in the
+  initial successful follow-up exports; zero remaining-advisory package hits.
+- An existing Watchman crawl initially misreported react/jsx-runtime.js as
+  absent after npm ci, despite fs.stat and require.resolve succeeding. A
+  temporary Node-crawler-only export isolated it. Resetting only this worktree's
+  Watchman watch fixed the normal-config export. No Metro source/config change
+  or other worktree watch reset was needed.
+- Validation used Node 26.7.0 locally, not the CI Node 24 runner. Network-blocked
+  tests/exports used a scrubbed environment with dotenv disabled. Registry,
+  advisory, and Expo compatibility reads were the only external activity.
+- Production audit guard still fails: high=21 exceeds the unchanged high=9
+  baseline, and react-native remains a newly flagged direct chain. No audit
+  exception or threshold change was introduced.
+
+Release remains blocked. Further work must address the two upstream tooling
+advisories through a maintained fix/replacement or separately reviewed,
+specific risk acceptance. Do not present these follow-up changes as a clean
+audit or a signed/device-tested mobile release.

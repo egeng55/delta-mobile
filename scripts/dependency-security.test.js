@@ -15,6 +15,7 @@ describe('mobile dependency security patches', () => {
     ['source-map-js', '>=1.2.2 <2'],
     ['undici', '>=6.28.1 <7'],
     ['postcss', '>=8.5.23 <9'],
+    ['js-yaml', '>=4.3.2 <5'],
   ])('%s stays on its patched compatible release line', (name, range) => {
     const entries = Object.entries(lock.packages).filter(([path]) =>
       path.endsWith(`node_modules/${name}`),
@@ -23,6 +24,105 @@ describe('mobile dependency security patches', () => {
     for (const [, dependency] of entries) {
       expect(semver.satisfies(dependency.version, range)).toBe(true);
       expect(dependency.integrity).toMatch(/^sha512-/);
+    }
+  });
+
+  test('production UUID consumers resolve a patched CommonJS implementation', () => {
+    const entries = Object.entries(lock.packages).filter(([path, dependency]) =>
+      path.endsWith('node_modules/uuid') && !dependency.dev,
+    );
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [, dependency] of entries) {
+      expect(semver.satisfies(dependency.version, '>=11.1.1 <12')).toBe(true);
+      expect(dependency.integrity).toMatch(/^sha512-/);
+    }
+  });
+
+  test.each(['sprintf-js', 'image-size'])('%s is removed, not suppressed', name => {
+    expect(Object.keys(lock.packages).some(path => path.endsWith(`node_modules/${name}`))).toBe(false);
+  });
+
+  test('Metro packages stay aligned on the maintained security patch', () => {
+    const entries = Object.entries(lock.packages).filter(([path]) =>
+      /node_modules\/metro(?:-[a-z-]+)?$/.test(path),
+    );
+    expect(entries.length).toBeGreaterThanOrEqual(14);
+    for (const [, dependency] of entries) expect(dependency.version).toBe('0.83.8');
+  });
+
+  test('Metro reads PNG, JPEG and SVG dimensions through its maintained parsers', () => {
+    const result = spawnSync(process.execPath, ['-e', `
+      const fs = require('node:fs');
+      const { getAssetSize } = require('metro/private/Assets');
+      for (const [type, path] of [['png', 'assets/icon.png'], ['jpg', 'assets/backgrounds/aerial-ice.jpg']]) {
+        const size = getAssetSize(type, fs.readFileSync(path), path);
+        if (!(size.width > 0 && size.height > 0)) throw new Error('Invalid dimensions');
+      }
+      const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="12" height="34"></svg>');
+      const size = getAssetSize('svg', svg, 'fixture.svg');
+      if (size.width !== 12 || size.height !== 34) throw new Error('SVG adapter mismatch');
+      let rejected = 0;
+      for (const content of [Buffer.alloc(0), Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0])]) {
+        try { getAssetSize('jpg', content, 'invalid.jpg'); } catch { rejected++; }
+      }
+      if (rejected !== 2) throw new Error('Invalid images accepted');
+    `], { cwd: root, encoding: 'utf8', timeout: 10000 });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+  });
+
+  test('Xcode tooling parses the native project and generates unique compatible IDs without writes', () => {
+    const result = spawnSync(process.execPath, ['-e', `
+      const xcode = require('xcode');
+      const project = xcode.project('ios/Delta.xcodeproj/project.pbxproj');
+      project.parseSync();
+      const before = project.writeSync();
+      const ids = new Set(Array.from({ length: 100 }, () => project.generateUuid()));
+      if (ids.size !== 100 || [...ids].some(id => !/^[A-F0-9]{24}$/.test(id))) {
+        throw new Error('Invalid Xcode IDs');
+      }
+      if (project.writeSync() !== before) throw new Error('Project mutated');
+    `], { cwd: root, encoding: 'utf8', timeout: 10000 });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+  });
+
+  test('Metro builds asset metadata from file paths, not just in-memory buffers', () => {
+    const result = spawnSync(process.execPath, ['-e', `
+      const path = require('node:path');
+      const fs = require('node:fs');
+      const { getAssetData, getAssetSize } = require('metro/private/Assets');
+      (async () => {
+        for (const [type, relative] of [['png', 'assets/icon.png'], ['jpg', 'assets/backgrounds/aerial-ice.jpg']]) {
+          const file = path.resolve(relative);
+          const expected = getAssetSize(type, fs.readFileSync(file), file);
+          const data = await getAssetData(file, relative, [], 'ios', '/assets');
+          if (data.width !== expected.width || data.height !== expected.height || !data.hash || !data.__packager_asset) {
+            throw new Error('Asset metadata mismatch');
+          }
+        }
+      })().catch(() => { process.exitCode = 1; });
+    `], { cwd: root, encoding: 'utf8', timeout: 10000 });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+  });
+
+  test('Istanbul loads YAML configuration, including inheritance, with the patched parser', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'delta-nyc-'));
+    try {
+      writeFileSync(join(dir, '.nycrc.yaml'), 'extends: ./base.yaml\nall: true\ninclude:\n  - src/**/*.ts\n');
+      writeFileSync(join(dir, 'base.yaml'), 'reporter:\n  - text\nexclude:\n  - fixtures/**\n');
+      const result = spawnSync(process.execPath, ['-e', `
+        require('@istanbuljs/load-nyc-config').loadNycConfig({ cwd: process.argv[1] })
+          .then(config => process.stdout.write(JSON.stringify(config)))
+          .catch(() => { process.exitCode = 1; });
+      `, dir], { cwd: root, encoding: 'utf8', timeout: 10000 });
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        all: true, include: ['src/**/*.ts'], reporter: ['text'], exclude: ['fixtures/**'],
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 
