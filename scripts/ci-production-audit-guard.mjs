@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { acceptReviewedToolingRisk, projectDigest, sha256 } from "./mobile-audit-exception.mjs";
 
 const auditPath = process.argv[2] ?? "/tmp/mobile-audit.json";
 const baseline = { critical: 0, high: 9, moderate: 11, low: 0 };
@@ -105,6 +107,7 @@ function validateDirectRuntimeChains(audit) {
 }
 
 const audit = readAuditJson(auditPath);
+if (audit.error) fail("npm audit reported an error; no release decision is possible");
 const normalized = validateCounts(audit);
 const newDirectRuntimeFindings = validateDirectRuntimeChains(audit);
 const failures = [];
@@ -135,6 +138,22 @@ console.log(
 );
 console.log(`documented direct runtime chains: ${[...baselineDirectRuntimeChains].join(", ")}`);
 
-if (failures.length > 0) {
-  fail(failures.join("; "));
+if (normalized.total > 0) {
+  // No generic increase to the baseline: only the exact reviewed advisory
+  // graph and application state can use the short-lived risk acceptance.
+  try {
+    const root = fileURLToPath(new URL('../', import.meta.url));
+    const policy = JSON.parse(readFileSync(new URL('./mobile-audit-exception.json', import.meta.url), 'utf8'));
+    const accepted = acceptReviewedToolingRisk({
+      audit, policy,
+      lockDigest: sha256(readFileSync(new URL('../package-lock.json', import.meta.url))),
+      inputDigest: projectDigest(root),
+    });
+    console.log(`TEMPORARY RISK ACCEPTANCE (not a clean audit): ${accepted.exception}; ` +
+      `${accepted.acceptedPackageEntries} package entries; expires ${accepted.expiresAt}`);
+  } catch (error) {
+    fail([...failures, error.message].join('; '));
+  }
+} else if (failures.length > 0 || Object.keys(audit.vulnerabilities).length > 0) {
+  fail([...failures, 'zero-count audit must contain no vulnerability findings'].join('; '));
 }

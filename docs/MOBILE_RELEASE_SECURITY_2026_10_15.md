@@ -2,12 +2,15 @@
 
 ## Release decision
 
-Blocked. Do not publish a store build or increase the audit baseline to pass.
-The application tests and JS/Hermes exports pass, but the existing production
-audit gate still fails. Exports are not signed native builds or device tests.
-Latest follow-up: 145 tests pass; production audit is 0 critical, 21 high,
-0 moderate. The two remaining root advisories are braces and node-forge.
-See the follow-up section below for the superseding dependency state.
+The local audit gate now passes under an explicitly approved temporary risk
+acceptance, not a clean audit. See MOBILE_BUILD_TOOL_RISK_ACCEPTANCE_2026_10_15.md.
+The exception expires at 2026-10-29 00:00 UTC and binds the reviewed application,
+lockfile, and exact advisory graph. No severity baseline was increased.
+Latest: 170 tests pass; production audit is 0 critical, 21 high, 0 moderate.
+The remaining root advisories are braces and node-forge. iOS/Android exports
+pass but are not signed native builds or device tests. No deployment occurred.
+The sections below retain the initial and follow-up repair chronology; their
+blocked decisions are superseded only by this specific temporary acceptance.
 
 Base: `a4040b7f5f0edb77327281b73dc57f3c74ac8032`.
 Expo remains 54.0.37 and React Native remains 0.81.5 in the lockfile.

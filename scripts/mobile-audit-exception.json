@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "mobile-build-tooling-20261015",
+  "scope": "reviewed-mobile-build-tooling",
+  "reviewedAt": "2026-10-15T00:00:00.000Z",
+  "expiresAt": "2026-10-29T00:00:00.000Z",
+  "reviewedCommit": "6c1b2c746d9c77435672f6eccfeae8b97820a796",
+  "authorization": "Operator approved the narrow build-tool security review and justified temporary exception in this task.",
+  "auditSha256": "d85a4b8fef7c8e69a6adb36012debbe65a265bbf6efca2075a75b2b33e4dd6ec",
+  "projectSha256": "70e1a3129de70121dd50b400bcdc39a26f839d19d7e542ed67c86109063dbc70",
+  "lockfileSha256": "afaab5982d1f13f124d11abd41f33d03480943e1ed3c0724e1218502cd1d375d",
+  "advisories": ["GHSA-vfj7-8cjw-p6xm", "GHSA-86w9-cpqp-85rv"],
+  "conditions": [
+    "Reviewed native app exports only; not approval to expose Metro or Expo development servers to untrusted users.",
+    "No Expo update-signing certificate is configured; enabling update signing requires a new security review.",
+    "No attacker-controlled glob patterns, certificates, CSRs, keys, or build plugins may enter the build pipeline.",
+    "Neither affected library is present in either reviewed mobile JavaScript source map.",
+    "Native signing and store submission remain separate checks; no credentials were used in this review.",
+    "Any advisory graph, lockfile, or build/application input change invalidates this exception. No automatic renewal."
+  ]
+}
