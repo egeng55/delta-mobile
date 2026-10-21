@@ -83,7 +83,7 @@ class HealthSyncService {
 
     try {
       // Check authorization
-      const authorized = await healthKitService.isAuthorized();
+      const authorized = await healthKitService.isAuthorizationRequestComplete();
       if (!authorized) {
         return { synced: false, error: 'HealthKit not authorized' };
       }

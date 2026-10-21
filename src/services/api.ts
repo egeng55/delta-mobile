@@ -14,6 +14,7 @@ import {
 } from '../config/constants';
 import { recordDecision } from './deltaDecisionLog';
 import { supabase } from './supabase';
+import { withRequestDeadline, assertRequestActive } from './requestDeadline';
 
 // Timeouts for Render free tier cold starts
 const COLD_START_TIMEOUT = TIMEOUTS.COLD_START;
@@ -63,6 +64,7 @@ export interface ImageAnalysisResponse {
 export interface ChatWithImageResponse {
   response: string;
   image_analysis: ImageAnalysisResponse | null;
+  saved?: boolean;
 }
 
 export interface InsightsData {
@@ -89,7 +91,8 @@ export class ApiError extends Error {
 async function request<T>(
   endpoint: string,
   options: RequestInit = {},
-  retries: number = MAX_RETRIES
+  retries: number = MAX_RETRIES,
+  readBody: (response: Response) => Promise<T> = response => response.json() as Promise<T>,
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   if (serverIsWarm && Date.now() - lastSuccessfulRequest > WARM_TIMEOUT_MS) {
@@ -97,13 +100,12 @@ async function request<T>(
   }
   const timeout = serverIsWarm ? NORMAL_TIMEOUT : COLD_START_TIMEOUT;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-
   try {
+    return await withRequestDeadline(timeout, async signal => {
     // Attach Supabase session token for authenticated endpoints
     const authHeaders: Record<string, string> = {};
     let { data: sessionData } = await supabase.auth.getSession();
+    assertRequestActive(signal);
     // Refresh token if expired or about to expire (within 60s)
     if (sessionData?.session) {
       const expiresAt = sessionData.session.expires_at ?? 0;
@@ -121,21 +123,16 @@ async function request<T>(
       console.log('[API] /modules auth:', sessionData?.session?.access_token ? 'token present' : 'NO TOKEN');
     }
 
+    assertRequestActive(signal);
     const response = await fetch(url, {
       ...options,
-      signal: controller.signal,
+      signal,
       headers: {
         'Content-Type': 'application/json',
         ...authHeaders,
         ...options.headers,
       },
     });
-
-    clearTimeout(timeoutId);
-
-    // Mark server as warm after successful response
-    serverIsWarm = true;
-    lastSuccessfulRequest = Date.now();
 
     if (response.ok !== true) {
       let errorMessage = 'Request failed';
@@ -148,9 +145,13 @@ async function request<T>(
       throw new ApiError(errorMessage, response.status);
     }
 
-    return response.json() as Promise<T>;
+    const result = await readBody(response);
+    assertRequestActive(signal);
+    serverIsWarm = true;
+    lastSuccessfulRequest = Date.now();
+    return result;
+    }, options.signal);
   } catch (error) {
-    clearTimeout(timeoutId);
 
     // Check if this is a timeout or network error that we should retry
     const isRetryableError =
@@ -169,7 +170,7 @@ async function request<T>(
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
 
         // Retry with warm timeout since we've already waited
-        return request<T>(endpoint, options, retries - 1);
+        return request<T>(endpoint, options, retries - 1, readBody);
       }
     }
 
@@ -219,7 +220,8 @@ export const chatApi = {
     message: string,
     unitSystem?: 'metric' | 'imperial',
     weatherContext?: string,
-    clientTimezone?: string
+    clientTimezone?: string,
+    turn?: { conversationId: string; requestId: string },
   ): Promise<string> => {
     // Auto-detect timezone if not provided
     const timezone = clientTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -231,6 +233,8 @@ export const chatApi = {
         unit_system: unitSystem,
         weather_context: weatherContext,
         client_timezone: timezone,
+        conversation_id: turn?.conversationId,
+        request_id: turn?.requestId,
       }),
     });
     return response.response;
@@ -243,7 +247,8 @@ export const chatApi = {
     clientTimezone?: string,
     clientLocalTime?: string,
     unitSystem?: 'metric' | 'imperial',
-    weatherContext?: string
+    weatherContext?: string,
+    turn?: { conversationId: string; requestId: string },
   ): Promise<ChatWithImageResponse> => {
     const response = await request<ChatWithImageResponse>('/chat/with-image', {
       method: 'POST',
@@ -255,6 +260,8 @@ export const chatApi = {
         client_local_time: clientLocalTime,
         unit_system: unitSystem,
         weather_context: weatherContext,
+        conversation_id: turn?.conversationId,
+        request_id: turn?.requestId,
       }),
     });
     return response;
@@ -1459,53 +1466,6 @@ export interface ExportRequest {
   end_date?: string;
 }
 
-// Helper for fetch with timeout and retry (for non-JSON responses)
-async function fetchWithRetry(
-  url: string,
-  options: RequestInit = {},
-  retries: number = MAX_RETRIES
-): Promise<Response> {
-  if (serverIsWarm && Date.now() - lastSuccessfulRequest > WARM_TIMEOUT_MS) {
-    serverIsWarm = false;
-  }
-  const timeout = serverIsWarm ? NORMAL_TIMEOUT : COLD_START_TIMEOUT;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-    serverIsWarm = true;
-    lastSuccessfulRequest = Date.now();
-    return response;
-  } catch (error) {
-    clearTimeout(timeoutId);
-
-    const isRetryableError =
-      error instanceof Error &&
-      (error.name === 'AbortError' ||
-        error.message.includes('Network request failed') ||
-        error.message.includes('timeout') ||
-        error.message.includes('network'));
-
-    if (isRetryableError) {
-      serverIsWarm = false;
-
-      if (retries > 0 && ['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase()) && !options.signal?.aborted) {
-        const backoffMs = 1000 * (MAX_RETRIES - retries + 1);
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
-        return fetchWithRetry(url, options, retries - 1);
-      }
-    }
-
-    throw error;
-  }
-}
-
 // Export API
 export const exportApi = {
   /**
@@ -1516,23 +1476,10 @@ export const exportApi = {
     userId: string,
     options?: ExportRequest
   ): Promise<Blob> => {
-    const url = `${API_BASE_URL}/export/${userId}/pdf`;
-    const { data: sessionData } = await supabase.auth.getSession();
-    const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (sessionData?.session?.access_token) {
-      authHeaders['Authorization'] = `Bearer ${sessionData.session.access_token}`;
-    }
-    const response = await fetchWithRetry(url, {
+    return request<Blob>(`/export/${userId}/pdf`, {
       method: 'POST',
-      headers: authHeaders,
       body: JSON.stringify(options || {}),
-    });
-
-    if (response.ok !== true) {
-      throw new ApiError('Failed to generate PDF', response.status);
-    }
-
-    return response.blob();
+    }, 0, response => response.blob());
   },
 
   /**
@@ -1543,23 +1490,10 @@ export const exportApi = {
     userId: string,
     options?: ExportRequest
   ): Promise<string> => {
-    const url = `${API_BASE_URL}/export/${userId}/csv`;
-    const { data: sessionData } = await supabase.auth.getSession();
-    const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (sessionData?.session?.access_token) {
-      authHeaders['Authorization'] = `Bearer ${sessionData.session.access_token}`;
-    }
-    const response = await fetchWithRetry(url, {
+    return request<string>(`/export/${userId}/csv`, {
       method: 'POST',
-      headers: authHeaders,
       body: JSON.stringify(options || {}),
-    });
-
-    if (response.ok !== true) {
-      throw new ApiError('Failed to generate CSV', response.status);
-    }
-
-    return response.text();
+    }, 0, response => response.text());
   },
 
   /**
@@ -1574,6 +1508,16 @@ export const exportApi = {
       method: 'POST',
       body: JSON.stringify(options || {}),
     });
+  },
+
+  exportAccount: async (userId: string): Promise<Record<string, unknown>> => {
+    const result = await request<{ status: string; data: Record<string, unknown> }>('/user/export', {
+      method: 'POST', body: JSON.stringify({ user_id: userId }),
+    }, 0);
+    if (result.status !== 'success' || !result.data || typeof result.data !== 'object' || Array.isArray(result.data)) {
+      throw new Error('Invalid account export response');
+    }
+    return result.data;
   },
 };
 
@@ -2572,14 +2516,27 @@ export const profileCardsApi = {
 export interface Conversation {
   id: string;
   title: string;
-  created_at: number;
-  updated_at: number;
+  created_at: number | string;
+  updated_at: number | string;
+}
+
+export interface ConversationMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp: string;
 }
 
 // Conversation API
 export const conversationsApi = {
-  getAll: async (userId: string): Promise<{ conversations: Conversation[] }> => {
-    return request<{ conversations: Conversation[] }>(`/conversations/${userId}`);
+  getAll: async (userId: string, offset = 0): Promise<{ conversations: Conversation[] }> => {
+    return request<{ conversations: Conversation[] }>(`/conversations/${userId}?limit=100&offset=${offset}`);
+  },
+
+  getMessages: async (userId: string, conversationId: string, offset = 0): Promise<{ messages: ConversationMessage[] }> => {
+    return request<{ messages: ConversationMessage[] }>(
+      `/conversations/${userId}/${conversationId}/messages?limit=50&offset=${offset}`
+    );
   },
 
   create: async (

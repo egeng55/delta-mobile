@@ -70,7 +70,7 @@ class HealthKitService {
 
     try {
       const result = await HealthKitModule.requestAuthorization();
-      return result.authorized ?? false;
+      return result.requestCompleted === true;
     } catch (error) {
       console.error('HealthKit authorization error:', error);
       return false;
@@ -78,16 +78,16 @@ class HealthKitService {
   }
 
   /**
-   * Check if HealthKit is authorized
+   * Check if the permission prompt was completed. iOS does not disclose read grants.
    */
-  async isAuthorized(): Promise<boolean> {
+  async isAuthorizationRequestComplete(): Promise<boolean> {
     if (!this.isAvailable) {
       return false;
     }
 
     try {
-      const result = await HealthKitModule.isAuthorized();
-      return result.authorized ?? false;
+      const result = await HealthKitModule.isAuthorizationRequestComplete();
+      return result.requestCompleted === true;
     } catch (error) {
       console.error('HealthKit authorization check error:', error);
       return false;

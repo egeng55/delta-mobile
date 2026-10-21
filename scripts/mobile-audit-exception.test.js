@@ -64,12 +64,20 @@ test('JSON ordering does not invalidate equivalent advisory evidence', () => {
   }).status).toBe(0);
 });
 
-test('the real guard accepts the bound report only within its fixed validity window', () => {
+test('the real guard accepts only bound inputs within its fixed validity window', () => {
   const result = spawnSync(process.execPath, ['scripts/ci-production-audit-guard.mjs',
     'scripts/fixtures/mobile-reviewed-audit.json'], { cwd: root, encoding: 'utf8', timeout: 10000 });
-  const valid = Date.now() >= Date.parse(policy.reviewedAt) && Date.now() < Date.parse(policy.expiresAt);
+  const currentDigest = execFileSync(process.execPath, ['--input-type=module', '-e', `
+    import { projectDigest } from './scripts/mobile-audit-exception.mjs';
+    console.log(projectDigest(process.cwd()));
+  `], { cwd: root, encoding: 'utf8' }).trim();
+  const valid = Date.now() >= Date.parse(policy.reviewedAt) && Date.now() < Date.parse(policy.expiresAt)
+    && currentDigest === policy.projectSha256;
   expect(result.status).toBe(valid ? 0 : 1);
   if (valid) expect(result.stdout).toContain('TEMPORARY RISK ACCEPTANCE (not a clean audit)');
+  else if (currentDigest !== policy.projectSha256 && Date.now() < Date.parse(policy.expiresAt)) {
+    expect(result.stderr).toContain('bindings changed; re-review required');
+  }
 });
 
 test.each([

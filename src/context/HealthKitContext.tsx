@@ -35,7 +35,7 @@ interface HealthData {
 interface HealthKitContextType {
   // Status
   isAvailable: boolean;
-  isAuthorized: boolean;
+  isAuthorizationRequestComplete: boolean;
   isEnabled: boolean;
   isLoading: boolean;
   lastSyncTime: Date | null;
@@ -65,7 +65,7 @@ const HealthKitContext = createContext<HealthKitContextType | undefined>(undefin
 
 export function HealthKitProvider({ children }: { children: ReactNode }): React.ReactElement {
   const { user } = useAuth();
-  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [isAuthorizationRequestComplete, setIsAuthorizationRequestComplete] = useState(false);
   const [isEnabled, setIsEnabledState] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
@@ -74,7 +74,7 @@ export function HealthKitProvider({ children }: { children: ReactNode }): React.
   const isAvailable = Platform.OS === 'ios' && healthKitService.isHealthKitAvailable();
 
   // Check if we have meaningful watch data
-  const hasWatchData = isEnabled && isAuthorized && (
+  const hasWatchData = isEnabled && isAuthorizationRequestComplete && (
     healthData.sleep !== null ||
     healthData.hrv !== null ||
     healthData.restingHeartRate !== null ||
@@ -88,11 +88,11 @@ export function HealthKitProvider({ children }: { children: ReactNode }): React.
       try {
         const [enabledStr, authorized] = await Promise.all([
           getSensitiveItemWithLegacyFallback(SECURE_HEALTHKIT_ENABLED_KEY, HEALTHKIT_ENABLED_KEY),
-          isAvailable ? healthKitService.isAuthorized() : Promise.resolve(false),
+          isAvailable ? healthKitService.isAuthorizationRequestComplete() : Promise.resolve(false),
         ]);
 
         setIsEnabledState(enabledStr === 'true');
-        setIsAuthorized(authorized);
+        setIsAuthorizationRequestComplete(authorized);
 
         const syncTime = await healthSyncService.getLastSyncTime();
         setLastSyncTime(syncTime);
@@ -111,7 +111,7 @@ export function HealthKitProvider({ children }: { children: ReactNode }): React.
 
     try {
       const authorized = await healthKitService.requestAuthorization();
-      setIsAuthorized(authorized);
+      setIsAuthorizationRequestComplete(authorized);
       return authorized;
     } catch (e) {
       console.log('[HealthKit] Authorization error:', e);
@@ -120,7 +120,7 @@ export function HealthKitProvider({ children }: { children: ReactNode }): React.
   }, [isAvailable]);
 
   const refreshHealthData = useCallback(async (): Promise<void> => {
-    if (!isAvailable || !isAuthorized) return;
+    if (!isAvailable || !isAuthorizationRequestComplete) return;
 
     try {
       const today = new Date();
@@ -148,18 +148,18 @@ export function HealthKitProvider({ children }: { children: ReactNode }): React.
     } catch (e) {
       console.log('[HealthKit] Refresh error:', e);
     }
-  }, [isAvailable, isAuthorized]);
+  }, [isAvailable, isAuthorizationRequestComplete]);
 
   // Fetch health data when enabled and authorized
   useEffect(() => {
-    if (isEnabled && isAuthorized && !isLoading) {
+    if (isEnabled && isAuthorizationRequestComplete && !isLoading) {
       refreshHealthData();
     }
-  }, [isEnabled, isAuthorized, isLoading, refreshHealthData]);
+  }, [isEnabled, isAuthorizationRequestComplete, isLoading, refreshHealthData]);
 
   // Auto-sync when enabled
   useEffect(() => {
-    if (isEnabled && isAuthorized && user?.id) {
+    if (isEnabled && isAuthorizationRequestComplete && user?.id) {
       const checkAndSync = async () => {
         const shouldSync = await healthSyncService.shouldSync();
         if (shouldSync) {
@@ -170,23 +170,23 @@ export function HealthKitProvider({ children }: { children: ReactNode }): React.
       };
       checkAndSync();
     }
-  }, [isEnabled, isAuthorized, user?.id]);
+  }, [isEnabled, isAuthorizationRequestComplete, user?.id]);
 
   const setEnabled = useCallback(async (enabled: boolean): Promise<void> => {
     setIsEnabledState(enabled);
     await setSensitiveItemReplacingLegacy(SECURE_HEALTHKIT_ENABLED_KEY, enabled.toString(), HEALTHKIT_ENABLED_KEY);
 
-    if (enabled && !isAuthorized) {
+    if (enabled && !isAuthorizationRequestComplete) {
       await requestAuthorization();
     }
 
-    if (enabled && isAuthorized) {
+    if (enabled && isAuthorizationRequestComplete) {
       await refreshHealthData();
     }
-  }, [isAuthorized, requestAuthorization, refreshHealthData]);
+  }, [isAuthorizationRequestComplete, requestAuthorization, refreshHealthData]);
 
   const syncNow = useCallback(async (): Promise<void> => {
-    if (!user?.id || !isAuthorized) return;
+    if (!user?.id || !isAuthorizationRequestComplete) return;
 
     setIsLoading(true);
     try {
@@ -199,13 +199,13 @@ export function HealthKitProvider({ children }: { children: ReactNode }): React.
     } finally {
       setIsLoading(false);
     }
-  }, [user?.id, isAuthorized, refreshHealthData]);
+  }, [user?.id, isAuthorizationRequestComplete, refreshHealthData]);
 
   return (
     <HealthKitContext.Provider
       value={{
         isAvailable,
-        isAuthorized,
+        isAuthorizationRequestComplete,
         isEnabled,
         isLoading,
         lastSyncTime,

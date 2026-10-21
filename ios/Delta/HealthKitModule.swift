@@ -28,41 +28,42 @@ class HealthKitModule: NSObject {
 
   // MARK: - Authorization
 
+  private var readTypes: Set<HKObjectType> {
+    [HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
+     HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!,
+     HKObjectType.quantityType(forIdentifier: .restingHeartRate)!,
+     HKObjectType.quantityType(forIdentifier: .stepCount)!]
+  }
+
   @objc
   func requestAuthorization(_ resolve: @escaping RCTPromiseResolveBlock,
                             rejecter reject: @escaping RCTPromiseRejectBlock) {
     guard HKHealthStore.isHealthDataAvailable() else {
-      resolve(["authorized": false, "error": "HealthKit not available"])
+      resolve(["requestCompleted": false, "error": "HealthKit not available"])
       return
     }
 
-    let readTypes: Set<HKObjectType> = [
-      HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
-      HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!,
-      HKObjectType.quantityType(forIdentifier: .restingHeartRate)!,
-      HKObjectType.quantityType(forIdentifier: .stepCount)!,
-    ]
-
     healthStore.requestAuthorization(toShare: nil, read: readTypes) { success, error in
       if let error = error {
-        resolve(["authorized": false, "error": error.localizedDescription])
+        resolve(["requestCompleted": false])
       } else {
-        resolve(["authorized": success])
+        // Completion does not reveal whether the user granted read access.
+        resolve(["requestCompleted": success])
       }
     }
   }
 
   @objc
-  func isAuthorized(_ resolve: @escaping RCTPromiseResolveBlock,
+  func isAuthorizationRequestComplete(_ resolve: @escaping RCTPromiseResolveBlock,
                     rejecter reject: @escaping RCTPromiseRejectBlock) {
     guard HKHealthStore.isHealthDataAvailable() else {
-      resolve(["authorized": false])
+      resolve(["requestCompleted": false])
       return
     }
 
-    let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!
-    let status = healthStore.authorizationStatus(for: sleepType)
-    resolve(["authorized": status == .sharingAuthorized])
+    healthStore.getRequestStatusForAuthorization(toShare: [], read: readTypes) { status, error in
+      resolve(["requestCompleted": error == nil && status == .unnecessary])
+    }
   }
 
   // MARK: - Sleep Data

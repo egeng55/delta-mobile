@@ -25,8 +25,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { File, Paths } from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
+import { blobToBytes, shareExport } from '../services/exportFiles';
 import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -70,7 +69,7 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
   const { unitSystem, setUnitSystem, isMetric } = useUnits();
   const {
     isAvailable: healthKitAvailable,
-    isAuthorized: healthKitAuthorized,
+    isAuthorizationRequestComplete: healthKitRequestComplete,
     isEnabled: healthKitEnabled,
     isLoading: healthKitLoading,
     lastSyncTime,
@@ -225,27 +224,10 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
           text: 'Export',
           onPress: async () => {
             try {
-              const { data: sessionData } = await supabase.auth.getSession();
-              const token = sessionData?.session?.access_token;
-              if (!token) {
-                Alert.alert('Error', 'Please sign in again.');
-                return;
-              }
-              const response = await fetch(`${API_BASE_URL}/user/export`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`,
-                },
-                body: JSON.stringify({ user_id: user.id }),
-              });
-              if (response.ok === true) {
-                Alert.alert('Success', 'Your data export is ready.');
-              } else {
-                Alert.alert('Error', 'Could not export data.');
-              }
+              const data = await exportApi.exportAccount(user.id);
+              await shareExport(`delta_account_${getLocalDateString()}.json`, JSON.stringify(data, null, 2), 'application/json');
             } catch {
-              Alert.alert('Error', 'Could not connect to server.');
+              Alert.alert('Export Failed', 'Could not prepare or share your data. Please try again.');
             }
           },
         },
@@ -320,38 +302,17 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
 
       if (exportFormat === 'pdf') {
         const blob = await exportApi.exportPdf(user.id, { start_date: startDate, end_date: endDate });
-        const arrayBuffer = await blob.arrayBuffer();
-        const file = new File(Paths.cache, `delta_insights_${endDate}.pdf`);
-        await file.write(new Uint8Array(arrayBuffer));
-
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare === true) {
-          await Sharing.shareAsync(file.uri, { mimeType: 'application/pdf' });
-        } else {
-          Alert.alert('Export Ready', 'PDF generated but sharing not available on this device.');
-        }
+        await shareExport(`delta_insights_${endDate}.pdf`, await blobToBytes(blob), 'application/pdf');
       } else if (exportFormat === 'csv') {
         const csvContent = await exportApi.exportCsv(user.id, { start_date: startDate, end_date: endDate });
-        const file = new File(Paths.cache, `delta_metrics_${endDate}.csv`);
-        await file.write(csvContent);
-
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare === true) {
-          await Sharing.shareAsync(file.uri, { mimeType: 'text/csv' });
-        }
+        await shareExport(`delta_metrics_${endDate}.csv`, csvContent, 'text/csv');
       } else {
         const jsonData = await exportApi.exportJson(user.id, { start_date: startDate, end_date: endDate });
         const jsonString = JSON.stringify(jsonData, null, 2);
-        const file = new File(Paths.cache, `delta_insights_${endDate}.json`);
-        await file.write(jsonString);
-
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare === true) {
-          await Sharing.shareAsync(file.uri, { mimeType: 'application/json' });
-        }
+        await shareExport(`delta_insights_${endDate}.json`, jsonString, 'application/json');
       }
 
-      Alert.alert('Export Complete', 'Your insights have been exported.');
+      // The native share sheet can be cancelled; do not claim delivery.
     } catch (error) {
       Alert.alert('Export Failed', 'Could not generate export. Please try again.');
     } finally {
@@ -490,10 +451,10 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
             <View style={styles.settingContent}>
               <Text style={styles.settingLabel}>Apple Watch Sync</Text>
               <Text style={styles.settingDescription}>
-                {healthKitEnabled && healthKitAuthorized
+                {healthKitEnabled && healthKitRequestComplete
                   ? hasWatchData
                     ? 'Syncing sleep, HRV, heart rate, steps'
-                    : 'Connected - waiting for data'
+                    : 'No readable data. Check Health permissions if needed.'
                   : 'Auto-import health data from your watch'}
               </Text>
             </View>
@@ -508,7 +469,7 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
               />
             )}
           </View>
-          {healthKitEnabled && healthKitAuthorized && (
+          {healthKitEnabled && healthKitRequestComplete && (
             <>
               <View style={styles.settingRow}>
                 <View style={styles.settingIconContainer}>
@@ -545,13 +506,13 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
               </TouchableOpacity>
             </>
           )}
-          {healthKitEnabled && !healthKitAuthorized && (
+          {healthKitEnabled && !healthKitRequestComplete && (
             <View style={[styles.settingRow, { backgroundColor: theme.warning + '10' }]}>
               <View style={styles.settingIconContainer}>
                 <Ionicons name="alert-circle-outline" size={20} color={theme.warning} />
               </View>
               <View style={styles.settingContent}>
-                <Text style={[styles.settingLabel, { color: theme.warning }]}>Permission Required</Text>
+                <Text style={[styles.settingLabel, { color: theme.warning }]}>Health setup incomplete</Text>
                 <Text style={styles.settingDescription}>
                   Open Settings → Privacy → Health to grant access
                 </Text>

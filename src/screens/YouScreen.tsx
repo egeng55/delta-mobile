@@ -41,6 +41,7 @@ import { Theme } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useAccess } from '../context/AccessContext';
 import { supabase } from '../services/supabase';
+import { saveProfileUpdate } from '../services/profileSave';
 import { decode } from 'base64-arraybuffer';
 import {
   healthIntelligenceApi,
@@ -278,29 +279,22 @@ export default function YouScreen({ theme, onOpenSettings }: YouScreenProps): Re
       }
       if (user?.id) {
         const ageNum = editData.age.length > 0 ? parseInt(editData.age, 10) : null;
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({
+        await saveProfileUpdate(user.id, {
             name: editData.displayName,
             username: editData.username.length > 0 ? editData.username : null,
             age: ageNum,
             gender: editData.gender,
             avatar_url: avatarUrl,
             bio: editData.bio,
-          })
-          .eq('id', user.id);
-        if (updateError?.code === '23505') {
-          Alert.alert('Error', 'This username is already taken');
-          setIsSaving(false);
-          return;
-        }
+          });
         try { await profileApi.syncToDelta(user.id); } catch (e) { console.warn('[YouScreen] Profile sync failed:', e); }
         await checkAccess();
       }
-      setProfileData(editData);
+      setProfileData({ ...editData, profileImage: avatarUrl });
       setEditModalVisible(false);
-    } catch {
-      Alert.alert('Error', 'Could not save profile');
+    } catch (error) {
+      Alert.alert('Error', error instanceof Error && error.message === 'This username is already taken'
+        ? error.message : 'Could not save profile. Please try again.');
     } finally {
       setIsSaving(false);
     }

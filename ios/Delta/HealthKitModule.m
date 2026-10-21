@@ -12,7 +12,7 @@
 RCT_EXTERN_METHOD(requestAuthorization:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(isAuthorized:(RCTPromiseResolveBlock)resolve
+RCT_EXTERN_METHOD(isAuthorizationRequestComplete:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(getSleepData:(NSString *)startDate

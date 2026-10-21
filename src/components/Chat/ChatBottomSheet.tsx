@@ -60,6 +60,8 @@ import { getWeather, formatWeatherForContext, WeatherData } from '../../services
 import VoiceChatModal from './VoiceChatModal';
 import SafeMarkdown from './SafeMarkdown';
 import { boundUntrustedMarkdown } from './safeMarkdownParser';
+import { newClientId, isCanonicalConversationId } from '../../services/nativeId';
+import { ensureConversation, restoreConversationIndex, restoreMessages } from '../../services/conversationHistory';
 import { ProactiveCardsList } from '../ProactiveCard';
 import { useDeltaUI } from '../../context/DeltaUIContext';
 import {
@@ -171,6 +173,17 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
     const [isLoading, setIsLoading] = useState(false);
     const [conversations, setConversations] = useState<SavedConversation[]>([]);
     const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+    const conversationIdRef = useRef<string | null>(null);
+    const accountRef = useRef(user?.id);
+    accountRef.current = user?.id;
+    const operationRevision = useRef(0);
+    const sendInFlight = useRef(false);
+    const [historyLoading, setHistoryLoading] = useState(true);
+    const [historyNotice, setHistoryNotice] = useState<string | null>(null);
+    const [hasMoreConversations, setHasMoreConversations] = useState(false);
+    const conversationOffset = useRef(0);
+    const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
+    const messageOffset = useRef(0);
     const flatListRef = useRef<FlatList<Message>>(null);
     const inputRef = useRef<TextInput>(null);
 
@@ -216,7 +229,17 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
 
     // Load conversations
     useEffect(() => {
-      loadConversations();
+      const revision = ++operationRevision.current;
+      sendInFlight.current = false;
+      setIsLoading(false);
+      conversationIdRef.current = null;
+      setMessages([{ id: 'welcome', text: WELCOME_MESSAGE, isUser: false, timestamp: Date.now() }]);
+      setConversations([]);
+      setCurrentConversationId(null);
+      setHasEarlierMessages(false);
+      setHasMoreConversations(false);
+      void loadConversations(revision);
+      return () => { operationRevision.current++; };
     }, [user?.id]);
 
     // Fetch proactive actions
@@ -229,8 +252,8 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
 
     // Auto-save
     useEffect(() => {
-      if (messages.length > 1) saveCurrentConversation();
-    }, [messages]);
+      if (!historyLoading && messages.length > 1) void saveCurrentConversation();
+    }, [messages, historyLoading]);
 
     // Track keyboard height for FlatList bottom padding
     const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -292,10 +315,15 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
 
     // ---- Chat logic (migrated from ChatScreen) ----
 
-    const loadConversations = async () => {
+    const loadConversations = async (revision: number) => {
+      const userId = user?.id;
+      if (!userId) { setHistoryLoading(false); return; }
+      const active = () => revision === operationRevision.current && accountRef.current === userId;
+      setHistoryLoading(true);
+      setHistoryNotice(null);
       try {
-        const conversationsKey = `${CONVERSATIONS_STORAGE_KEY}_${user?.id}`;
-        const currentKey = `${CURRENT_CONVERSATION_KEY}_${user?.id}`;
+        const conversationsKey = `${CONVERSATIONS_STORAGE_KEY}_${userId}`;
+        const currentKey = `${CURRENT_CONVERSATION_KEY}_${userId}`;
         const saved = await AsyncStorage.getItem(conversationsKey);
         let parsed: SavedConversation[] = [];
 
@@ -304,12 +332,9 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
           if (cache.expired) {
             await AsyncStorage.removeItem(conversationsKey);
             await AsyncStorage.removeItem(currentKey);
-            setConversations([]);
-            setCurrentConversationId(null);
-            return;
           }
-
           parsed = cache.conversations;
+          if (!active()) return;
           setConversations(parsed.sort((a, b) => b.updatedAt - a.updatedAt));
 
           if (cache.fromLegacy && parsed.length > 0) {
@@ -318,24 +343,41 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
         }
 
         const currentId = await AsyncStorage.getItem(currentKey);
-        if (currentId && parsed.length > 0) {
+        if (!active()) return;
+        if (currentId && parsed.some(item => item.id === currentId)) {
           setCurrentConversationId(currentId);
+          conversationIdRef.current = currentId;
           const conv = parsed.find((c: SavedConversation) => c.id === currentId);
           if (conv) setMessages(conv.messages);
-          else await AsyncStorage.removeItem(currentKey);
         }
-      } catch {}
+        const response = await conversationsApi.getAll(userId);
+        const restored = restoreConversationIndex(response.conversations, parsed);
+        if (!active()) return;
+        // Keep legacy local-only records visible; never claim they were uploaded.
+        setConversations([...restored, ...parsed.filter(item => !isCanonicalConversationId(item.id))]);
+        conversationOffset.current = restored.length;
+        setHasMoreConversations(restored.length === 100);
+        if (currentId && isCanonicalConversationId(currentId)) {
+          const history = await conversationsApi.getMessages(userId, currentId);
+          if (!active()) return;
+          setMessages(restoreMessages(history.messages));
+          setCurrentConversationId(currentId);
+          conversationIdRef.current = currentId;
+          messageOffset.current = 50;
+          setHasEarlierMessages(history.messages.length === 100);
+        }
+      } catch {
+        if (active()) setHistoryNotice('Could not refresh saved history. Available local history is shown.');
+      } finally {
+        if (active()) setHistoryLoading(false);
+      }
     };
 
     const saveCurrentConversation = async () => {
       try {
-        let convId = currentConversationId;
+        const convId = conversationIdRef.current;
         const now = Date.now();
-        if (!convId) {
-          convId = `conv_${now}`;
-          setCurrentConversationId(convId);
-          await AsyncStorage.setItem(`${CURRENT_CONVERSATION_KEY}_${user?.id}`, convId);
-        }
+        if (!convId || !user?.id) return;
 
         const updatedConversations = [...conversations];
         const existingIndex = updatedConversations.findIndex(c => c.id === convId);
@@ -362,36 +404,66 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
         else updatedConversations.unshift(conversation);
 
         const minimizedConversations = minimizeSavedConversationsForCache(updatedConversations);
-        setConversations(minimizedConversations);
+        setConversations(updatedConversations);
         await AsyncStorage.setItem(
           `${CONVERSATIONS_STORAGE_KEY}_${user?.id}`,
           createChatTranscriptCache(minimizedConversations)
         );
-        if (user?.id && convId) {
-          conversationsApi.create(user.id, convId, title).catch(() => {});
-        }
-      } catch {}
+      } catch { setHistoryNotice('Could not update the offline conversation cache.'); }
     };
 
     const startNewConversation = async () => {
+      if (sendInFlight.current || historyLoading) return;
+      operationRevision.current++;
+      conversationIdRef.current = null;
+      setHasEarlierMessages(false);
       setMessages([{ id: 'welcome', text: WELCOME_MESSAGE, isUser: false, timestamp: Date.now() }]);
       setCurrentConversationId(null);
-      await AsyncStorage.removeItem(`${CURRENT_CONVERSATION_KEY}_${user?.id}`);
+      await AsyncStorage.removeItem(`${CURRENT_CONVERSATION_KEY}_${user?.id}`).catch(() => {
+        setHistoryNotice('Could not update the offline conversation cache.');
+      });
       setShowSidebar(false);
     };
 
-    const loadConversation = (conv: SavedConversation) => {
-      setMessages(conv.messages);
-      setCurrentConversationId(conv.id);
-      AsyncStorage.setItem(`${CURRENT_CONVERSATION_KEY}_${user?.id}`, conv.id);
-      setShowSidebar(false);
+    const loadConversation = async (conv: SavedConversation) => {
+      if (sendInFlight.current || historyLoading || !user?.id) return;
+      const userId = user.id;
+      const revision = ++operationRevision.current;
+      setHistoryLoading(true);
+      setHistoryNotice(null);
+      try {
+        let restored = conv.messages;
+        if (isCanonicalConversationId(conv.id)) {
+          const response = await conversationsApi.getMessages(userId, conv.id);
+          restored = restoreMessages(response.messages);
+          if (revision !== operationRevision.current || accountRef.current !== userId) return;
+          setHasEarlierMessages(restored.length === 100);
+          messageOffset.current = 50;
+        } else { setHasEarlierMessages(false); }
+        if (revision !== operationRevision.current || accountRef.current !== userId) return;
+        setMessages(restored);
+        setCurrentConversationId(conv.id);
+        conversationIdRef.current = conv.id;
+        await AsyncStorage.setItem(`${CURRENT_CONVERSATION_KEY}_${userId}`, conv.id);
+        setShowSidebar(false);
+      } catch { if (revision === operationRevision.current) setHistoryNotice('Could not load this conversation. Try again.'); }
+      finally { if (revision === operationRevision.current) setHistoryLoading(false); }
     };
 
     const deleteConversation = async (convId: string) => {
-      const updated = minimizeSavedConversationsForCache(conversations.filter(c => c.id !== convId));
+      if (sendInFlight.current || historyLoading || !user?.id) return;
+      const userId = user.id;
+      const revision = operationRevision.current;
+      try {
+        if (isCanonicalConversationId(convId)) await conversationsApi.delete(userId, convId);
+      } catch { Alert.alert('Delete Failed', 'Your conversation was not removed. Please try again.'); return; }
+      if (revision !== operationRevision.current || accountRef.current !== userId) return;
+      const updated = conversations.filter(c => c.id !== convId);
       setConversations(updated);
-      await AsyncStorage.setItem(`${CONVERSATIONS_STORAGE_KEY}_${user?.id}`, createChatTranscriptCache(updated));
-      if (user?.id) conversationsApi.delete(user.id, convId).catch(() => {});
+      await AsyncStorage.setItem(`${CONVERSATIONS_STORAGE_KEY}_${userId}`, createChatTranscriptCache(updated)).catch(() => {
+        if (revision === operationRevision.current) setHistoryNotice('Deleted from your account; offline cache update failed.');
+      });
+      if (revision !== operationRevision.current || accountRef.current !== userId) return;
       if (convId === currentConversationId) startNewConversation();
     };
 
@@ -433,66 +505,88 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
       animateTo('full');
     };
 
-    const handleVoiceSend = async (text: string) => {
-      if (!text.trim() || isLoading) return;
-      const userMessage: Message = { id: crypto.randomUUID(), text: text.trim(), isUser: true, timestamp: Date.now() };
-      setMessages(prev => [...prev, userMessage]);
+    const sendChat = async (text: string, image: string | null) => {
+      const trimmedText = text.trim();
+      if ((!trimmedText && !image) || sendInFlight.current || historyLoading || !user?.id) return;
+      const userId = user.id;
+      const revision = operationRevision.current;
+      const active = () => revision === operationRevision.current && accountRef.current === userId;
+      sendInFlight.current = true;
       setIsLoading(true);
       try {
-        const userId = user?.id ?? 'anonymous';
+        const requestId = newClientId();
+        const wasLocalOnly = conversationIdRef.current !== null && !isCanonicalConversationId(conversationIdRef.current);
+        const conversationId = await ensureConversation(userId, conversationIdRef.current, trimmedText || 'Shared a photo');
+        if (!active()) return;
+        conversationIdRef.current = conversationId;
+        setCurrentConversationId(conversationId);
+        await AsyncStorage.setItem(`${CURRENT_CONVERSATION_KEY}_${userId}`, conversationId);
+        if (!active()) return;
+        setMessages(prev => [...(wasLocalOnly ? [] : prev), { id: `${requestId}:user`, text: trimmedText || 'Shared a photo',
+          isUser: true, timestamp: Date.now(), imageUri: image ?? undefined }]);
+        setInputText('');
+        setSelectedImage(null);
+        setHistoryNotice(null);
+        const turn = { conversationId, requestId };
         const weatherContext = weatherData ? formatWeatherForContext(weatherData) : undefined;
-        const responseText = await chatApi.sendMessage(userId, text.trim(), unitSystem, weatherContext);
-        setMessages(prev => [...prev, { id: crypto.randomUUID(), text: responseText, isUser: false, timestamp: Date.now() }]);
-        invalidateCache('analytics', true);
-        invalidateCache('workout', true);
-      } catch {
-        setMessages(prev => [...prev, { id: crypto.randomUUID(), text: "I'm having trouble connecting. Please try again.", isUser: false, timestamp: Date.now() }]);
-      } finally { setIsLoading(false); }
-    };
-
-    const sendMessage = async () => {
-      inputRef.current?.blur();
-      await new Promise(resolve => setTimeout(resolve, 10));
-      const trimmedText = inputText.trim();
-      const hasText = trimmedText.length > 0;
-      const hasImage = selectedImage !== null;
-      if (!hasText && !hasImage || isLoading) return;
-
-      const userMessage: Message = {
-        id: crypto.randomUUID(),
-        text: hasText ? trimmedText : 'Shared a photo',
-        isUser: true,
-        timestamp: Date.now(),
-        imageUri: selectedImage ?? undefined,
-      };
-      setMessages(prev => [...prev, userMessage]);
-      setInputText('');
-      const imageToSend = selectedImage;
-      setSelectedImage(null);
-      setIsLoading(true);
-
-      try {
-        const userId = user?.id ?? 'anonymous';
         let responseText: string;
-        if (hasImage && imageToSend) {
-          const base64Image = await FileSystem.readAsStringAsync(imageToSend, { encoding: 'base64' });
-          const weatherContext = weatherData ? formatWeatherForContext(weatherData) : undefined;
+        if (image) {
+          const base64Image = await FileSystem.readAsStringAsync(image, { encoding: 'base64' });
+          if (!active()) return;
           const response = await chatApi.sendMessageWithImage(
-            userId, hasText ? trimmedText : null, base64Image,
+            userId, trimmedText || null, base64Image,
             Intl.DateTimeFormat().resolvedOptions().timeZone,
-            new Date().toISOString(), unitSystem, weatherContext
+            new Date().toISOString(), unitSystem, weatherContext, turn
           );
+          if (response.saved !== true) throw new Error('Image conversation persistence was not confirmed');
           responseText = response.response;
         } else {
-          const weatherContext = weatherData ? formatWeatherForContext(weatherData) : undefined;
-          responseText = await chatApi.sendMessage(userId, trimmedText, unitSystem, weatherContext);
+          responseText = await chatApi.sendMessage(userId, trimmedText, unitSystem, weatherContext, undefined, turn);
         }
-        setMessages(prev => [...prev, { id: crypto.randomUUID(), text: responseText, isUser: false, timestamp: Date.now() }]);
+        if (!active()) return;
+        setMessages(prev => [...prev, { id: `${requestId}:assistant`, text: responseText, isUser: false, timestamp: Date.now() }]);
         invalidateCache('analytics', true);
         invalidateCache('workout', true);
       } catch {
-        setMessages(prev => [...prev, { id: crypto.randomUUID(), text: "I'm having trouble connecting. Please try again.", isUser: false, timestamp: Date.now() }]);
-      } finally { setIsLoading(false); }
+        if (active()) {
+          setInputText(trimmedText);
+          setSelectedImage(image);
+          setHistoryNotice('Delivery was not confirmed. Refresh history before sending again.');
+        }
+      } finally {
+        if (active()) { sendInFlight.current = false; setIsLoading(false); }
+      }
+    };
+
+    const handleVoiceSend = (text: string) => sendChat(text, null);
+    const sendMessage = () => {
+      inputRef.current?.blur();
+      return sendChat(inputText, selectedImage);
+    };
+
+    const loadMoreHistory = async (earlier: boolean) => {
+      if (!user?.id || historyLoading || sendInFlight.current) return;
+      const userId = user.id;
+      const revision = operationRevision.current;
+      setHistoryLoading(true);
+      try {
+        if (earlier && currentConversationId) {
+          const result = await conversationsApi.getMessages(userId, currentConversationId, messageOffset.current);
+          if (revision !== operationRevision.current || accountRef.current !== userId) return;
+          const page = restoreMessages(result.messages);
+          setMessages(previous => [...page.filter(item => !previous.some(p => p.id === item.id)), ...previous]);
+          messageOffset.current += 50;
+          setHasEarlierMessages(result.messages.length === 100);
+        } else {
+          const result = await conversationsApi.getAll(userId, conversationOffset.current);
+          if (revision !== operationRevision.current || accountRef.current !== userId) return;
+          const page = restoreConversationIndex(result.conversations, conversations);
+          setConversations(previous => [...previous, ...page.filter(item => !previous.some(p => p.id === item.id))]);
+          conversationOffset.current += result.conversations.length;
+          setHasMoreConversations(result.conversations.length === 100);
+        }
+      } catch { if (revision === operationRevision.current) setHistoryNotice('Could not load more history. Try again.'); }
+      finally { if (revision === operationRevision.current) setHistoryLoading(false); }
     };
 
     const markdownStyles = useMemo(() => ({
@@ -551,7 +645,7 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
       );
     }, [styles, theme.accent, markdownStyles]);
 
-    const canSend = inputText.trim().length > 0 || selectedImage !== null;
+    const canSend = !historyLoading && (inputText.trim().length > 0 || selectedImage !== null);
 
     // Pull tab is drag-only — no tap handler
 
@@ -585,6 +679,10 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
                   <Ionicons name="menu-outline" size={22} color={theme.textPrimary} />
                 </Pressable>
                 <View style={{ flex: 1 }} />
+                <Pressable accessibilityLabel="Refresh saved conversations" disabled={historyLoading || isLoading}
+                  onPress={() => loadConversations(++operationRevision.current)} style={styles.chatHeaderButton}>
+                  <Ionicons name="refresh-outline" size={22} color={theme.textPrimary} />
+                </Pressable>
                 <Pressable onPress={startNewConversation} style={styles.chatHeaderButton}>
                   <Ionicons name="add-outline" size={22} color={theme.textPrimary} />
                 </Pressable>
@@ -592,6 +690,11 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
             )}
 
             {/* Messages */}
+            {historyNotice && <Text accessibilityRole="alert" style={styles.loadingText}>{historyNotice}</Text>}
+            {historyLoading && <ActivityIndicator color={theme.accent} />}
+            {hasEarlierMessages && <TouchableOpacity disabled={historyLoading || isLoading} onPress={() => loadMoreHistory(true)}>
+              <Text style={styles.newChatText}>Load earlier messages</Text>
+            </TouchableOpacity>}
             <FlatList
               ref={flatListRef}
               data={messages}
@@ -713,9 +816,13 @@ const ChatBottomSheet = forwardRef<ChatBottomSheetRef, ChatBottomSheetProps>(
                     delayLongPress={300}
                   >
                     <Text style={styles.conversationTitle} numberOfLines={1}>{conv.title}</Text>
+                    {!isCanonicalConversationId(conv.id) && <Text style={styles.conversationDate}>Local history only</Text>}
                     <Text style={styles.conversationDate}>{new Date(conv.updatedAt).toLocaleDateString()}</Text>
                   </TouchableOpacity>
                 ))}
+                {hasMoreConversations && <TouchableOpacity disabled={historyLoading || isLoading} onPress={() => loadMoreHistory(false)}>
+                  <Text style={styles.newChatText}>Load more conversations</Text>
+                </TouchableOpacity>}
               </ScrollView>
             </Animated.View>
             <Pressable style={{ flex: 1 }} onPress={() => setShowSidebar(false)} />
