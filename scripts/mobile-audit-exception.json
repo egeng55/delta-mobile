@@ -4,10 +4,10 @@
   "scope": "reviewed-mobile-build-tooling",
   "reviewedAt": "2026-10-15T00:00:00.000Z",
   "expiresAt": "2026-10-29T00:00:00.000Z",
-  "reviewedCommit": "6c1b2c746d9c77435672f6eccfeae8b97820a796",
-  "authorization": "Operator approved the narrow build-tool security review and justified temporary exception in this task.",
+  "reviewedCommit": "bfe4535520955f5b89a0a4a28e9b19b86fb52d2b",
+  "authorization": "Operator explicitly approved bounded re-review and rebind on October 20, 2026, retaining the same two advisories and October 29 expiry. Fresh native bundle and reachability checks passed.",
   "auditSha256": "d85a4b8fef7c8e69a6adb36012debbe65a265bbf6efca2075a75b2b33e4dd6ec",
-  "projectSha256": "70e1a3129de70121dd50b400bcdc39a26f839d19d7e542ed67c86109063dbc70",
+  "projectSha256": "908dec78eb845d41af8dab45f1ffd749fa624d2272db5e312da2fd82092059b4",
   "lockfileSha256": "afaab5982d1f13f124d11abd41f33d03480943e1ed3c0724e1218502cd1d375d",
   "advisories": ["GHSA-vfj7-8cjw-p6xm", "GHSA-86w9-cpqp-85rv"],
   "conditions": [
