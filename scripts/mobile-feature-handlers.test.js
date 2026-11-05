@@ -111,6 +111,68 @@ test('account export passes returned contents into the native share helper', asy
   expect(shareExport).toHaveBeenCalledWith('delta_account_2026-10-20.json', '{\n  "fixture": true\n}', 'application/json');
 });
 
+function deletionBindings(status, receipt) {
+  return {
+    user: { id: 'owner' }, API_BASE_URL: 'https://synthetic.invalid',
+    setIsDeleting: jest.fn(), logout: jest.fn(), Alert: { alert: jest.fn() },
+    supabase: { auth: { getSession: jest.fn(async () => ({ data: { session: { access_token: 'fixture' } } })) } },
+    fetch: jest.fn(async () => ({ status, ok: status >= 200 && status < 300, json: async () => receipt })),
+  };
+}
+
+function scopedReceipt(status) {
+  return { status, coverage: 'enumerated_application_scopes_only', whole_account_deleted: false,
+    details: { status, coverage: 'enumerated_application_scopes_only', whole_account_deleted: false,
+      remaining_actions: ['revoke_provider_authorizations', 'delete_auth_identity', 'review_other_application_stores', 'review_retained_copies_and_holds', 'private-untrusted-action'] } };
+}
+
+test.each([[409, 'scoped_deletion_complete', 'Deletion Needs Follow-up'], [503, 'partial', 'Deletion Incomplete']])(
+  'scoped deletion %s shows remaining work without identity claims or logout', async (code, status, title) => {
+    const bindings = deletionBindings(code, scopedReceipt(status));
+    await handler('src/screens/SettingsScreen.tsx', 'executeAccountDeletion', bindings)();
+    const [shownTitle, message] = bindings.Alert.alert.mock.calls[0];
+    expect(shownTitle).toBe(title);
+    expect(message).toContain('not been confirmed deleted');
+    expect(message).toContain('Disconnect linked providers');
+    expect(message).toContain('Complete account and session removal');
+    expect(message).toContain('Review other app data');
+    expect(message).toContain('Review retained copies');
+    expect(message).not.toContain('private-untrusted-action');
+    expect(bindings.logout).not.toHaveBeenCalled();
+    expect(bindings.fetch).toHaveBeenCalledTimes(1);
+    expect(bindings.setIsDeleting).toHaveBeenLastCalledWith(false);
+  });
+
+test.each([[200, { status: 'success' }], [200, scopedReceipt('scoped_deletion_complete')], [409, {}], [503, null]])(
+  'legacy or malformed deletion response %s never becomes Account Deleted', async (status, receipt) => {
+    const bindings = deletionBindings(status, receipt);
+    await handler('src/screens/SettingsScreen.tsx', 'executeAccountDeletion', bindings)();
+    expect(bindings.Alert.alert).toHaveBeenCalledWith('Deletion Not Confirmed', expect.stringContaining('not been confirmed deleted'));
+    expect(bindings.logout).not.toHaveBeenCalled();
+    expect(bindings.fetch).toHaveBeenCalledTimes(1);
+  });
+
+test('deletion transport uncertainty is not reported as no deletion and never retries', async () => {
+  const bindings = deletionBindings(503, null);
+  bindings.fetch.mockRejectedValue(new Error('private-transport-error'));
+  await handler('src/screens/SettingsScreen.tsx', 'executeAccountDeletion', bindings)();
+  expect(bindings.Alert.alert).toHaveBeenCalledWith('Deletion Not Confirmed', expect.stringContaining('outcome is unknown'));
+  expect(JSON.stringify(bindings.Alert.alert.mock.calls)).not.toContain('private-transport-error');
+  expect(bindings.logout).not.toHaveBeenCalled();
+  expect(bindings.fetch).toHaveBeenCalledTimes(1);
+  expect(bindings.setIsDeleting).toHaveBeenLastCalledWith(false);
+});
+
+test('deletion confirmation describes limited app-data scope before dispatch', () => {
+  const executeAccountDeletion = jest.fn(), alert = jest.fn();
+  handler('src/screens/SettingsScreen.tsx', 'handleDeleteAccount', { Alert: { alert }, executeAccountDeletion })();
+  expect(alert.mock.calls[0][0]).toBe('Delete App Data');
+  expect(alert.mock.calls[0][1]).toContain('does not close your account');
+  expect(executeAccountDeletion).not.toHaveBeenCalled();
+  alert.mock.calls[0][2].find(action => action.style === 'destructive').onPress();
+  expect(executeAccountDeletion).toHaveBeenCalledTimes(1);
+});
+
 test('failed profile update keeps the editor open and preserves the displayed profile', async () => {
   const setProfileData = jest.fn(), setEditModalVisible = jest.fn(), alert = jest.fn();
   const run = handler('src/screens/YouScreen.tsx', 'saveProfile', {

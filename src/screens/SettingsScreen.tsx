@@ -237,12 +237,12 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
 
   const handleDeleteAccount = (): void => {
     Alert.alert(
-      'Delete Account',
-      'This will permanently delete all your data. This action cannot be undone.',
+      'Delete App Data',
+      'This deletes the app data handled by this service. It does not close your account or remove every stored copy. Deletions cannot be undone; review the result for remaining steps.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: 'Delete App Data',
           style: 'destructive',
           onPress: () => executeAccountDeletion(),
         },
@@ -269,15 +269,38 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
         },
         body: JSON.stringify({ user_id: user.id, confirm: true }),
       });
-      if (response.ok === true) {
-        Alert.alert('Account Deleted', 'Your account has been deleted.', [
-          { text: 'OK', onPress: () => logout() },
-        ]);
+      const body: unknown = await response.json();
+      const receipt = body && typeof body === 'object' ? body as Record<string, unknown> : null;
+      const details = receipt?.details && typeof receipt.details === 'object'
+        ? receipt.details as Record<string, unknown> : null;
+      const scopedComplete = response.status === 409 && receipt?.status === 'scoped_deletion_complete';
+      const partial = response.status === 503 && receipt?.status === 'partial';
+      if ((scopedComplete || partial)
+        && receipt?.coverage === 'enumerated_application_scopes_only'
+        && receipt.whole_account_deleted === false
+        && details?.coverage === receipt.coverage
+        && details.whole_account_deleted === false
+        && details.status === receipt.status) {
+        const actionLabels: Record<string, string> = {
+          revoke_provider_authorizations: 'Disconnect linked providers',
+          delete_auth_identity: 'Complete account and session removal',
+          review_other_application_stores: 'Review other app data',
+          review_retained_copies_and_holds: 'Review retained copies and retention holds',
+        };
+        const remaining = Array.isArray(details.remaining_actions)
+          ? [...new Set(details.remaining_actions.filter((action): action is string =>
+            typeof action === 'string' && Object.prototype.hasOwnProperty.call(actionLabels, action)))]
+            .map(action => actionLabels[action]) : [];
+        const outcome = scopedComplete
+          ? 'The listed deletion operations finished. Other stored data and your account have not been confirmed deleted.'
+          : 'Some deletion operations could not be verified. Other stored data and your account have not been confirmed deleted.';
+        Alert.alert(scopedComplete ? 'Deletion Needs Follow-up' : 'Deletion Incomplete',
+          `${outcome}${remaining.length ? `\n\nRemaining steps:\n${remaining.map(action => `• ${action}`).join('\n')}` : ''}\n\nContact support to review the remaining work before retrying.`);
       } else {
-        Alert.alert('Error', 'Could not delete account.');
+        Alert.alert('Deletion Not Confirmed', 'Could not verify what was deleted. Your account has not been confirmed deleted. Contact support before retrying.');
       }
     } catch {
-      Alert.alert('Error', 'Could not connect to server.');
+      Alert.alert('Deletion Not Confirmed', 'The request outcome is unknown. Your account has not been confirmed deleted. Contact support before retrying.');
     } finally {
       setIsDeleting(false);
     }
@@ -756,7 +779,7 @@ export default function SettingsScreen({ theme, onClose }: SettingsScreenProps):
               <Ionicons name="trash-outline" size={20} color={theme.error} />
             )}
           </View>
-          <Text style={[styles.linkText, styles.dangerText]}>Delete Account</Text>
+          <Text style={[styles.linkText, styles.dangerText]}>Delete App Data</Text>
           <Ionicons name="chevron-forward" size={20} color={theme.error} />
         </TouchableOpacity>
       </View>
